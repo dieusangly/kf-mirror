@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "schema_version": "1.0.0",
+      "id": "src:cmf-L561-2-2",
+      "version": "LEGIARTI000033517537",
+      "uri": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
+      "title": "Code monétaire et financier, article L. 561-2-2",
+      "class": "versioned legal article",
+      "format": "html"
+    }
+  ],
+  "documents": [
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "source_id": "src:cmf-L561-2-2",
+      "source_version": "LEGIARTI000033517537",
+      "content_sha256": "384dc6261a71c435c9508ac04d1cf4ecbb78a67b5c260db770fe43930dca96ed",
+      "media_type": "text/html",
+      "retrieved_on": "2026-10-05"
+    }
+  ],
+  "elements": [
+    {
+      "schema_version": "1.0.0",
+      "id": "el:93c7c402d8c8cdef38f9006481a2558113bc78248101e254e35c97fc4de11497",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "locator_key": "html:LEGIARTI000033517537:clause-1",
+      "kind": "paragraph",
+      "ordinal": 0,
+      "text": "1° Soit qui contrôlent en dernier lieu, directement ou indirectement, le client ;",
+      "location": {
+        "format": "html",
+        "article_id": "LEGIARTI000033517537",
+        "selector": "div.content.fr-mb-6v.fr-text--md > p:nth-of-type(3)",
+        "clause": "1°"
+      },
+      "revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097"
+    }
+  ],
+  "chunks": [
+    {
+      "schema_version": "1.0.0",
+      "id": "chunk:e05920424cf466fc448be04d15b54f371fc00d03957fdf7e095c3cc8bf405faa",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "build_id": "build:e34a05092307625448b697aa841f592cdc02b7f5f3fac014bc1abfab9b54d4a3",
+      "chunker_version": "structural-v1",
+      "sequence": 0,
+      "text": "1° Soit qui contrôlent en dernier lieu, directement ou indirectement, le client ;",
+      "evidence": [
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:93c7c402d8c8cdef38f9006481a2558113bc78248101e254e35c97fc4de11497",
+          "span": {
+            "start": 0,
+            "end": 81
+          }
+        }
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "schema_version": "1.0.0",
+      "id": "build:e34a05092307625448b697aa841f592cdc02b7f5f3fac014bc1abfab9b54d4a3",
+      "pipeline_version": "pilot-contract-v1",
+      "config_sha256": "3ac94c0e3a3205a08db1d4bfde4f831aa2f5927505d692054bc49c67dcf3e673",
+      "input_document_ids": [
+        "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb"
+      ],
+      "output_chunk_ids": [
+        "chunk:e05920424cf466fc448be04d15b54f371fc00d03957fdf7e095c3cc8bf405faa"
+      ],
+      "status": "complete"
+    }
+  ]
+}

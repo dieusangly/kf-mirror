@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://knowledge-foundry.local/schemas/artifact-bundle.schema.json",
+  "title": "Knowledge Foundry artifact bundle",
+  "description": "Validation container for records from one or more saved documents. It does not require one JSON file per PDF or HTML source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources", "documents", "elements", "chunks", "builds"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "sources": { "description": "Publisher items and their editions.", "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "documents": { "description": "Exact saved files, each linked to a source edition.", "type": "array", "items": { "$ref": "#/$defs/document" } },
+    "elements": { "description": "Parsed units such as paragraphs and tables.", "type": "array", "items": { "$ref": "#/$defs/element" } },
+    "chunks": { "description": "Retrieval text assembled from element passages.", "type": "array", "items": { "$ref": "#/$defs/chunk" } },
+    "builds": { "description": "Inputs, settings, outputs, and status for logical builds.", "type": "array", "items": { "$ref": "#/$defs/build" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "recordVersion": { "const": "1.0.0" },
+    "source": {
+      "description": "A publisher item at one edition or legal revision; id may be shared by other versions.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "version", "uri", "title", "class", "format"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "version": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "format": "uri" },
+        "title": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "format": { "enum": ["pdf", "html", "markdown", "docx"] }
+      }
+    },
+    "document": {
+      "description": "One saved file, identified by source ID and content hash.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "source_id", "source_version", "content_sha256", "media_type", "retrieved_on"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "source_id": { "$ref": "#/$defs/id" },
+        "source_version": { "type": "string", "minLength": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "media_type": { "enum": ["application/pdf", "text/html", "text/markdown", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] },
+        "retrieved_on": { "type": "string", "format": "date" }
+      }
+    },
+    "pdfLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "page", "label"],
+      "properties": {
+        "format": { "const": "pdf" },
+        "page": { "type": "integer", "minimum": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "bbox": { "type": "array", "prefixItems": [{"type":"number"},{"type":"number"},{"type":"number"},{"type":"number"}], "items": false }
+      }
+    },
+    "htmlLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "article_id", "selector"],
+      "properties": {
+        "format": { "const": "html" },
+        "article_id": { "type": "string", "minLength": 1 },
+        "selector": { "type": "string", "minLength": 1 },
+        "clause": { "type": "string", "minLength": 1 },
+        "anchor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "markdownLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "heading_path", "line_start", "line_end"],
+      "properties": {
+        "format": { "const": "markdown" },
+        "heading_path": { "type": "array", "items": { "type": "string" } },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "docxLocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "block_index"],
+      "properties": {
+        "format": { "const": "docx" },
+        "block_index": { "type": "integer", "minimum": 0 },
+        "table_index": { "type": "integer", "minimum": 0 },
+        "row_index": { "type": "integer", "minimum": 0 },
+        "cell_index": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "location": { "oneOf": [
+      { "$ref": "#/$defs/pdfLocation" },
+      { "$ref": "#/$defs/htmlLocation" },
+      { "$ref": "#/$defs/markdownLocation" },
+      { "$ref": "#/$defs/docxLocation" }
+    ] },
+    "element": {
+      "description": "One normalized unit of a document, with its text and source location.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "document_id", "locator_key", "revision", "kind", "ordinal", "text", "location"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "document_id": { "$ref": "#/$defs/id" },
+        "locator_key": { "type": "string", "minLength": 1 },
+        "revision": { "$ref": "#/$defs/sha256" },
+        "kind": { "enum": ["heading", "paragraph", "list_item", "table", "table_cell", "figure", "caption", "footnote"] },
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string" },
+        "location": { "$ref": "#/$defs/location" }
+      }
+    },
+    "span": {
+      "description": "Half-open Unicode code-point offsets in an element's text: start included, end excluded.",
+      "type": "object", "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "evidence": {
+      "description": "A supporting passage, resolved through an element to its native source location.",
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "document_id", "element_id"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/id" },
+        "document_id": { "$ref": "#/$defs/id" },
+        "element_id": { "$ref": "#/$defs/id" },
+        "span": { "$ref": "#/$defs/span" }
+      }
+    },
+    "chunk": {
+      "description": "Retrieval text linked to the elements that support it and the build that produced it.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "document_id", "build_id", "chunker_version", "sequence", "text", "evidence"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "document_id": { "$ref": "#/$defs/id" },
+        "build_id": { "$ref": "#/$defs/id" },
+        "chunker_version": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } }
+      }
+    },
+    "build": {
+      "description": "A logical build keyed by its input documents, pipeline version, and settings.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "pipeline_version", "config_sha256", "input_document_ids", "output_chunk_ids", "status"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "pipeline_version": { "type": "string", "minLength": 1 },
+        "config_sha256": { "$ref": "#/$defs/sha256" },
+        "input_document_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "output_chunk_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "status": { "enum": ["complete", "partial", "failed"] }
+      }
+    }
+  }
+}

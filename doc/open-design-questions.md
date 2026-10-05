@@ -1,9 +1,9 @@
 # Open design questions
 
-## Supporting passages (Task 2)
+## Supporting passages (Task 2 — resolved for schema v1)
 
-- Use a structured evidence reference for every supporting passage, independent of source format. An answer may require several references.
-- Identify the source and document version, normalized element, and optional text span. Retain the native location for review, such as a PDF page, HTML article or anchor, Markdown section, or DOCX paragraph or table cell.
-- Decide how element IDs remain stable across rebuilds and how each format's native location is encoded. Validate the schema with both PDF and HTML examples from the [French AML/CFT pilot](french-aml-cft-pilot-sources-and-evaluation.md).
+- Use the format-independent `evidence` reference in the [artifact schemas](artifact-schemas.md). An answer may require several references.
+- Resolve `source_id`, `document_id`, `element_id`, and an optional text span through versioned records. Native PDF, HTML, Markdown, and DOCX locations remain on elements for review.
+- Derive element IDs from the exact document ID and a deterministic native locator key. The [PDF and HTML examples](artifact-schemas.md#examples-and-validation) validate against schema v1 and cross-record checks.
 
-The corpus table currently uses human-readable locators; these should map to the Task 2 evidence references.
+The corpus table retains human-readable locators until a parser produces normalized elements; those locators should then map to Task 2 evidence references.

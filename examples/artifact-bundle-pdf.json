@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-tracfin-joint-guidelines",
+      "version": "2025-04",
+      "uri": "https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "title": "Lignes directrices conjointes ACPR–Tracfin",
+      "class": "regulatory guidance",
+      "format": "pdf"
+    }
+  ],
+  "documents": [
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "source_id": "src:acpr-tracfin-joint-guidelines",
+      "source_version": "2025-04",
+      "content_sha256": "a1eae0e3d31d648b330c0e273d6ff524459a26e849bde7b69345b681bb74b4c0",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-05"
+    }
+  ],
+  "elements": [
+    {
+      "schema_version": "1.0.0",
+      "id": "el:498756bd092110ae679e7965335518fce17ec9c1c5fc815c52673a97cf5444fd",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "locator_key": "pdf:p3:introduction:paragraph-1",
+      "kind": "paragraph",
+      "ordinal": 0,
+      "text": "Il s’agit d’un document de nature explicative qui n’a pas de caractère contraignant.",
+      "location": {
+        "format": "pdf",
+        "page": 3,
+        "label": "Introduction §1"
+      },
+      "revision": "bfd59fc31ea7c386f0e235f96cb3859336c731e60f98cff191775eb694440ed7"
+    }
+  ],
+  "chunks": [
+    {
+      "schema_version": "1.0.0",
+      "id": "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
+      "chunker_version": "structural-v1",
+      "sequence": 0,
+      "text": "Il s’agit d’un document de nature explicative qui n’a pas de caractère contraignant.",
+      "evidence": [
+        {
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:498756bd092110ae679e7965335518fce17ec9c1c5fc815c52673a97cf5444fd",
+          "span": {
+            "start": 0,
+            "end": 84
+          }
+        }
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "schema_version": "1.0.0",
+      "id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
+      "pipeline_version": "pilot-contract-v1",
+      "config_sha256": "3ac94c0e3a3205a08db1d4bfde4f831aa2f5927505d692054bc49c67dcf3e673",
+      "input_document_ids": [
+        "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790"
+      ],
+      "output_chunk_ids": [
+        "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8"
+      ],
+      "status": "complete"
+    }
+  ]
+}
