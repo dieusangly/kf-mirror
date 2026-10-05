@@ -1,4 +1,4 @@
-# Reference corpus: French AML/CFT pilot
+# French AML/CFT pilot sources and evaluation
 
 Scope: public French materials relevant to banking AML/CFT (LCB-FT). The reference set covers born-digital PDF and official HTML. OCR is outside this pilot until a representative scan is selected. The AMF document tests cross-authority handling and must not be treated as banking guidance.
 

@@ -1,6 +1,6 @@
 # Knowledge Foundry — implementation plan
 
-Build a configurable pipeline that turns document collections into structured, traceable knowledge artifacts. Follow the architectural recommendations in the [benchmark](benchmark.md), reuse existing components, and start with one domain and local files.
+Build a configurable pipeline that turns document collections into structured, traceable knowledge artifacts. Follow the architectural recommendations in the [benchmark](open-source-project-benchmark.md), reuse existing components, and start with one domain and local files.
 
 Effort ranges are estimates in working days, including implementation, review, and validation with agent assistance. Reassess them after testing representative documents; tasks can take different amounts of time.
 

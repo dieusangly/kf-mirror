@@ -1,4 +1,4 @@
-# Banking and AML/CFT corpora
+# Banking and AML/CFT corpus catalog
 
 **Checked:** 1 October 2026. This catalog separates source documents from labeled benchmarks. Language and jurisdiction matter: an English or Belgian benchmark does not validate answers about French AML/CFT obligations. For each collection, record the downloaded version, publication date, and reuse terms before ingestion.
 

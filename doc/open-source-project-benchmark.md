@@ -1,4 +1,4 @@
-# Open-source benchmark: documents to AI-ready knowledge
+# Open-source project benchmark: documents to AI-ready knowledge
 
 **Research date:** 1 October 2026. This source-based architecture review compares 12 repositories; it does not measure accuracy or throughput. Recommendations assume Knowledge Foundry will turn document collections into reusable, traceable artifacts for retrieval and model training.
 
