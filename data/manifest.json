@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "id": "A",
+      "source_version": "2025-04",
+      "publisher_url": "https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "local_path": "data/20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "retrieved_on": "2026-10-05",
+      "media_type": "application/pdf",
+      "size_bytes": 1575917,
+      "sha256": "a1eae0e3d31d648b330c0e273d6ff524459a26e849bde7b69345b681bb74b4c0",
+      "capture_method": "publisher_pdf_download"
+    },
+    {
+      "id": "T",
+      "source_version": "2025-09-29-tome-3",
+      "publisher_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
+      "local_path": "data/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
+      "retrieved_on": "2026-10-05",
+      "media_type": "application/pdf",
+      "size_bytes": 2492962,
+      "sha256": "c197fbf3f9825cff39bf9976b97d6062c49d654b2609ba494d42bdfc8b392932",
+      "capture_method": "publisher_pdf_download"
+    },
+    {
+      "id": "M",
+      "source_version": "2023-07-28",
+      "publisher_url": "https://www.amf-france.org/sites/institutionnel/files/private/2023-07/DOC-2019-16_LD%20Clients%20et%20b%C3%A9n%C3%A9ficiaires%20effectifs_VF3_0.pdf",
+      "local_path": "data/DOC-2019-16_LD Clients et bénéficiaires effectifs_VF3_0.pdf",
+      "retrieved_on": "2026-10-05",
+      "media_type": "application/pdf",
+      "size_bytes": 660525,
+      "sha256": "0b5f0eca936ed2424bffaa57ce46c6695f85a12081e2d3afd8e8ab19eb0b38be",
+      "capture_method": "publisher_pdf_download"
+    },
+    {
+      "id": "L1",
+      "source_version": "LEGIARTI000033517537",
+      "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
+      "local_path": "data/Article L561-2-2 - Code monétaire et financier - Légifrance.html",
+      "retrieved_on": "2026-10-05",
+      "media_type": "text/html",
+      "size_bytes": 120663,
+      "sha256": "384dc6261a71c435c9508ac04d1cf4ecbb78a67b5c260db770fe43930dca96ed",
+      "capture_method": "browser_save_html_only"
+    },
+    {
+      "id": "L2",
+      "source_version": "LEGIARTI000033517733",
+      "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517733",
+      "local_path": "data/Article L561-6 - Code monétaire et financier - Légifrance.html",
+      "retrieved_on": "2026-10-05",
+      "media_type": "text/html",
+      "size_bytes": 124209,
+      "sha256": "ac924f42ab5c28332721e3b3a4e5540f753051fc3ff3e7ee9fb402ac65b45290",
+      "capture_method": "browser_save_html_only"
+    }
+  ]
+}
