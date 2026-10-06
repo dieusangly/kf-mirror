@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://knowledge-foundry.local/schemas/artifact-bundle.schema.json",
+  "$id": "https://knowledge-foundry.local/schemas/artifact-schema-v1.0.0.json",
   "title": "Knowledge Foundry artifact bundle",
   "description": "Validation container for records from one or more saved documents. It does not require one JSON file per PDF or HTML source.",
   "type": "object",

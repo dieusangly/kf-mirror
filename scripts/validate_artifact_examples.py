@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = json.loads((ROOT / "schemas/artifact-bundle.schema.json").read_text())
+SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text())
 MANIFEST = json.loads((ROOT / "data/manifest.json").read_text())
 
 
