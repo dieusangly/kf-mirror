@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="700" viewBox="0 0 1800 700" role="img" aria-labelledby="title description">
+  <title id="title">Knowledge Foundry v1.0.0 record ID connections</title>
+  <desc id="description">Source edition links to saved document, parsed element, evidence chunk, supported claim, and topic. A build names its input document and output chunks, claims, and topics. Chunk and claim evidence resolve to source, document, and element IDs.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#627893" />
+    </marker>
+    <marker id="arrow-gold" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#a17831" />
+    </marker>
+  </defs>
+  <rect width="1800" height="700" fill="#f6f8fc" />
+  <text x="55" y="65" font-family="DejaVu Sans" font-size="34" font-weight="700" fill="#172b4d">Record IDs and provenance</text>
+  <text x="55" y="101" font-family="DejaVu Sans" font-size="20" fill="#42526e">Knowledge Foundry artifact schema v1.0.0 · topic-based knowledge base</text>
+  <path d="M285 273 H331" fill="none" stroke="#627893" stroke-width="3" marker-end="url(#arrow)" />
+  <path d="M575 273 H621" fill="none" stroke="#627893" stroke-width="3" marker-end="url(#arrow)" />
+  <path d="M865 273 H911" fill="none" stroke="#627893" stroke-width="3" marker-end="url(#arrow)" />
+  <path d="M1155 273 H1201" fill="none" stroke="#627893" stroke-width="3" marker-end="url(#arrow)" />
+  <path d="M1445 273 H1491" fill="none" stroke="#627893" stroke-width="3" marker-end="url(#arrow)" />
+  <rect x="45" y="160" width="240" height="225" rx="14" fill="#ffffff" stroke="#3a77ae" stroke-width="2" />
+  <text x="65" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Source</text>
+  <text x="65" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">src:...</text>
+  <text x="65" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Publisher item</text>
+  <text x="65" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ edition/version</text>
+  <text x="65" y="357" font-family="DejaVu Sans" font-size="17" fill="#42526e">Curated stable ID</text>
+  <rect x="335" y="160" width="240" height="225" rx="14" fill="#ffffff" stroke="#4c8fae" stroke-width="2" />
+  <text x="355" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Document</text>
+  <text x="355" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">doc:...</text>
+  <text x="355" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Exact saved file</text>
+  <text x="355" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ SHA-256</text>
+  <text x="355" y="357" font-family="DejaVu Sans" font-size="17" fill="#42526e">source_id + hash</text>
+  <rect x="625" y="160" width="240" height="225" rx="14" fill="#ffffff" stroke="#5a9b88" stroke-width="2" />
+  <text x="645" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Element</text>
+  <text x="645" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">el:...</text>
+  <text x="645" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Parsed unit</text>
+  <text x="645" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ native location</text>
+  <text x="645" y="357" font-family="DejaVu Sans" font-size="17" fill="#42526e">document + locator</text>
+  <rect x="915" y="160" width="240" height="225" rx="14" fill="#ffffff" stroke="#7b9b53" stroke-width="2" />
+  <text x="935" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Chunk</text>
+  <text x="935" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">chunk:...</text>
+  <text x="935" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Retrieval text</text>
+  <text x="935" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ passage evidence</text>
+  <text x="935" y="347" font-family="DejaVu Sans" font-size="15" fill="#42526e">document + chunker</text>
+  <text x="935" y="373" font-family="DejaVu Sans" font-size="15" fill="#42526e">+ evidence + text</text>
+  <rect x="1205" y="160" width="240" height="225" rx="14" fill="#ffffff" stroke="#a98452" stroke-width="2" />
+  <text x="1225" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Claim</text>
+  <text x="1225" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">claim:...</text>
+  <text x="1225" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Supported statement</text>
+  <text x="1225" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ classification</text>
+  <text x="1225" y="347" font-family="DejaVu Sans" font-size="15" fill="#42526e">build + topic</text>
+  <text x="1225" y="373" font-family="DejaVu Sans" font-size="15" fill="#42526e">+ evidence + text</text>
+  <rect x="1495" y="160" width="260" height="225" rx="14" fill="#ffffff" stroke="#8869aa" stroke-width="2" />
+  <text x="1515" y="204" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Topic</text>
+  <text x="1515" y="241" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">topic:...</text>
+  <text x="1515" y="283" font-family="DejaVu Sans" font-size="19" fill="#344563">Knowledge unit</text>
+  <text x="1515" y="313" font-family="DejaVu Sans" font-size="19" fill="#344563">+ linked claims</text>
+  <text x="1515" y="357" font-family="DejaVu Sans" font-size="17" fill="#42526e">Curated stable ID</text>
+  <path d="M745 385 V440 H1035 V388" fill="none" stroke="#a17831" stroke-width="2.5" stroke-dasharray="8 6" marker-end="url(#arrow-gold)" />
+  <path d="M745 440 V470 H1325 V388" fill="none" stroke="#a17831" stroke-width="2.5" stroke-dasharray="8 6" marker-end="url(#arrow-gold)" />
+  <text x="810" y="430" font-family="DejaVu Sans" font-size="17" fill="#42526e">chunk.evidence</text>
+  <text x="1085" y="461" font-family="DejaVu Sans" font-size="17" fill="#42526e">claim.evidence</text>
+  <rect x="235" y="520" width="1330" height="125" rx="14" fill="#eaf0fa" stroke="#6d85ab" stroke-width="2" />
+  <text x="265" y="561" font-family="DejaVu Sans" font-size="25" font-weight="700" fill="#172b4d">Build</text>
+  <text x="352" y="561" font-family="DejaVu Sans Mono" font-size="19" font-weight="700" fill="#0747a6">build:...</text>
+  <text x="265" y="596" font-family="DejaVu Sans" font-size="19" fill="#344563">input_document_ids → document.id</text>
+  <text x="720" y="596" font-family="DejaVu Sans" font-size="19" fill="#344563">output_chunk_ids → chunk.id</text>
+  <text x="265" y="626" font-family="DejaVu Sans" font-size="19" fill="#344563">output_claim_ids → claim.id</text>
+  <text x="720" y="626" font-family="DejaVu Sans" font-size="19" fill="#344563">output_topic_ids → topic.id</text>
+  <text x="1290" y="601" font-family="DejaVu Sans" font-size="17" fill="#42526e">Versioned settings</text>
+  <text x="1290" y="628" font-family="DejaVu Sans" font-size="17" fill="#42526e">+ input files</text>
+</svg>

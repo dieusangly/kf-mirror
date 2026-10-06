@@ -1,4 +1,4 @@
-"""Validate Task 2 bundles with jsonschema and cross-record checks."""
+"""Validate artifact bundles with jsonschema and cross-record checks."""
 
 import hashlib
 import json
@@ -23,6 +23,22 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def canonical_evidence(evidence):
+    return json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def check_evidence(evidence, records, document_ids):
+    element = records["elements"].get(evidence["element_id"])
+    require(element is not None, "evidence element missing")
+    require(element["document_id"] == evidence["document_id"], "evidence document mismatch")
+    require(evidence["document_id"] in document_ids, "evidence outside supporting chunks")
+    doc = records["documents"][element["document_id"]]
+    require(doc["source_id"] == evidence["source_id"], "evidence source mismatch")
+    if "span" in evidence:
+        span = evidence["span"]
+        require(0 <= span["start"] < span["end"] <= len(element["text"]), "evidence span out of bounds")
+
+
 def check_manifest():
     require(MANIFEST["schema_version"] == "1.0.0", "manifest schema version mismatch")
     ids = [entry["id"] for entry in MANIFEST["sources"]]
@@ -42,7 +58,7 @@ def check_manifest():
 def check(bundle):
     Draft202012Validator(SCHEMA, format_checker=FormatChecker()).validate(bundle)
     records = {}
-    for name in ("sources", "documents", "elements", "chunks", "builds"):
+    for name in ("sources", "documents", "elements", "chunks", "claims", "topics", "builds"):
         ids = [(record["id"], record["version"]) for record in bundle[name]] if name == "sources" else [record["id"] for record in bundle[name]]
         require(len(ids) == len(set(ids)), f"duplicate {name} ID")
         records[name] = dict(zip(ids, bundle[name]))
@@ -68,17 +84,33 @@ def check(bundle):
         require(chunk["document_id"] in records["documents"], "chunk document missing")
         require(chunk["build_id"] in records["builds"], "chunk build missing")
         for evidence in chunk["evidence"]:
-            element = records["elements"].get(evidence["element_id"])
-            require(element is not None, "evidence element missing")
-            require(element["document_id"] == evidence["document_id"] == chunk["document_id"], "evidence document mismatch")
-            doc = records["documents"][element["document_id"]]
-            require(doc["source_id"] == evidence["source_id"], "evidence source mismatch")
-            if "span" in evidence:
-                span = evidence["span"]
-                require(0 <= span["start"] < span["end"] <= len(element["text"]), "evidence span out of bounds")
-        canonical_evidence = json.dumps(chunk["evidence"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        expected = "chunk:" + digest(chunk["document_id"] + "\n" + chunk["chunker_version"] + "\n" + canonical_evidence + "\n" + chunk["text"])
+            check_evidence(evidence, records, {chunk["document_id"]})
+        expected = "chunk:" + digest(chunk["document_id"] + "\n" + chunk["chunker_version"] + "\n" + canonical_evidence(chunk["evidence"]) + "\n" + chunk["text"])
         require(chunk["id"] == expected, "chunk ID mismatch")
+
+    for claim in bundle["claims"]:
+        require(claim["build_id"] in records["builds"], "claim build missing")
+        require(claim["topic_id"] in records["topics"], "claim topic missing")
+        chunks = [records["chunks"].get(chunk_id) for chunk_id in claim["chunk_ids"]]
+        require(all(chunks), "claim chunk missing")
+        require(all(chunk["build_id"] == claim["build_id"] for chunk in chunks), "claim chunk build mismatch")
+        supporting = {canonical_evidence([item]) for chunk in chunks for item in chunk["evidence"]}
+        for evidence in claim["evidence"]:
+            check_evidence(evidence, records, {chunk["document_id"] for chunk in chunks})
+            require(canonical_evidence([evidence]) in supporting, "claim evidence outside supporting chunks")
+        expected = "claim:" + digest(claim["build_id"] + "\n" + claim["topic_id"] + "\n" + canonical_evidence(claim["evidence"]) + "\n" + claim["text"])
+        require(claim["id"] == expected, "claim ID mismatch")
+
+    for topic in bundle["topics"]:
+        require(topic["id"].startswith("topic:") and len(topic["id"]) > len("topic:"), "topic ID must start with topic:")
+        require(topic["build_id"] in records["builds"], "topic build missing")
+        claims = [records["claims"].get(claim_id) for claim_id in topic["claim_ids"]]
+        require(all(claims), "topic claim missing")
+        require(all(claim["topic_id"] == topic["id"] and claim["build_id"] == topic["build_id"] for claim in claims), "topic claim link mismatch")
+        assigned_claims = {claim["id"] for claim in bundle["claims"] if claim["topic_id"] == topic["id"]}
+        require(set(topic["claim_ids"]) == assigned_claims, "topic claim set mismatch")
+        expected = digest(topic["title"] + "\n" + topic["summary"] + "\n" + "\n".join(sorted(topic["claim_ids"])))
+        require(topic["revision"] == expected, "topic revision mismatch")
 
     for build in bundle["builds"]:
         inputs = build["input_document_ids"]
@@ -87,6 +119,10 @@ def check(bundle):
         require(build["id"] == expected, "build ID mismatch")
         outputs = {chunk["id"] for chunk in bundle["chunks"] if chunk["build_id"] == build["id"]}
         require(outputs == set(build["output_chunk_ids"]), "build output mismatch")
+        claim_outputs = {claim["id"] for claim in bundle["claims"] if claim["build_id"] == build["id"]}
+        require(claim_outputs == set(build["output_claim_ids"]), "build claim output mismatch")
+        topic_outputs = {topic["id"] for topic in bundle["topics"] if topic["build_id"] == build["id"]}
+        require(topic_outputs == set(build["output_topic_ids"]), "build topic output mismatch")
         require(all(chunk["document_id"] in inputs for chunk in bundle["chunks"] if chunk["build_id"] == build["id"]), "chunk outside build inputs")
 
 

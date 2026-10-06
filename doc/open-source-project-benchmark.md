@@ -6,7 +6,7 @@
 
 The closest references are [RAGFlow](https://github.com/infiniflow/ragflow) for an end-to-end knowledge-base application, [Docling Graph](https://github.com/docling-project/docling-graph) for schema-guided extraction of entities and relationships, and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit) for reusable data transforms. [Docling](https://github.com/docling-project/docling), [Unstructured](https://github.com/Unstructured-IO/unstructured), and [MinerU](https://github.com/opendatalab/MinerU) are parser candidates; [Microsoft GraphRAG](https://github.com/microsoft/graphrag) is a graph-index reference. No single project in this selection covers all desired outputs equally well.
 
-The common pipeline is **ingest → parse → normalize → chunk → optionally enrich → export**. A *normalized document model* retains structure across file types; *chunks* are smaller units for search or model input. *Semantic enrichment* adds metadata, entities, or relationships. *Provenance* links derived facts back to their source location. RAG (retrieval-augmented generation) retrieves relevant material to support an answer; fine-tuning trains a model on prepared examples. The main design opportunity is a versioned intermediate model that can produce retrieval, graph, and training outputs from the same traceable source. This is an inference across the selected projects.
+The selected projects commonly **ingest → parse → normalize → chunk → enrich → export**. A *normalized document model* retains structure across file types; *chunks* are smaller units for search or model input. *Semantic enrichment* adds claims, entities, or relationships. *Provenance* links derived knowledge back to source locations. RAG (retrieval-augmented generation) retrieves relevant material to support an answer; fine-tuning trains a model on prepared examples. Knowledge Foundry's architecture uses a durable **claim → topic knowledge base** stage before downstream retrieval, graph, and dataset views. This recommendation is an inference across the selected projects; RAGFlow's topic-oriented Wiki is the closest direct reference.
 
 ### Selection and evidence
 
@@ -53,13 +53,13 @@ The table covers formats, outputs, licenses, and adoption. These reviews focus o
 
 **LangChain** offers broad loader, splitter, and vector-store integrations. Its core text-plus-metadata document is a useful compatibility format but does not itself define a lossless document structure or domain ontology. [Document abstraction](https://reference.langchain.com/python/langchain-core/documents/base), [architecture](https://github.com/langchain-ai/langchain/blob/master/libs/README.md).
 
-**RAGFlow** combines ingestion, domain-oriented chunking, indexing, and retrieval in one application, with graph, tree, and wiki views. It is the closest product comparator; assess intermediate-artifact portability before using its coupled stack as a pipeline dependency. [Ingestion](https://ragflow.io/docs/v0.27.2/category/ingestion-pipeline), [chunk methods](https://github.com/infiniflow/ragflow/blob/main/docs/guides/dataset/configuration.md), [release notes](https://github.com/infiniflow/ragflow/blob/main/docs/release_notes.md).
+**RAGFlow** combines ingestion, domain-oriented chunking, indexing, and retrieval in one application, with graph, tree, and wiki views. Its Wiki template can organize pages by topic and use extracted claims, and its Wiki is generated at knowledge-base scope from compiled documents. This is the closest direct comparator for topic pages across sources. Assess intermediate-artifact portability before using its coupled stack as a pipeline dependency. [Wiki template](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/built_in_templates_and_dedicated_configuration.md), [knowledge-base generation](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/apply_knowledge_compilation_template.md).
 
 ### Graph and semantic extraction
 
-**Microsoft GraphRAG** extracts entities and relationships from text units, clusters them into communities, and summarizes each community for graph-aware search. It assumes document text is already available; extraction cost and graph updates need evaluation. [Indexing model](https://github.com/microsoft/graphrag/blob/main/docs/index/default_dataflow.md), [outputs](https://microsoft.github.io/graphrag/index/outputs/).
+**Microsoft GraphRAG** extracts entities and relationships from text units, clusters them into communities, and summarizes each community for graph-aware search. Its community reports are topic-like derived summaries, though their grouping follows graph communities rather than curated topic IDs. It assumes document text is already available; extraction cost and graph updates need evaluation. [Indexing model](https://github.com/microsoft/graphrag/blob/main/docs/index/default_dataflow.md), [outputs](https://microsoft.github.io/graphrag/index/outputs/).
 
-**Docling Graph** applies domain templates and validated schemas to parsed documents, then exports graph data with source evidence. It is the nearest auditable graph-layer reference, but its smaller, younger project merits an integration check. [Architecture](https://github.com/docling-project/docling-graph), [exports and provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/export-formats.md).
+**Docling Graph** applies domain templates and validated schemas to parsed documents, then exports graph data with source evidence. Its provenance ledger connects derived nodes to chunks and source locations; this is useful for grounding the claim layer. It is the nearest auditable graph-layer reference, but its smaller, younger project merits an integration check. [Architecture](https://github.com/docling-project/docling-graph), [provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/provenance.md).
 
 ### Corpus and training-data pipelines
 
@@ -74,8 +74,8 @@ The table covers formats, outputs, licenses, and adoption. These reviews focus o
 1. **Route by format.** PDFs and scans need layout and OCR processing; HTML and email need different parsers. Record the parser and settings used. [Docling formats](https://github.com/docling-project/docling/blob/main/docs/usage/supported_formats.md).
 2. **Normalize before chunking.** Preserve headings, tables, page locations, and source IDs in a common model so chunks can follow document boundaries. [Docling model](https://docling-project.github.io/docling/concepts/docling_document/), [Unstructured chunking](https://docs.unstructured.io/api-reference/partition/chunking).
 3. **Compose replaceable stages.** Conversion, cleaning, extraction, indexing, and dataset writing can run or change independently. [Haystack pipelines](https://docs.haystack.deepset.ai/docs/serialization), [Data Prep Kit transforms](https://github.com/data-prep-kit/data-prep-kit).
-4. **Treat enrichment as derived evidence.** Extracted facts need defined fields, validation, and links to supporting passages; graph or Q&A generation can then be rerun separately from parsing. [Docling Graph](https://github.com/docling-project/docling-graph).
-5. **Export for several uses.** Structured documents, retrieval chunks, graph tables, and training rows serve different consumers. Keep the normalized source independent of any one index or model. [GraphRAG outputs](https://microsoft.github.io/graphrag/index/outputs/).
+4. **Compile grounded topics.** Extracted claims need defined fields, validation, and links to supporting passages. Group them into cross-document topic pages and review summaries and conflicts against their claims. [RAGFlow Wiki template](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/built_in_templates_and_dedicated_configuration.md), [Docling Graph provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/provenance.md).
+5. **Export for several uses.** Structured documents, retrieval chunks, topic pages, graph tables, and training rows serve different consumers. Keep the knowledge records independent of any one index or model. [GraphRAG outputs](https://microsoft.github.io/graphrag/index/outputs/).
 
 ## 5. Gaps and opportunities
 
@@ -85,7 +85,7 @@ These are design opportunities across the selected projects, not claims that eve
 | --- | --- |
 | Parser quality changes with document layout | Compare parsers on representative files; route failures to a fallback. |
 | Retrieval records often lose structure | Preserve a versioned document model with stable IDs, hierarchy, tables, and source spans. |
-| Extracted graph facts can be unsupported | Require typed schemas, passage evidence, and reviewable validation. |
+| Cross-document topic pages can merge incompatible facts | Keep claims atomic, source-versioned, and reviewable; record conflicts instead of silently resolving them. |
 | Indexes and training datasets have different output needs | Make both rebuildable from durable, model-neutral artifacts with lineage. |
 | Quality, cost, and changes are hard to compare | Record stage versions, failures, runtime, and task-level evaluation results. |
 
@@ -93,9 +93,9 @@ These are design opportunities across the selected projects, not claims that eve
 
 Build a document-to-knowledge pipeline whose durable outputs are portable artifacts. RAGFlow, LlamaIndex, Haystack, and LangChain are possible consumers; the other projects offer candidate parsers or patterns for graph and dataset stages. This is an architectural recommendation, not a dependency commitment.
 
-1. **Define the artifact contract:** source version, normalized structure, chunks, extracted facts, and dataset rows, each with source location and transformation lineage. Choose a versioned JSON/JSONL or Parquet schema.
+1. **Define the artifact contract:** source version, normalized structure, chunks, grounded claims, and topics, each with source location and transformation lineage. Use portable JSON/JSONL for the pilot and add derived views as needed.
 2. **Measure parser quality:** test born-digital PDFs, scans, forms, tables, HTML, and email for reading order, structure, evidence locations, throughput, and license fit. Select a default and fallback from results.
-3. **Add configurable derived stages:** chunk at structural boundaries; extract metadata and entities against defined fields and types; attach evidence and model/prompt versions.
-4. **Export and evaluate:** produce readable documents, RAG-ready chunks, graph data, and training/evaluation rows. Use a small human-annotated reference set to measure parse fidelity, citation accuracy, extraction precision, and cost.
+3. **Compile topics:** chunk at structural boundaries, derive atomic claims with passage evidence and generation versions, then group reviewed claims by stable topic ID across documents.
+4. **Export and evaluate:** produce readable topic pages and RAG-ready chunks, then graph data and training/evaluation rows from reviewed claims. Use a small human-annotated reference set to measure parse fidelity, claim grounding, topic consistency, citation accuracy, and cost.
 
-The first design decision is the canonical document and provenance schema. It lets parsers, indexes, graph tools, and models change without losing the source-to-output trail.
+The first design decision is the canonical document, claim, topic, and provenance schema. It lets parsers, indexes, graph tools, and models change without losing the source-to-output trail.

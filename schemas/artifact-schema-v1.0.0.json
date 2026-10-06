@@ -5,13 +5,15 @@
   "description": "Validation container for records from one or more saved documents. It does not require one JSON file per PDF or HTML source.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "sources", "documents", "elements", "chunks", "builds"],
+  "required": ["schema_version", "sources", "documents", "elements", "chunks", "claims", "topics", "builds"],
   "properties": {
     "schema_version": { "const": "1.0.0" },
     "sources": { "description": "Publisher items and their editions.", "type": "array", "items": { "$ref": "#/$defs/source" } },
     "documents": { "description": "Exact saved files, each linked to a source edition.", "type": "array", "items": { "$ref": "#/$defs/document" } },
     "elements": { "description": "Parsed units such as paragraphs and tables.", "type": "array", "items": { "$ref": "#/$defs/element" } },
     "chunks": { "description": "Retrieval text assembled from element passages.", "type": "array", "items": { "$ref": "#/$defs/chunk" } },
+    "claims": { "description": "Atomic assertions grounded in chunks and source passages, then assigned to topics.", "type": "array", "items": { "$ref": "#/$defs/claim" } },
+    "topics": { "description": "First-class knowledge units grouping related supported claims.", "type": "array", "items": { "$ref": "#/$defs/topic" } },
     "builds": { "description": "Inputs, settings, outputs, and status for logical builds.", "type": "array", "items": { "$ref": "#/$defs/build" } }
   },
   "$defs": {
@@ -145,10 +147,56 @@
         "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } }
       }
     },
+    "generation": {
+      "description": "How a derived knowledge record was produced.",
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "version"],
+      "if": { "properties": { "method": { "const": "model" } }, "required": ["method"] },
+      "then": { "required": ["model_id", "prompt_sha256"] },
+      "properties": {
+        "method": { "enum": ["manual", "model"] },
+        "version": { "type": "string", "minLength": 1 },
+        "model_id": { "type": "string", "minLength": 1 },
+        "prompt_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "claim": {
+      "description": "One atomic assertion assigned to a topic and grounded in selected chunks and passages.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "topic_id", "build_id", "chunk_ids", "text", "evidence", "review_status", "generation", "classification"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "topic_id": { "$ref": "#/$defs/id" },
+        "build_id": { "$ref": "#/$defs/id" },
+        "chunk_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "text": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+        "review_status": { "enum": ["draft", "verified", "rejected"] },
+        "generation": { "$ref": "#/$defs/generation" },
+        "classification": { "$ref": "#/$defs/generation", "description": "Method and version used to assign this claim to its topic." }
+      }
+    },
+    "topic": {
+      "description": "A stable knowledge unit that groups related supported claims around coherent subject matter; its revision collects claims produced by one build.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "id", "title", "summary", "claim_ids", "revision", "build_id", "review_status", "generation"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/recordVersion" },
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "claim_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "revision": { "$ref": "#/$defs/sha256" },
+        "build_id": { "$ref": "#/$defs/id" },
+        "review_status": { "enum": ["draft", "verified", "rejected"] },
+        "generation": { "$ref": "#/$defs/generation" }
+      }
+    },
     "build": {
       "description": "A logical build keyed by its input documents, pipeline version, and settings.",
       "type": "object", "additionalProperties": false,
-      "required": ["schema_version", "id", "pipeline_version", "config_sha256", "input_document_ids", "output_chunk_ids", "status"],
+      "required": ["schema_version", "id", "pipeline_version", "config_sha256", "input_document_ids", "output_chunk_ids", "output_claim_ids", "output_topic_ids", "status"],
       "properties": {
         "schema_version": { "$ref": "#/$defs/recordVersion" },
         "id": { "$ref": "#/$defs/id" },
@@ -156,6 +204,8 @@
         "config_sha256": { "$ref": "#/$defs/sha256" },
         "input_document_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
         "output_chunk_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "output_claim_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "output_topic_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
         "status": { "enum": ["complete", "partial", "failed"] }
       }
     }

@@ -10,6 +10,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from knowledge_foundry.ingestion import ingest
+from scripts.validate_artifact_examples import check as check_artifact_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,9 +33,36 @@ class IngestionTests(unittest.TestCase):
             "schema_version": "1.0.0",
             "sources": [item["source"] for item in report["outcomes"]],
             "documents": [item["document"] for item in report["outcomes"]],
-            "elements": [], "chunks": [], "builds": [],
+            "elements": [], "chunks": [], "claims": [], "topics": [], "builds": [],
         }
         VALIDATOR.validate(bundle)
+
+    def test_example_topics_have_resolvable_claims_and_evidence(self):
+        for name in ("artifact-bundle-pdf.json", "artifact-bundle-html.json"):
+            with self.subTest(name=name):
+                bundle = json.loads((ROOT / "examples" / name).read_text(encoding="utf-8"))
+                check_artifact_bundle(bundle)
+                broken = copy.deepcopy(bundle)
+                broken["claims"][0]["chunk_ids"] = ["chunk:missing"]
+                with self.assertRaisesRegex(ValueError, "claim chunk missing"):
+                    check_artifact_bundle(broken)
+                broken = copy.deepcopy(bundle)
+                broken["topics"][0]["claim_ids"] = ["claim:missing"]
+                with self.assertRaisesRegex(ValueError, "topic claim missing"):
+                    check_artifact_bundle(broken)
+                broken = copy.deepcopy(bundle)
+                broken["claims"][0]["evidence"][0]["span"]["end"] -= 1
+                with self.assertRaisesRegex(ValueError, "claim evidence outside supporting chunks"):
+                    check_artifact_bundle(broken)
+                broken = copy.deepcopy(bundle)
+                del broken["claims"][0]["classification"]
+                self.assertFalse(VALIDATOR.is_valid(broken))
+                broken = copy.deepcopy(bundle)
+                broken["claims"][0]["classification"] = {"method": "model", "version": "classifier-v1"}
+                self.assertFalse(VALIDATOR.is_valid(broken))
+                broken = copy.deepcopy(bundle)
+                broken["subjects"] = broken.pop("topics")
+                self.assertFalse(VALIDATOR.is_valid(broken))
 
     def test_missing_and_unsupported_files_have_separate_outcomes_and_cli_fails(self):
         with tempfile.TemporaryDirectory() as directory:

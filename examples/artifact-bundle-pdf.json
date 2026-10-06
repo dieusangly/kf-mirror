@@ -61,6 +61,56 @@
       ]
     }
   ],
+  "claims": [
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5",
+      "topic_id": "topic:guidelines-status",
+      "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
+      "chunk_ids": [
+        "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8"
+      ],
+      "text": "The ACPR–Tracfin guidelines describe themselves as explanatory and nonbinding.",
+      "evidence": [
+        {
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:498756bd092110ae679e7965335518fce17ec9c1c5fc815c52673a97cf5444fd",
+          "span": {
+            "start": 0,
+            "end": 84
+          }
+        }
+      ],
+      "review_status": "draft",
+      "generation": {
+        "method": "manual",
+        "version": "pilot-example-v1"
+      },
+      "classification": {
+        "method": "manual",
+        "version": "pilot-example-v1"
+      }
+    }
+  ],
+  "topics": [
+    {
+      "schema_version": "1.0.0",
+      "id": "topic:guidelines-status",
+      "title": "Status of ACPR–Tracfin guidelines",
+      "summary": "The ACPR–Tracfin guidelines describe themselves as explanatory and nonbinding.",
+      "claim_ids": [
+        "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5"
+      ],
+      "revision": "eeb81e564580472fceb375ff3b33b42f927ec29c6eefa399f82e9adff387682e",
+      "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
+      "review_status": "draft",
+      "generation": {
+        "method": "manual",
+        "version": "pilot-example-v1"
+      }
+    }
+  ],
   "builds": [
     {
       "schema_version": "1.0.0",
@@ -72,6 +122,12 @@
       ],
       "output_chunk_ids": [
         "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8"
+      ],
+      "output_claim_ids": [
+        "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5"
+      ],
+      "output_topic_ids": [
+        "topic:guidelines-status"
       ],
       "status": "complete"
     }
