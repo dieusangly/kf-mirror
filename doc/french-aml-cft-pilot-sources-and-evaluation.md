@@ -37,9 +37,3 @@ These are paraphrased answer labels with exact source locators, **not yet expert
 - **Parsing:** retain all cited passages and their reading order. On the selected pages, preserve at least 90% of manually checked headings, numbered paragraphs, and table headers/rows; log every failed page.
 - **Retrieval:** aim for at least seven of eight supporting passages in the top five results, with a simple lexical baseline reported alongside. Eight questions are a smoke test, not a statistical performance claim.
 - **Cost:** use no paid model/API calls for corpus selection or the core parser comparison. Record elapsed time per page, peak memory, parser/OCR settings, and any later model-token cost; set a hardware-specific runtime limit after the first measured run.
-
-## Task 1 completion check
-
-The selected French banking AML/CFT scope, supported pilot classes (born-digital PDF and versioned official HTML), representative pages/passages, and provisional quality/cost targets satisfy Task 1's written completion criteria. The eight question rows are **draft annotations**, not expert-approved gold data. French AML/CFT expert review of their interpretation and locators is a later gate before using them for acceptance tests or making retrieval-quality claims; it does not block Task 1 or schema design.
-
-Independent source checks found the cited passages in the selected 70-page ACPR PDF (A1–A2), 82-page Tracfin PDF (T1–T2), 33-page AMF PDF (M1–M2), and the two revision-specific Légifrance articles (L1a–L2a). These checks establish locator plausibility, not legal approval or a measured parsing/retrieval result.

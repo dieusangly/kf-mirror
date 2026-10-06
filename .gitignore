@@ -1,3 +1,10 @@
 # Agents
 AGENTS.md
 .agents/
+
+# Python
+.python-version
+__pycache__/
+*.egg-info/
+.venv/
+ingestion-report.json

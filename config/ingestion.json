@@ -1,0 +1,31 @@
+{
+  "root": "..",
+  "manifest": "data/manifest.json",
+  "sources": {
+    "A": {
+      "source_id": "src:acpr-tracfin-joint-guidelines",
+      "title": "Lignes directrices conjointes ACPR–Tracfin",
+      "class": "regulatory guidance"
+    },
+    "T": {
+      "source_id": "src:tracfin-threat-report-tome-3",
+      "title": "Tracfin, rapport 2024–25, tome III",
+      "class": "typology report"
+    },
+    "M": {
+      "source_id": "src:amf-doc-2019-16",
+      "title": "AMF DOC-2019-16, clients et bénéficiaires effectifs",
+      "class": "sector guidance"
+    },
+    "L1": {
+      "source_id": "src:cmf-L561-2-2",
+      "title": "Code monétaire et financier, article L. 561-2-2",
+      "class": "versioned legal article"
+    },
+    "L2": {
+      "source_id": "src:cmf-L561-6",
+      "title": "Code monétaire et financier, article L. 561-6",
+      "class": "versioned legal article"
+    }
+  }
+}

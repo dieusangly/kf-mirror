@@ -1,0 +1,2 @@
+# Dependency used by the tests and artifact-example validator.
+jsonschema>=4,<5

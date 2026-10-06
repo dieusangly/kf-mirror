@@ -1,4 +1,4 @@
-# Knowledge Foundry artifact schemas (Task 2)
+# Knowledge Foundry artifact schemas
 
 The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines five records and checks that example JSON has the expected fields and types. In that file, `properties` lists fields, `required` lists mandatory fields, `$defs` holds reusable record definitions, and `$ref` points to one of those definitions. `oneOf` selects a location format; `additionalProperties: false` rejects fields outside the contract.
 
@@ -76,7 +76,3 @@ An `evidence` reference points to a `source_id`, `document_id`, and `element_id`
 The [PDF example](../examples/artifact-bundle-pdf.json) uses ACPR–Tracfin page 3 (A1). The [HTML example](../examples/artifact-bundle-html.json) uses Légifrance article L. 561-2-2, clause 1° (L1a). Both use hashes of the saved source files. They illustrate the record structure; they are not parser output or expert-approved answer labels.
 
 Run `python3 scripts/validate_artifact_examples.py` with the `jsonschema` Python package installed. It checks the source files, schema, IDs, references, and text spans. This does not measure parsing or retrieval quality.
-
-## Task 2 completion check
-
-The five records specify stable IDs, schema versions, source locations, and lineage. The validator passes the five-file source manifest and both PDF and HTML example bundles, including their cross-record references. This meets Task 2's completion criteria in the [implementation plan](knowledge-foundry-implementation-plan.md). The examples each cover one passage; full parsing and export validation belong to later tasks.

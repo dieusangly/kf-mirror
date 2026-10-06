@@ -8,3 +8,4 @@
 | 4. Delivery | [Knowledge Foundry implementation plan](knowledge-foundry-implementation-plan.md) | Lists tasks, dependencies, estimates, and completion criteria. |
 | 5. Open decisions | [Open design questions](open-design-questions.md) | Records cross-task questions to resolve during implementation. |
 | 6. Artifact contract | [Artifact schemas](artifact-schemas.md) | Defines Task 2 records, IDs, evidence references, and validated PDF/HTML examples. |
+| 7. Local ingestion | [Local ingestion](local-ingestion.md) | Configures and runs the Task 3 file inventory CLI. |
