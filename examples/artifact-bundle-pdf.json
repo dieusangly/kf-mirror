@@ -42,7 +42,7 @@
   "chunks": [
     {
       "schema_version": "1.0.0",
-      "id": "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8",
+      "id": "chunk:174ba9beaf9b93fc72e999ad9c471fdf26c275b38a5794854150d7d9d8296fb5",
       "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
       "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
       "chunker_version": "structural-v1",
@@ -53,6 +53,7 @@
           "source_id": "src:acpr-tracfin-joint-guidelines",
           "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
           "element_id": "el:498756bd092110ae679e7965335518fce17ec9c1c5fc815c52673a97cf5444fd",
+          "element_revision": "bfd59fc31ea7c386f0e235f96cb3859336c731e60f98cff191775eb694440ed7",
           "span": {
             "start": 0,
             "end": 84
@@ -64,11 +65,11 @@
   "claims": [
     {
       "schema_version": "1.0.0",
-      "id": "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5",
+      "id": "claim:51e64529d5cf62654a74cafe8620acf8d8359472573ec86bcf164fb3ca2bce91",
       "topic_id": "topic:guidelines-status",
       "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
       "chunk_ids": [
-        "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8"
+        "chunk:174ba9beaf9b93fc72e999ad9c471fdf26c275b38a5794854150d7d9d8296fb5"
       ],
       "text": "The ACPR–Tracfin guidelines describe themselves as explanatory and nonbinding.",
       "evidence": [
@@ -76,13 +77,15 @@
           "source_id": "src:acpr-tracfin-joint-guidelines",
           "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
           "element_id": "el:498756bd092110ae679e7965335518fce17ec9c1c5fc815c52673a97cf5444fd",
+          "element_revision": "bfd59fc31ea7c386f0e235f96cb3859336c731e60f98cff191775eb694440ed7",
           "span": {
             "start": 0,
             "end": 84
           }
         }
       ],
-      "review_status": "draft",
+      "grounding_review_status": "draft",
+      "classification_review_status": "draft",
       "generation": {
         "method": "manual",
         "version": "pilot-example-v1"
@@ -100,9 +103,9 @@
       "title": "Status of ACPR–Tracfin guidelines",
       "summary": "The ACPR–Tracfin guidelines describe themselves as explanatory and nonbinding.",
       "claim_ids": [
-        "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5"
+        "claim:51e64529d5cf62654a74cafe8620acf8d8359472573ec86bcf164fb3ca2bce91"
       ],
-      "revision": "eeb81e564580472fceb375ff3b33b42f927ec29c6eefa399f82e9adff387682e",
+      "revision": "f819c38facdb2e2fab65abf5d8564cfbc7848e624567caae1665edf2926303d6",
       "build_id": "build:fcc1a570f2dcb33206ec23d721c263e481c2d04716ed440301c1cb5ca226e56b",
       "review_status": "draft",
       "generation": {
@@ -121,10 +124,10 @@
         "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790"
       ],
       "output_chunk_ids": [
-        "chunk:b85bec76324fbd6d5f3422126786b506bde90b84917af4381612e9dde2cbcfd8"
+        "chunk:174ba9beaf9b93fc72e999ad9c471fdf26c275b38a5794854150d7d9d8296fb5"
       ],
       "output_claim_ids": [
-        "claim:582198fcb9b7f1183ca31f0edee2b6d1b03dd3bb4d9dbb8328c47055fea39cb5"
+        "claim:51e64529d5cf62654a74cafe8620acf8d8359472573ec86bcf164fb3ca2bce91"
       ],
       "output_topic_ids": [
         "topic:guidelines-status"

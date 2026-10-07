@@ -43,7 +43,7 @@
   "chunks": [
     {
       "schema_version": "1.0.0",
-      "id": "chunk:e05920424cf466fc448be04d15b54f371fc00d03957fdf7e095c3cc8bf405faa",
+      "id": "chunk:69b7d738b8728d4206372b93f3f8000c63fd12328416d3e5220f4e3cccf9de63",
       "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
       "build_id": "build:e34a05092307625448b697aa841f592cdc02b7f5f3fac014bc1abfab9b54d4a3",
       "chunker_version": "structural-v1",
@@ -54,6 +54,7 @@
           "source_id": "src:cmf-L561-2-2",
           "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
           "element_id": "el:93c7c402d8c8cdef38f9006481a2558113bc78248101e254e35c97fc4de11497",
+          "element_revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
           "span": {
             "start": 0,
             "end": 81
@@ -65,11 +66,11 @@
   "claims": [
     {
       "schema_version": "1.0.0",
-      "id": "claim:4f8a90c1e0d56e93256e17a4fbfc9cbe5e44f10c567a6be76d32b1f7596760e7",
+      "id": "claim:7d72e87b9fe24e94bc284eea6d2e667603eb5ef2ec034ee3afaf67da51ab5c03",
       "topic_id": "topic:beneficial-ownership",
       "build_id": "build:e34a05092307625448b697aa841f592cdc02b7f5f3fac014bc1abfab9b54d4a3",
       "chunk_ids": [
-        "chunk:e05920424cf466fc448be04d15b54f371fc00d03957fdf7e095c3cc8bf405faa"
+        "chunk:69b7d738b8728d4206372b93f3f8000c63fd12328416d3e5220f4e3cccf9de63"
       ],
       "text": "Clause 1° of article L. 561-2-2 refers to people who ultimately control the client, directly or indirectly.",
       "evidence": [
@@ -77,13 +78,15 @@
           "source_id": "src:cmf-L561-2-2",
           "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
           "element_id": "el:93c7c402d8c8cdef38f9006481a2558113bc78248101e254e35c97fc4de11497",
+          "element_revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
           "span": {
             "start": 0,
             "end": 81
           }
         }
       ],
-      "review_status": "draft",
+      "grounding_review_status": "draft",
+      "classification_review_status": "draft",
       "generation": {
         "method": "manual",
         "version": "pilot-example-v1"
@@ -101,9 +104,9 @@
       "title": "Beneficial ownership",
       "summary": "Clause 1° of article L. 561-2-2 refers to people who ultimately control the client, directly or indirectly.",
       "claim_ids": [
-        "claim:4f8a90c1e0d56e93256e17a4fbfc9cbe5e44f10c567a6be76d32b1f7596760e7"
+        "claim:7d72e87b9fe24e94bc284eea6d2e667603eb5ef2ec034ee3afaf67da51ab5c03"
       ],
-      "revision": "7e39ba4b9b44905887b0892fb2caca0748994d6b7af5a513c08bcaec385a97a1",
+      "revision": "126bd01a3fa6ee21711afb8b83f1a2e7fcc1a7c7d507234789fa93f7b81e3a28",
       "build_id": "build:e34a05092307625448b697aa841f592cdc02b7f5f3fac014bc1abfab9b54d4a3",
       "review_status": "draft",
       "generation": {
@@ -122,10 +125,10 @@
         "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb"
       ],
       "output_chunk_ids": [
-        "chunk:e05920424cf466fc448be04d15b54f371fc00d03957fdf7e095c3cc8bf405faa"
+        "chunk:69b7d738b8728d4206372b93f3f8000c63fd12328416d3e5220f4e3cccf9de63"
       ],
       "output_claim_ids": [
-        "claim:4f8a90c1e0d56e93256e17a4fbfc9cbe5e44f10c567a6be76d32b1f7596760e7"
+        "claim:7d72e87b9fe24e94bc284eea6d2e667603eb5ef2ec034ee3afaf67da51ab5c03"
       ],
       "output_topic_ids": [
         "topic:beneficial-ownership"

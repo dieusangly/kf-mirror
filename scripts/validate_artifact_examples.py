@@ -31,6 +31,7 @@ def check_evidence(evidence, records, document_ids):
     element = records["elements"].get(evidence["element_id"])
     require(element is not None, "evidence element missing")
     require(element["document_id"] == evidence["document_id"], "evidence document mismatch")
+    require(element["revision"] == evidence["element_revision"], "evidence element revision mismatch")
     require(evidence["document_id"] in document_ids, "evidence outside supporting chunks")
     doc = records["documents"][element["document_id"]]
     require(doc["source_id"] == evidence["source_id"], "evidence source mismatch")
@@ -98,7 +99,7 @@ def check(bundle):
         for evidence in claim["evidence"]:
             check_evidence(evidence, records, {chunk["document_id"] for chunk in chunks})
             require(canonical_evidence([evidence]) in supporting, "claim evidence outside supporting chunks")
-        expected = "claim:" + digest(claim["build_id"] + "\n" + claim["topic_id"] + "\n" + canonical_evidence(claim["evidence"]) + "\n" + claim["text"])
+        expected = "claim:" + digest(claim["build_id"] + "\n" + canonical_evidence(claim["evidence"]) + "\n" + claim["text"])
         require(claim["id"] == expected, "claim ID mismatch")
 
     for topic in bundle["topics"]:
