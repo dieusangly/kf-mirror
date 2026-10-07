@@ -1,11 +1,13 @@
 # Knowledge Foundry documentation
 
-| Read in order | File | Role |
+| Read in order | File | Purpose |
 | --- | --- | --- |
-| 1. Project research | [Open-source project benchmark](open-source-project-benchmark.md) | Compares relevant repositories and identifies architecture patterns. |
-| 2. Domain research | [Banking and AML/CFT corpus catalog](banking-aml-cft-corpus-catalog.md) | Lists candidate sources and benchmarks for the pilot domain. |
-| 3. Pilot definition | [French AML/CFT pilot sources and evaluation](french-aml-cft-pilot-sources-and-evaluation.md) | Defines selected sources, draft evaluation questions, and provisional targets. |
-| 4. Delivery | [Knowledge Foundry implementation plan](knowledge-foundry-implementation-plan.md) | Lists tasks, dependencies, estimates, and completion criteria. |
-| 5. Open decisions | [Open design questions](open-design-questions.md) | Records cross-task questions to resolve during implementation. |
-| 6. Artifact contract | [Artifact schemas](artifact-schemas.md) | Defines source-through-topic records, IDs, evidence references, and validated PDF/HTML examples. |
-| 7. Local ingestion | [Local ingestion](local-ingestion.md) | Configures and runs the Task 3 file inventory CLI. |
+| 1. Research | [Project benchmark](open-source-project-benchmark.md) | Relevant tools and design patterns. |
+| 2. Corpus | [AML/CFT catalog](banking-aml-cft-corpus-catalog.md) | Candidate sources and benchmarks. |
+| 3. Pilot | [Pilot sources and evaluation](french-aml-cft-pilot-sources-and-evaluation.md) | Selected files, draft questions, and targets. |
+| 4. Plan | [Implementation plan](knowledge-foundry-implementation-plan.md) | Tasks, dependencies, and estimates. |
+| 5. Decisions | [Open design questions](open-design-questions.md) | Unresolved cross-task questions. |
+| 6. Contract | [Artifact schemas](artifact-schemas.md) | Records, IDs, evidence, and examples. |
+| 7. Ingestion | [Local ingestion](local-ingestion.md) | Task 3 inventory CLI. |
+| 8. Parsing | [Local parsing](local-parsing.md) | Parser setup, CLI, configuration, and outputs. |
+| 9. Quality | [Pilot parsing quality](pilot-parsing-quality.md) | Pilot measurements and limits. |

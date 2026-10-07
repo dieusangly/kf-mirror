@@ -1,16 +1,16 @@
 # Open-source project benchmark: documents to AI-ready knowledge
 
-**Research date:** 1 October 2026. This source-based architecture review compares 12 repositories; it does not measure accuracy or throughput. Recommendations assume Knowledge Foundry will turn document collections into reusable, traceable artifacts for retrieval and model training.
+**Research date:** 1 October 2026. This review compares 12 repositories from first-party sources; it does not measure accuracy or throughput.
 
 ## 1. Executive summary
 
-The closest references are [RAGFlow](https://github.com/infiniflow/ragflow) for an end-to-end knowledge-base application, [Docling Graph](https://github.com/docling-project/docling-graph) for schema-guided extraction of entities and relationships, and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit) for reusable data transforms. [Docling](https://github.com/docling-project/docling), [Unstructured](https://github.com/Unstructured-IO/unstructured), and [MinerU](https://github.com/opendatalab/MinerU) are parser candidates; [Microsoft GraphRAG](https://github.com/microsoft/graphrag) is a graph-index reference. No single project in this selection covers all desired outputs equally well.
+Closest references: [RAGFlow](https://github.com/infiniflow/ragflow) for topic-oriented knowledge compilation, [Docling Graph](https://github.com/docling-project/docling-graph) for grounded graph extraction, and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit) for reusable transforms. [Docling](https://github.com/docling-project/docling), [Unstructured](https://github.com/Unstructured-IO/unstructured), and [MinerU](https://github.com/opendatalab/MinerU) are parser candidates; [GraphRAG](https://github.com/microsoft/graphrag) is a graph-index reference.
 
-The selected projects commonly **ingest → parse → normalize → chunk → enrich → export**. A *normalized document model* retains structure across file types; *chunks* are smaller units for search or model input. *Semantic enrichment* adds claims, entities, or relationships. *Provenance* links derived knowledge back to source locations. RAG (retrieval-augmented generation) retrieves relevant material to support an answer; fine-tuning trains a model on prepared examples. Knowledge Foundry's architecture uses a durable **claim → topic knowledge base** stage before downstream retrieval, graph, and dataset views. This recommendation is an inference across the selected projects; RAGFlow's topic-oriented Wiki is the closest direct reference.
+The common flow is **ingest → parse → normalize → chunk → enrich → export**. Normalization retains document structure; provenance links derived knowledge to source locations. Knowledge Foundry adds durable **claim → topic** records before retrieval, graph, and dataset views. This is an inference from the reviewed projects; RAGFlow's Wiki is the closest direct reference.
 
 ### Selection and evidence
 
-Projects were selected for technical relevance and coverage. Scope comes from linked first-party sources. Licenses, stars, and last push are a **GitHub metadata snapshot on 1 October 2026**; stars indicate visibility, and a recent push is only a weak activity signal. Limitations below describe documented scope, not measured failures. Hosted offerings may differ from the linked open-source code.
+Scope comes from linked first-party sources. Licenses, stars, and last push are a **GitHub snapshot from 1 October 2026**, not quality measures. Boundaries below describe documented scope, not tested failures; hosted versions may differ.
 
 Table abbreviations: OCR = optical character recognition; VLM = vision-language model; ETL = extract, transform, load; SFT = supervised fine-tuning.
 
@@ -35,39 +35,39 @@ Sources for snapshot fields: the [GitHub repository API](https://docs.github.com
 
 ## 3. Detailed project reviews
 
-The table covers formats, outputs, licenses, and adoption. These reviews focus on the mechanism worth studying and its main boundary.
+The table gives scope and metadata; the notes below identify useful mechanisms and boundaries.
 
 ### Parsing and normalization
 
-**Docling** routes files through format-specific converters and preserves document hierarchy and page geometry. Its structured document is a strong parsing foundation; cross-document entity resolution and training-example governance require later stages. [Formats](https://github.com/docling-project/docling/blob/main/docs/usage/supported_formats.md), [document model](https://docling-project.github.io/docling/concepts/docling_document/).
+**Docling:** format-specific conversion preserves hierarchy and page geometry; cross-document knowledge needs later stages. [Formats](https://github.com/docling-project/docling/blob/main/docs/usage/supported_formats.md), [model](https://docling-project.github.io/docling/concepts/docling_document/).
 
-**Unstructured** partitions files into typed elements, then chunks them by rules such as titles. This flexible element stream is useful for ingestion, although it retains less hierarchy than a full layout tree. [Partitioner](https://github.com/Unstructured-IO/unstructured/blob/main/unstructured/partition/auto.py), [chunking](https://docs.unstructured.io/api-reference/partition/chunking).
+**Unstructured:** typed elements and rule-based chunking offer a flexible ingestion boundary, with less hierarchy than a layout tree. [Partitioner](https://github.com/Unstructured-IO/unstructured/blob/main/unstructured/partition/auto.py), [chunking](https://docs.unstructured.io/api-reference/partition/chunking).
 
-**MinerU** targets difficult page layouts through OCR and vision-language processing. It is worth testing on scanned forms and tables; inference cost and its custom license matter before adoption. [Repository](https://github.com/opendatalab/MinerU), [license](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md).
+**MinerU:** OCR and vision processing target scans and complex layouts; measure inference cost and check its custom license. [Repository](https://github.com/opendatalab/MinerU), [license](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md).
 
 ### Retrieval frameworks and applications
 
-**LlamaIndex** turns reader output into reusable nodes through cached transformations, then writes indexes or document stores. Its property-graph option extends retrieval to entities and relationships; source fidelity still depends on the chosen reader and transformations. [Ingestion](https://developers.llamaindex.ai/python/framework-api-reference/ingestion/), [property graph](https://developers.llamaindex.ai/python/framework/module_guides/indexing/index_guide/).
+**LlamaIndex:** cached transformations build reusable nodes and indexes, including property graphs. Source fidelity depends on readers. [Ingestion](https://developers.llamaindex.ai/python/framework-api-reference/ingestion/), [property graph](https://developers.llamaindex.ai/python/framework/module_guides/indexing/index_guide/).
 
-**Haystack** connects converters, splitters, embedders, and writers as typed pipelines that can be serialized. It is a clear orchestration reference, but detailed page structure must be carried through from a capable converter. [Converters](https://docs.haystack.deepset.ai/docs/converters), [serialization](https://docs.haystack.deepset.ai/docs/serialization).
+**Haystack:** serializable typed pipelines are an orchestration reference; page structure depends on converters. [Converters](https://docs.haystack.deepset.ai/docs/converters), [serialization](https://docs.haystack.deepset.ai/docs/serialization).
 
-**LangChain** offers broad loader, splitter, and vector-store integrations. Its core text-plus-metadata document is a useful compatibility format but does not itself define a lossless document structure or domain ontology. [Document abstraction](https://reference.langchain.com/python/langchain-core/documents/base), [architecture](https://github.com/langchain-ai/langchain/blob/master/libs/README.md).
+**LangChain:** broad integrations use a text-plus-metadata document; structure and ontology depend on the loader and application. [Document model](https://reference.langchain.com/python/langchain-core/documents/base), [architecture](https://github.com/langchain-ai/langchain/blob/master/libs/README.md).
 
-**RAGFlow** combines ingestion, domain-oriented chunking, indexing, and retrieval in one application, with graph, tree, and wiki views. Its Wiki template can organize pages by topic and use extracted claims, and its Wiki is generated at knowledge-base scope from compiled documents. This is the closest direct comparator for topic pages across sources. Assess intermediate-artifact portability before using its coupled stack as a pipeline dependency. [Wiki template](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/built_in_templates_and_dedicated_configuration.md), [knowledge-base generation](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/apply_knowledge_compilation_template.md).
+**RAGFlow:** its knowledge-base Wiki can organize extracted claims into cross-document topic pages. It is the closest topic comparator; assess artifact portability before adopting the coupled application stack. [Wiki template](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/built_in_templates_and_dedicated_configuration.md), [generation](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/apply_knowledge_compilation_template.md).
 
 ### Graph and semantic extraction
 
-**Microsoft GraphRAG** extracts entities and relationships from text units, clusters them into communities, and summarizes each community for graph-aware search. Its community reports are topic-like derived summaries, though their grouping follows graph communities rather than curated topic IDs. It assumes document text is already available; extraction cost and graph updates need evaluation. [Indexing model](https://github.com/microsoft/graphrag/blob/main/docs/index/default_dataflow.md), [outputs](https://microsoft.github.io/graphrag/index/outputs/).
+**Microsoft GraphRAG:** clusters extracted entities and relationships into communities with summaries. These resemble topics but follow graph communities, not curated IDs; parsing is upstream. [Indexing](https://github.com/microsoft/graphrag/blob/main/docs/index/default_dataflow.md), [outputs](https://microsoft.github.io/graphrag/index/outputs/).
 
-**Docling Graph** applies domain templates and validated schemas to parsed documents, then exports graph data with source evidence. Its provenance ledger connects derived nodes to chunks and source locations; this is useful for grounding the claim layer. It is the nearest auditable graph-layer reference, but its smaller, younger project merits an integration check. [Architecture](https://github.com/docling-project/docling-graph), [provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/provenance.md).
+**Docling Graph:** templates and schemas extract graph records from parsed files; its provenance ledger connects nodes to chunks and locations. Check integration maturity. [Architecture](https://github.com/docling-project/docling-graph), [provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/provenance.md).
 
 ### Corpus and training-data pipelines
 
-**Data Prep Kit** composes transforms for conversion, filtering, annotation, and tokenization on Python or Ray. Its batch execution model is useful for repeatable corpus builds; a rich semantic document model is outside its central contract. [Transforms](https://github.com/data-prep-kit/data-prep-kit), [repository layout](https://github.com/data-prep-kit/data-prep-kit/blob/dev/doc/repo.md).
+**Data Prep Kit:** Python/Ray transforms support repeatable corpus builds; semantic document structure is outside its central contract. [Transforms](https://github.com/data-prep-kit/data-prep-kit), [layout](https://github.com/data-prep-kit/data-prep-kit/blob/dev/doc/repo.md).
 
-**DataTrove** streams text corpora through filtering, deduplication, and dataset writers at scale. It fits after document parsing; its minimal text record does not represent complex layout. [Repository](https://github.com/huggingface/datatrove).
+**DataTrove:** scalable text filtering, deduplication, and writing fit after parsing; its text record lacks layout. [Repository](https://github.com/huggingface/datatrove).
 
-**Distilabel** generates and judges model-training or evaluation rows from prepared data. Document ingestion belongs upstream; its README notes a maintainer transition, so check release and support activity before relying on it. [README](https://github.com/argilla-io/distilabel/blob/main/README.md), [releases](https://github.com/argilla-io/distilabel/releases).
+**Distilabel:** generates and judges training/evaluation rows from prepared data. Ingestion is upstream; check activity after the README's maintainer-transition note. [README](https://github.com/argilla-io/distilabel/blob/main/README.md), [releases](https://github.com/argilla-io/distilabel/releases).
 
 ## 4. Common architecture patterns
 

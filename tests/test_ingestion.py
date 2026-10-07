@@ -20,7 +20,7 @@ VALIDATOR = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
 
 class IngestionTests(unittest.TestCase):
     def test_pilot_pdf_and_html_match_task_2_examples(self):
-        report = ingest(ROOT / "config/ingestion.json")
+        report = ingest(ROOT / "config/pipeline.json")
         self.assertEqual(len(report["outcomes"]), 5)
         self.assertTrue(all(item["status"] == "ingested" for item in report["outcomes"]))
         outcomes = {item["manifest_id"]: item for item in report["outcomes"]}
@@ -137,7 +137,7 @@ class IngestionTests(unittest.TestCase):
                 {"id": "L1", "local_path": "unknown.bin", "media_type": "text/html", "size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()},
             ]
             (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": entries}), encoding="utf-8")
-            config = json.loads((ROOT / "config/ingestion.json").read_text(encoding="utf-8"))
+            config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
             config["root"] = "."
             config["manifest"] = "manifest.json"
             config_path = root / "config.json"
@@ -161,7 +161,7 @@ class IngestionTests(unittest.TestCase):
             entry["local_path"] = "changed.pdf"
             entry["size_bytes"] = (root / "changed.pdf").stat().st_size
             (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": [entry]}), encoding="utf-8")
-            config = json.loads((ROOT / "config/ingestion.json").read_text(encoding="utf-8"))
+            config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
             config.update(root=".", manifest="manifest.json")
             config_path = root / "config.json"
             config_path.write_text(json.dumps(config), encoding="utf-8")

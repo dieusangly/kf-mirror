@@ -20,12 +20,33 @@
     "L1": {
       "source_id": "src:cmf-L561-2-2",
       "title": "Code monétaire et financier, article L. 561-2-2",
-      "class": "versioned legal article"
+      "class": "versioned legal article",
+      "content_selector": "article.js-article-content-to-copy"
     },
     "L2": {
       "source_id": "src:cmf-L561-6",
       "title": "Code monétaire et financier, article L. 561-6",
-      "class": "versioned legal article"
+      "class": "versioned legal article",
+      "content_selector": "article.js-article-content-to-copy"
     }
+  },
+  "parsing": {
+    "pdf": {
+      "backend": "docling_parse",
+      "table_structure": true,
+      "table_mode": "accurate",
+      "artifacts_path": null
+    },
+    "ocr": {
+      "mode": "auto",
+      "languages": ["fra", "eng"],
+      "scale": 3.0,
+      "psm": 3,
+      "tesseract_cmd": "tesseract",
+      "tessdata_path": null
+    },
+    "html": {"content_selector": "main"},
+    "markdown": {"tables": true},
+    "docx": {"include_headers_footers": false}
   }
 }

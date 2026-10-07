@@ -1,6 +1,6 @@
 # Banking and AML/CFT corpus catalog
 
-**Checked:** 1 October 2026. This catalog separates source documents from labeled benchmarks. Language and jurisdiction matter: an English or Belgian benchmark does not validate answers about French AML/CFT obligations. For each collection, record the downloaded version, publication date, and reuse terms before ingestion.
+**Checked:** 1 October 2026. Language and jurisdiction limit benchmark transfer: English or Belgian data cannot validate French AML/CFT answers. Record each collection's version, publication date, and reuse terms before ingestion.
 
 ## French-language sources
 
@@ -32,4 +32,4 @@
 
 ## Pilot selection
 
-Start with a dated French corpus from ACPR–Tracfin, Tracfin, Légifrance, and the AMF. Create a small expert-checked set of French questions with exact supporting passages, plus a few typology and obligation-extraction examples. Among the resources reviewed here, none provides an annotated benchmark specifically for **French AML/CFT document understanding**. Use BSARD to test French legal retrieval mechanics and ObliQA/SARSum for task-specific methods, while keeping their jurisdiction and synthetic-data limits explicit. Keep transaction datasets out of the document-ingestion benchmark.
+Start with dated ACPR–Tracfin, Tracfin, Légifrance, and AMF files and a small expert-checked French question set with exact passages. None of the reviewed resources is an annotated **French AML/CFT document-understanding** benchmark. BSARD can test French legal retrieval; ObliQA and SARSum can test task methods, subject to their jurisdiction and synthetic-data limits. Evaluate transaction datasets separately.

@@ -1,12 +1,12 @@
 # Knowledge Foundry artifact schemas
 
-The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines seven records and checks that example JSON has the expected fields and types. In that file, `properties` lists fields, `required` lists mandatory fields, `$defs` holds reusable record definitions, and `$ref` points to one of those definitions. `oneOf` selects a location format; `additionalProperties: false` rejects fields outside the contract.
+The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines seven record types. `properties` and `required` specify fields, `$defs` and `$ref` reuse definitions, `oneOf` selects a location format, and `additionalProperties: false` rejects unknown fields.
 
-The bundle has eight top-level fields: `schema_version` and the `sources`, `documents`, `elements`, `chunks`, `claims`, `topics`, and `builds` arrays. Each array uses a definition in `$defs` for its items. Other definitions describe nested objects such as locations, evidence, generation, and text spans; they are not extra top-level fields.
+The bundle contains `schema_version` and seven arrays: `sources`, `documents`, `elements`, `chunks`, `claims`, `topics`, and `builds`. Nested definitions cover locations, evidence, generation, and spans.
 
-A **bundle** groups records for validation. It may contain one saved document or several; it does not prescribe one JSON file per PDF. A full PDF parse would usually have one document record and many element and chunk records. Claims turn supported passages into atomic assertions; topics organize those claims across source documents. The [PDF example](../examples/artifact-bundle-pdf.json) shows just one paragraph, chunk, draft claim, and draft topic from the 70-page file. The production export layout is a separate Task 6 decision.
+A **bundle** validates records from one or more saved files; it does not prescribe one JSON file per PDF. The [PDF example](../examples/artifact-bundle-pdf.json) samples one paragraph, chunk, draft claim, and draft topic from a 70-page file. Task 6 will define the export layout.
 
-The bundle and each record have `schema_version: "1.0.0"`, which describes their field layout. This differs from a publisher's document version.
+The bundle and every record use `schema_version: "1.0.0"` for field layout, distinct from the publisher's document version.
 
 ## Records
 
@@ -22,13 +22,13 @@ The bundle and each record have `schema_version: "1.0.0"`, which describes their
 
 `retrieved_on` is when the local file was captured, not when the text was published or legally effective. The [source manifest](../data/manifest.json) lists the pilot's saved files.
 
-A **topic** is a first-class knowledge artifact: it aggregates claims, has a stable ID and content revision, belongs to a build, and can be used for retrieval or publication. A **tag or category** is optional filtering metadata; it does not carry the topic's claims, summary, or provenance. A draft claim is evidence-linked but is not a verified fact until reviewed.
+A **topic** groups claims under a stable ID and content revision. Tags are optional filters. Evidence-linked draft claims still need review.
 
 ## Stable IDs
 
-A **source ID** is assigned once as a readable, stable name, such as `src:acpr-tracfin-joint-guidelines`. It is not hashed or copied from the pilot manifest's short labels (`A`, `T`, etc.). Keep it when the publisher URL moves or a new edition appears; the separate source `version` identifies the edition.
+A **source ID** is a stable, readable name such as `src:acpr-tracfin-joint-guidelines`, distinct from manifest label `A`. Keep it across URL and edition changes; `version` identifies the edition.
 
-Topic IDs are curated names such as `topic:beneficial-ownership`; keep them stable across builds. The other five IDs are calculated as follows. `H(text)` means the lowercase hexadecimal SHA-256 digest of the text encoded as UTF-8. `\n` is one newline character, and `content_sha256` is the SHA-256 digest of the saved file's raw bytes. In both examples, the document's `content_sha256` equals the corresponding source entry's `sha256` in the manifest; that file hash is an input to, not the whole value of, the document ID.
+Topic IDs are curated names such as `topic:beneficial-ownership`, stable across builds. Other IDs use the formulas below. `H(text)` is lowercase hexadecimal SHA-256 of UTF-8 text; `\n` is one newline. `content_sha256` hashes saved file bytes and matches the manifest's `sha256` in both examples. It is an input to the document ID, not the ID itself.
 
 ```text
 document.id = "doc:" + H(source_id + "\n" + content_sha256)
@@ -39,13 +39,13 @@ claim.id    = "claim:" + H(build_id + "\n" + canonical_evidence + "\n" + text)
 topic.revision = H(title + "\n" + summary + "\n" + "\n".join(sorted(claim_ids)))
 ```
 
-`canonical_evidence` is the chunk's or claim's `evidence` array serialized as compact JSON with keys sorted within each object, Unicode characters unescaped, and array order preserved (`json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`). `config_sha256` is the supplied digest of the pipeline settings; this schema does not yet define how those settings are serialized before hashing. The build ID uses sorted input document IDs, so their array order does not change it; output IDs are recorded in the build but are not part of its ID.
+`canonical_evidence` serializes an evidence array as compact JSON with sorted object keys, unescaped Unicode, and preserved array order (`json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`). `config_sha256` is a supplied settings digest; the schema does not define settings serialization. Build IDs sort input document IDs and exclude output IDs.
 
-An element's separate `revision` is `H(kind + "\n" + text)`. Within the same document ID, its ID stays the same when text at the same `locator_key` changes, while its revision changes. Every chunk and claim evidence reference includes `element_revision`, so it resolves only against the cited text revision. Different saved file bytes change the document ID and its dependent element and chunk IDs. A claim's ID excludes `topic_id`, so moving the same claim to another topic does not change its identity. Output-changing pipeline code must use a new `pipeline_version`. The [validator](../scripts/validate_artifact_examples.py) implements these rules and checks references between records.
+An element's `revision` is `H(kind + "\n" + text)`. For the same document and locator, changed text changes the revision but not the element ID; evidence must cite the revision. Changed saved bytes change document and dependent IDs. Claim IDs exclude `topic_id`, so reassignment preserves identity. Output-changing code needs a new `pipeline_version`. The [validator](../scripts/validate_artifact_examples.py) checks these rules and record links.
 
 ## How the records connect
 
-An ID in a link field must match the `id` of the record it names. A source edition is selected by **both** its stable `id` and its `version`. One source can have several editions; one document can have many elements and chunks; one build can take several documents and produce chunks, claims, and topics.
+Each link ID must name an existing record. A source edition requires **both** `id` and `version`; builds may span documents.
 
 ```mermaid
 flowchart LR
@@ -76,9 +76,9 @@ The [record ID image](images/artifact-record-links-v1.0.0.svg) shows the complet
 | `topic.claim_ids[]` | `claim.id` | Compiled inverse of claim assignments in the same build; validation requires both sides to agree. |
 | `build.output_claim_ids[]` and `output_topic_ids[]` | `claim.id` and `topic.id` | All knowledge records produced by the build. |
 
-The manifest and artifact bundle use different IDs: the manifest's `A` and `L1` are pilot corpus labels, while the examples assign stable `src:...` IDs. The [validator](../scripts/validate_artifact_examples.py) matches each example to one manifest entry by publisher URL and file SHA-256, then checks source version and retrieval date. The PDF example therefore connects manifest `A` to `src:acpr-tracfin-joint-guidelines`, and the HTML example connects `L1` to `src:cmf-L561-2-2`.
+Manifest labels `A` and `L1` map to `src:acpr-tracfin-joint-guidelines` and `src:cmf-L561-2-2`. The [validator](../scripts/validate_artifact_examples.py) matches them by URL and file hash, then checks version and retrieval date.
 
-For the PDF example, the path is: source `src:acpr-tracfin-joint-guidelines` → document `doc:485e1794…` → element `el:498756bd…` → chunk `chunk:174ba9be…` → claim `claim:51e64529…` → topic `topic:guidelines-status`. The build `build:fcc1a570…` names the document as input and the chunk, claim, and topic as outputs. Both the chunk and claim cite the element and its revision; the element carries the PDF page and printed label. Build IDs do not include output IDs, so these values can be calculated without a circular hash dependency.
+The PDF example links `src:acpr-tracfin-joint-guidelines` → `doc:485e1794…` → `el:498756bd…` → `chunk:174ba9be…` → `claim:51e64529…` → `topic:guidelines-status`. `build:fcc1a570…` names its input document and outputs. Chunk and claim evidence cite the element revision; the element carries the page and label.
 
 ## Locations and supporting passages
 
@@ -93,7 +93,7 @@ An element keeps a location that a reader can check in the saved file:
 
 For a PDF block without a printed label, use a consistent index within the page. A parser that splits or merges blocks may then produce new element IDs.
 
-An `evidence` reference points to a `source_id`, `document_id`, `element_id`, and `element_revision`. The revision must match the referenced element's `revision`; changed parsed text cannot satisfy stale evidence through the same logical element ID. Evidence may also specify a text `span` with Unicode code-point offsets `[start, end)`, where `0 <= start < end <= len(text)`. Use several references when a claim needs several passages. The element gives the reviewable location; the document gives the exact saved source version. The pilot's human-readable locators can be mapped to these references after parsing.
+`evidence` names `source_id`, `document_id`, `element_id`, and matching `element_revision`, with an optional Unicode code-point span `[start, end)` satisfying `0 <= start < end <= len(text)`. Use multiple references for multiple passages. Element locations and document versions make evidence reviewable; map pilot locators after parsing.
 
 Claims may draw on chunks from several documents in one build. Each claim evidence reference must match a passage in one of its supporting chunks. A claim has independent `grounding_review_status` and `classification_review_status` values (`draft`, `verified`, or `rejected`), so its support may be verified while its topic assignment remains draft or is rejected. These replace the former claim `review_status`; a topic retains `review_status` for review of its summary. Example records are drafts, not expert reviewed. `claim.generation` describes how its statement was produced; `claim.classification` separately describes how it was assigned to `topic_id`. Both use `manual` or `model` and a version; model-produced records also require a model ID and prompt hash. The pilot examples use manual classification; Task 6 plans LLM classification. A topic's summary is a derived synthesis, so reviewers must inspect its claims and passages before using it as validated knowledge. Unknown legal effective dates, exceptions, or conflicts must not be inferred from the capture date or silently resolved.
 
