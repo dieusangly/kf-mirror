@@ -42,17 +42,20 @@ def check_evidence(evidence, records, document_ids):
 
 def check_manifest():
     require(MANIFEST["schema_version"] == "1.0.0", "manifest schema version mismatch")
-    ids = [entry["id"] for entry in MANIFEST["sources"]]
-    require(len(ids) == len(set(ids)), "duplicate manifest source ID")
+    ids = [entry["manifest_id"] for entry in MANIFEST["sources"]]
+    require(len(ids) == len(set(ids)), "duplicate manifest ID")
     for entry in MANIFEST["sources"]:
+        require(all(isinstance(entry.get(key), str) and entry[key] for key in ("source_id", "title", "class")),
+                f"manifest source metadata missing: {entry['manifest_id']}")
+        require(entry["source_id"].startswith("src:"), f"invalid source ID: {entry['manifest_id']}")
         path = (ROOT / entry["local_path"]).resolve()
         require(path.is_relative_to(ROOT / "data"), "source file outside data directory")
         require(path.is_file(), f"source file missing: {entry['local_path']}")
         raw = path.read_bytes()
-        require(len(raw) == entry["size_bytes"], f"source size mismatch: {entry['id']}")
-        require(hashlib.sha256(raw).hexdigest() == entry["sha256"], f"source hash mismatch: {entry['id']}")
+        require(len(raw) == entry["size_bytes"], f"source size mismatch: {entry['manifest_id']}")
+        require(hashlib.sha256(raw).hexdigest() == entry["sha256"], f"source hash mismatch: {entry['manifest_id']}")
         require(date.fromisoformat(entry["retrieved_on"]).isoformat() == entry["retrieved_on"], "invalid retrieval date")
-        require((raw.startswith(b"%PDF") if entry["media_type"] == "application/pdf" else b"<html" in raw[:100].lower()), f"media type mismatch: {entry['id']}")
+        require((raw.startswith(b"%PDF") if entry["media_type"] == "application/pdf" else b"<html" in raw[:100].lower()), f"media type mismatch: {entry['manifest_id']}")
     return MANIFEST["sources"]
 
 
@@ -139,6 +142,9 @@ def main():
             source = next(item for item in bundle["sources"] if item["id"] == doc["source_id"] and item["version"] == doc["source_version"])
             matches = [item for item in captures if item["publisher_url"] == source["uri"] and item["sha256"] == doc["content_sha256"]]
             require(len(matches) == 1, "example document missing from manifest")
+            require(source["id"] == matches[0]["source_id"], "example source ID mismatch")
+            require(source["title"] == matches[0]["title"], "example source title mismatch")
+            require(source["class"] == matches[0]["class"], "example source class mismatch")
             require(doc["source_version"] == matches[0]["source_version"], "example source version mismatch")
             require(doc["retrieved_on"] == matches[0]["retrieved_on"], "example retrieval date mismatch")
             if source["format"] == "html":

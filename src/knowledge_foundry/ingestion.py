@@ -76,8 +76,8 @@ def _source_path(root, local_path):
     return path
 
 
-def _ingest_entry(entry, mapping, root):
-    outcome = {"manifest_id": entry.get("id"), "local_path": entry.get("local_path")}
+def _ingest_entry(entry, root):
+    outcome = {"manifest_id": entry.get("manifest_id"), "local_path": entry.get("local_path")}
     try:
         path = _source_path(root, entry.get("local_path"))
         head, size, content_sha256 = _file_fingerprint(path)
@@ -94,10 +94,9 @@ def _ingest_entry(entry, mapping, root):
             raise IngestionError("size_mismatch", "file size differs from manifest size_bytes")
         if entry.get("sha256") != content_sha256:
             raise IngestionError("hash_mismatch", "file content differs from manifest sha256")
-        metadata = mapping.get(entry.get("id"))
-        if not isinstance(metadata, dict) or any(not isinstance(metadata.get(key), str) or not metadata[key] for key in ("source_id", "title", "class")):
-            raise IngestionError("missing_source_metadata", "configure source_id, title, and class for this manifest ID")
-        source_id = metadata["source_id"]
+        if any(not isinstance(entry.get(key), str) or not entry[key] for key in ("source_id", "title", "class")):
+            raise IngestionError("missing_source_metadata", "manifest source_id, title, and class are required")
+        source_id = entry["source_id"]
         if not source_id.startswith("src:"):
             raise IngestionError("invalid_source_id", "source_id must start with src:")
         source_version = entry.get("source_version")
@@ -118,8 +117,8 @@ def _ingest_entry(entry, mapping, root):
             "id": source_id,
             "version": source_version,
             "uri": uri,
-            "title": metadata["title"],
-            "class": metadata["class"],
+            "title": entry["title"],
+            "class": entry["class"],
             "format": detected,
         }
         document = {
@@ -140,28 +139,30 @@ def _ingest_entry(entry, mapping, root):
 
 
 def ingest(config_path):
-    """Return one result per manifest entry, including failed entries."""
+    """Return one result per configured manifest ID, including failed entries."""
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
     root = (config_path.parent / config["root"]).resolve()
-    manifest_path = (root / config["manifest"]).resolve()
+    manifest_path = (root / config["manifest_file"]).resolve()
     if not manifest_path.is_relative_to(root):
         raise ValueError("manifest path resolves outside the configured root")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != SCHEMA_VERSION or not isinstance(manifest.get("sources"), list):
         raise ValueError("manifest must contain schema_version 1.0.0 and a sources array")
-    mapping = config["sources"]
-    if not isinstance(mapping, dict):
-        raise ValueError("config sources must be an object keyed by manifest ID")
-    outcomes = [
-        _ingest_entry(entry, mapping, root) if isinstance(entry, dict) else {
-            "manifest_id": None,
-            "local_path": None,
-            "status": "failed",
-            "error": {"code": "invalid_manifest_entry", "message": "manifest source must be an object"},
-        }
-        for entry in manifest["sources"]
-    ]
+    selected = config["manifest_ids"]
+    if (not isinstance(selected, list) or not selected or
+            any(not isinstance(item, str) or not item for item in selected) or
+            len(selected) != len(set(selected))):
+        raise ValueError("config manifest_ids must be a nonempty list of unique manifest IDs")
+    entries = [entry for entry in manifest["sources"] if isinstance(entry, dict) and isinstance(entry.get("manifest_id"), str)]
+    ids = [entry["manifest_id"] for entry in entries]
+    if len(ids) != len(set(ids)):
+        raise ValueError("manifest IDs must be unique")
+    by_id = {entry["manifest_id"]: entry for entry in entries}
+    unknown = set(selected) - set(by_id)
+    if unknown:
+        raise ValueError(f"unknown configured manifest IDs: {', '.join(sorted(unknown))}")
+    outcomes = [_ingest_entry(by_id[item], root) for item in selected]
     return {"report_version": 1, "manifest": str(manifest_path), "outcomes": outcomes}
 
 

@@ -10,4 +10,4 @@
 | 6. Contract | [Artifact schemas](artifact-schemas.md) | Records, IDs, evidence, and examples. |
 | 7. Ingestion | [Local ingestion](local-ingestion.md) | Task 3 inventory CLI. |
 | 8. Parsing | [Local parsing](local-parsing.md) | Parser setup, CLI, configuration, and outputs. |
-| 9. Quality | [Pilot parsing quality](pilot-parsing-quality.md) | Pilot measurements and limits. |
+| 9. Quality | [Pilot parsing evaluation](pilot-parsing-evaluation.md) | Evaluation gate, checks, and usage. |

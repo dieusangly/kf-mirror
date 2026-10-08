@@ -26,7 +26,7 @@ A **topic** groups claims under a stable ID and content revision. Tags are optio
 
 ## Stable IDs
 
-A **source ID** is a stable, readable name such as `src:acpr-tracfin-joint-guidelines`, distinct from manifest label `A`. Keep it across URL and edition changes; `version` identifies the edition.
+A **source ID** is a stable, readable name such as `src:acpr-tracfin-joint-guidelines`, stored in the manifest and distinct from label `A`. Keep it across URL and edition changes; `version` identifies the edition.
 
 Topic IDs are curated names such as `topic:beneficial-ownership`, stable across builds. Other IDs use the formulas below. `H(text)` is lowercase hexadecimal SHA-256 of UTF-8 text; `\n` is one newline. `content_sha256` hashes saved file bytes and matches the manifest's `sha256` in both examples. It is an input to the document ID, not the ID itself.
 

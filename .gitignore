@@ -9,5 +9,4 @@ __pycache__/
 .venv/
 
 # Output
-ingestion-report.json
-artifacts/parsed/
+artifacts/

@@ -4,7 +4,7 @@ Scope: public French banking AML/CFT (LCB-FT) materials in born-digital PDF and 
 
 ## Selected sources
 
-IDs match the [source manifest](../data/manifest.json), which records URLs, versions, saved files, dates, media types, sizes, and hashes. This table explains the selection.
+IDs match the [source manifest](../data/manifest.json), which records stable source IDs, titles, classes, URLs, versions, saved files, dates, media types, sizes, and hashes. This table explains the selection.
 
 | ID | Source | Document class | Representative material |
 | --- | --- | --- | --- |

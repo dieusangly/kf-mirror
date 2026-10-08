@@ -2,7 +2,10 @@
   "schema_version": "1.0.0",
   "sources": [
     {
-      "id": "A",
+      "manifest_id": "A",
+      "source_id": "src:acpr-tracfin-joint-guidelines",
+      "title": "Lignes directrices conjointes ACPR–Tracfin",
+      "class": "regulatory guidance",
       "source_version": "2025-04",
       "publisher_url": "https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf",
       "local_path": "data/20250423_Lignes_directrices_obligations_Tracfin.pdf",
@@ -13,7 +16,10 @@
       "capture_method": "publisher_pdf_download"
     },
     {
-      "id": "T",
+      "manifest_id": "T",
+      "source_id": "src:tracfin-threat-report-tome-3",
+      "title": "Tracfin, rapport 2024–25, tome III",
+      "class": "typology report",
       "source_version": "2025-09-29-tome-3",
       "publisher_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
       "local_path": "data/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
@@ -24,7 +30,10 @@
       "capture_method": "publisher_pdf_download"
     },
     {
-      "id": "M",
+      "manifest_id": "M",
+      "source_id": "src:amf-doc-2019-16",
+      "title": "AMF DOC-2019-16, clients et bénéficiaires effectifs",
+      "class": "sector guidance",
       "source_version": "2023-07-28",
       "publisher_url": "https://www.amf-france.org/sites/institutionnel/files/private/2023-07/DOC-2019-16_LD%20Clients%20et%20b%C3%A9n%C3%A9ficiaires%20effectifs_VF3_0.pdf",
       "local_path": "data/DOC-2019-16_LD Clients et bénéficiaires effectifs_VF3_0.pdf",
@@ -35,7 +44,10 @@
       "capture_method": "publisher_pdf_download"
     },
     {
-      "id": "L1",
+      "manifest_id": "L1",
+      "source_id": "src:cmf-L561-2-2",
+      "title": "Code monétaire et financier, article L. 561-2-2",
+      "class": "versioned legal article",
       "source_version": "LEGIARTI000033517537",
       "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
       "local_path": "data/Article L561-2-2 - Code monétaire et financier - Légifrance.html",
@@ -46,7 +58,10 @@
       "capture_method": "browser_save_html_only"
     },
     {
-      "id": "L2",
+      "manifest_id": "L2",
+      "source_id": "src:cmf-L561-6",
+      "title": "Code monétaire et financier, article L. 561-6",
+      "class": "versioned legal article",
       "source_version": "LEGIARTI000033517733",
       "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517733",
       "local_path": "data/Article L561-6 - Code monétaire et financier - Légifrance.html",

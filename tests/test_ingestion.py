@@ -37,6 +37,37 @@ class IngestionTests(unittest.TestCase):
         }
         VALIDATOR.validate(bundle)
 
+    def test_configured_sources_select_and_order_manifest_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
+            config.update(root=str(ROOT), manifest_ids=["L1", "A"])
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            report = ingest(path)
+            self.assertEqual([item["manifest_id"] for item in report["outcomes"]], ["L1", "A"])
+            self.assertEqual(report["outcomes"][1]["source"]["id"], "src:acpr-tracfin-joint-guidelines")
+
+    def test_manifest_metadata_is_required_and_unknown_selection_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "example.md"
+            path.write_text("# Example\n", encoding="utf-8")
+            raw = path.read_bytes()
+            entry = {"manifest_id": "A", "title": "Example", "class": "test", "source_version": "v1",
+                     "publisher_url": "https://example.org/example.md", "local_path": "example.md",
+                     "retrieved_on": "2026-10-08", "media_type": "text/markdown",
+                     "size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": [entry]}))
+            config_path = root / "config.json"
+            config = {"root": ".", "manifest_file": "manifest.json", "manifest_ids": ["A"]}
+            config_path.write_text(json.dumps(config))
+            outcome = ingest(config_path)["outcomes"][0]
+            self.assertEqual(outcome["error"]["code"], "missing_source_metadata")
+            config["manifest_ids"] = ["unknown"]
+            config_path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError, "unknown configured manifest IDs"):
+                ingest(config_path)
+
     def test_example_topics_have_resolvable_claims_and_evidence(self):
         for name in ("artifact-bundle-pdf.json", "artifact-bundle-html.json"):
             with self.subTest(name=name):
@@ -133,13 +164,14 @@ class IngestionTests(unittest.TestCase):
             (root / "unknown.bin").write_bytes(b"not a supported document\x00")
             raw = (root / "unknown.bin").read_bytes()
             entries = [
-                {"id": "A", "local_path": "missing.pdf", "media_type": "application/pdf"},
-                {"id": "L1", "local_path": "unknown.bin", "media_type": "text/html", "size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()},
+                {"manifest_id": "A", "local_path": "missing.pdf", "media_type": "application/pdf"},
+                {"manifest_id": "L1", "local_path": "unknown.bin", "media_type": "text/html", "size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()},
             ]
             (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": entries}), encoding="utf-8")
             config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
             config["root"] = "."
-            config["manifest"] = "manifest.json"
+            config["manifest_file"] = "manifest.json"
+            config["manifest_ids"] = ["A", "L1"]
             config_path = root / "config.json"
             config_path.write_text(json.dumps(config), encoding="utf-8")
             report = ingest(config_path)
@@ -162,7 +194,7 @@ class IngestionTests(unittest.TestCase):
             entry["size_bytes"] = (root / "changed.pdf").stat().st_size
             (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": [entry]}), encoding="utf-8")
             config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
-            config.update(root=".", manifest="manifest.json")
+            config.update(root=".", manifest_file="manifest.json", manifest_ids=["A"])
             config_path = root / "config.json"
             config_path.write_text(json.dumps(config), encoding="utf-8")
             outcome = ingest(config_path)["outcomes"][0]

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import resource
 import shutil
@@ -35,7 +36,7 @@ DEFAULTS = {
             "table_mode": "accurate", "artifacts_path": None},
     "ocr": {"mode": "auto", "languages": ["fra", "eng"], "scale": 3.0,
             "psm": 3, "tesseract_cmd": "tesseract", "tessdata_path": None},
-    "html": {"content_selector": "main"},
+    "html": {"content_selector": "main", "source_overrides": {}},
     "markdown": {"tables": True},
     "docx": {"include_headers_footers": False},
 }
@@ -81,6 +82,14 @@ def _configuration(config):
         raise ValueError("markdown.tables must be boolean")
     if not isinstance(settings["html"]["content_selector"], str) or not settings["html"]["content_selector"]:
         raise ValueError("html.content_selector must be a nonempty CSS selector")
+    source_overrides = settings["html"]["source_overrides"]
+    if not isinstance(source_overrides, dict):
+        raise ValueError("html.source_overrides must be an object keyed by manifest ID")
+    for manifest_id, override in source_overrides.items():
+        if (not isinstance(manifest_id, str) or not manifest_id or not isinstance(override, dict) or
+                set(override) - {"content_selector", "article_id"} or
+                any(not isinstance(value, str) or not value for value in override.values())):
+            raise ValueError("html.source_overrides values must contain nonempty content_selector or article_id strings")
     if not isinstance(settings["ocr"]["tesseract_cmd"], str) or not settings["ocr"]["tesseract_cmd"]:
         raise ValueError("ocr.tesseract_cmd must be a nonempty path or command")
     if settings["ocr"]["tessdata_path"] is not None and not isinstance(settings["ocr"]["tessdata_path"], str):
@@ -102,23 +111,23 @@ def _tool_versions(format_name):
     return versions
 
 
-def _source_metadata(source, document, manifest_entry, config_entry):
+def _source_metadata(source, document, manifest_entry, parser_settings, selector_origin):
     return {
-        "source.id": {"value": source["id"], "origin": "ingestion_config"},
-        "source.title": {"value": source["title"], "origin": "ingestion_config"},
-        "source.class": {"value": source["class"], "origin": "ingestion_config"},
+        "source.id": {"value": source["id"], "origin": "manifest"},
+        "source.title": {"value": source["title"], "origin": "manifest"},
+        "source.class": {"value": source["class"], "origin": "manifest"},
         "source.version": {"value": source["version"], "origin": "manifest"},
         "source.uri": {"value": source["uri"], "origin": "manifest"},
         "source.format": {"value": source["format"], "origin": "content_detection"},
         "document.retrieved_on": {"value": document["retrieved_on"], "origin": "manifest"},
         "document.content_sha256": {"value": document["content_sha256"], "origin": "saved_file"},
         "document.media_type": {"value": document["media_type"], "origin": "content_detection"},
-        "manifest_id": {"value": manifest_entry["id"], "origin": "manifest"},
+        "manifest_id": {"value": manifest_entry["manifest_id"], "origin": "manifest"},
         "capture_method": {"value": manifest_entry.get("capture_method"), "origin": "manifest"},
-        "html.content_selector": {"value": config_entry.get("content_selector"),
-                                  "origin": "ingestion_config"} if config_entry.get("content_selector") else None,
-        "html.article_id": {"value": config_entry.get("article_id", source["version"]),
-                            "origin": "ingestion_config" if config_entry.get("article_id") else "manifest_source_version"}
+        "html.content_selector": {"value": parser_settings["content_selector"],
+                                  "origin": selector_origin} if source["format"] == "html" else None,
+        "html.article_id": {"value": parser_settings.get("article_id", source["version"]),
+                            "origin": "parsing_config" if "article_id" in parser_settings else "manifest_source_version"}
         if source["format"] == "html" else None,
     }
 
@@ -176,7 +185,8 @@ def _normalize(source, document, items):
         }
         records.append(record)
         sidecar.append({"element_id": element_id, "parent_key": item["parent_key"],
-                        **item["details"]})
+                        "evidence_role": "structural" if item["kind"] in {"table_cell", "figure"}
+                        else "authoritative", **item["details"]})
     for entry in sidecar:
         parent_key = entry.pop("parent_key")
         entry["parent_element_id"] = id_by_key.get(parent_key) if parent_key else None
@@ -193,6 +203,52 @@ def _write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _save_pdf_figure_assets(pdf_path, elements, sidecar, staged, warnings):
+    """Save lossless source-page crops and link them by canonical element ID."""
+    import pypdfium2 as pdfium
+
+    details = {entry["element_id"]: entry for entry in sidecar}
+    figures = {}
+    for element in elements:
+        if element["kind"] == "figure":
+            figures.setdefault(element["location"]["page"], []).append(element)
+    if not figures:
+        return
+    pdf = pdfium.PdfDocument(str(pdf_path))
+    try:
+        for page_no, page_figures in sorted(figures.items()):
+            page = pdf[page_no - 1]
+            scale = 2
+            raster = page.render(scale=scale).to_pil()
+            for element in page_figures:
+                box = element["location"].get("bbox")
+                if (not box or len(box) != 4 or
+                        not 0 <= box[0] < box[2] <= page.get_width() + .5 or
+                        not 0 <= box[1] < box[3] <= page.get_height() + .5):
+                    warnings.append({"code": "figure_asset_unavailable", "element_id": element["id"],
+                                     "reason": "missing_or_invalid_bbox"})
+                    continue
+                pixels = (max(0, math.floor(box[0] * scale)),
+                          max(0, math.floor(box[1] * scale)),
+                          min(raster.width, math.ceil(box[2] * scale)),
+                          min(raster.height, math.ceil(box[3] * scale)))
+                if pixels[0] >= pixels[2] or pixels[1] >= pixels[3]:
+                    warnings.append({"code": "figure_asset_unavailable", "element_id": element["id"],
+                                     "reason": "empty_pixel_crop"})
+                    continue
+                relative = f"figures/{element['id'].removeprefix('el:')}.png"
+                target = staged / relative
+                target.parent.mkdir(exist_ok=True)
+                raster.crop(pixels).save(target, format="PNG")
+                details[element["id"]]["asset"] = {
+                    "path": relative, "media_type": "image/png",
+                    "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                    "representation_role": "authoritative_visual", "render_scale": scale,
+                }
+    finally:
+        pdf.close()
+
+
 def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None):
     """Parse verified manifest entries; report each selected source as it finishes."""
     config_path = Path(config_path).resolve()
@@ -201,11 +257,12 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
     settings = _configuration(config)
     ingestion_report = ingest(config_path)
     manifest = json.loads(Path(ingestion_report["manifest"]).read_text(encoding="utf-8"))
-    entries = {entry["id"]: entry for entry in manifest["sources"] if isinstance(entry, dict)}
+    entries = {entry["manifest_id"]: entry for entry in manifest["sources"] if isinstance(entry, dict)}
     selected_ids = list(selected_ids or [])
-    unknown = set(selected_ids) - set(entries)
+    configured_ids = {item["manifest_id"] for item in ingestion_report["outcomes"]}
+    unknown = set(selected_ids) - configured_ids
     if unknown:
-        raise ValueError(f"unknown manifest source IDs: {', '.join(sorted(unknown))}")
+        raise ValueError(f"manifest IDs are not configured: {', '.join(sorted(unknown))}")
     outcomes = [item for item in ingestion_report["outcomes"]
                 if not selected_ids or item["manifest_id"] in selected_ids]
     ocr_error = None
@@ -265,18 +322,21 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             local_path = (root / outcome["local_path"]).resolve()
             parser, parser_name = PARSERS[format_name]
             parser_settings = dict(settings[format_name])
+            selector_origin = None
             if format_name == "pdf":
                 parser_settings["ocr"] = settings["ocr"]
             if format_name == "html":
-                parser_settings.update({key: config["sources"][outcome["manifest_id"]][key]
-                                        for key in ("content_selector", "article_id")
-                                        if key in config["sources"][outcome["manifest_id"]]})
+                overrides = parser_settings.pop("source_overrides")
+                selected_override = overrides.get(outcome["manifest_id"], {})
+                parser_settings.update(selected_override)
+                selector_origin = ("parsing_config" if "content_selector" in selected_override or
+                                   "content_selector" in config.get("parsing", {}).get("html", {}) else "parser_default")
             items, native, warnings = parser(local_path, source, parser_settings)
             if not items:
                 raise ValueError("parser produced no located elements")
             bundle, sidecar = _normalize(source, document, items)
             metadata = _source_metadata(source, document, manifest_entry,
-                                        config["sources"][outcome["manifest_id"]])
+                                        parser_settings, selector_origin)
             metadata.update(_embedded_metadata(local_path, format_name))
             metadata = {key: value for key, value in metadata.items() if value is not None}
             parse_data = {"parse_version": 1, "document_id": document["id"], "parser": parser_name,
@@ -287,6 +347,8 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             target.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=target.parent) as temp_name:
                 staged = Path(temp_name)
+                if format_name == "pdf":
+                    _save_pdf_figure_assets(local_path, bundle["elements"], sidecar, staged, warnings)
                 _write_json(staged / "artifact-bundle.json", bundle)
                 _write_json(staged / "parse.json", parse_data)
                 if native is not None:
@@ -294,7 +356,12 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
                 if target.exists():
                     shutil.rmtree(target)
                 os.replace(staged, target)
-            result.update(status="partial" if warnings else "parsed", document_id=document["id"],
+            harmless_warnings = {"excluded_picture_ocr_fragments", "excluded_picture_corrupt_ocr",
+                                 "excluded_picture_furniture", "excluded_figure_text_uncertain",
+                                 "empty_docling_table"}
+            result.update(status="partial" if any(
+                warning.get("code") not in harmless_warnings for warning in warnings
+            ) else "parsed", document_id=document["id"],
                           parser=parser_name, element_count=len(items),
                           page_count=len(native.get("pages", {})) if native is not None else None,
                           warnings=warnings,
@@ -333,7 +400,7 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/parsed"),
                         help="output directory (default: artifacts/parsed)")
     parser.add_argument("--source", action="append", default=[], metavar="ID",
-                        help="manifest source ID to parse; repeatable (default: all)")
+                        help="manifest ID to parse; repeatable (default: all)")
     args = parser.parse_args(argv)
     try:
         report = parse_collection(args.config, args.output_dir, args.source, on_progress=_print_progress)

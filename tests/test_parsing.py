@@ -5,14 +5,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from docx import Document
 from jsonschema import Draft202012Validator, FormatChecker
 from lxml import html
 
-from knowledge_foundry.parsing import PARSERS, SCHEMA, main, parse_collection
-from knowledge_foundry.parsers import parse_docx, parse_markdown
+from knowledge_foundry.parsing import PARSERS, SCHEMA, _save_pdf_figure_assets, main, parse_collection
+from knowledge_foundry.parsers import parse_docx, parse_markdown, parse_pdf
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,16 +26,16 @@ def _fixture(root, name, media_type, contents):
     else:
         path.write_text(contents, encoding="utf-8")
     raw = path.read_bytes()
-    return {"id": name, "source_version": "v1", "publisher_url": f"https://example.org/{name}",
+    return {"manifest_id": name, "source_id": f"src:{name}", "title": name, "class": "test",
+            "source_version": "v1", "publisher_url": f"https://example.org/{name}",
             "local_path": name, "retrieved_on": "2026-10-07", "media_type": media_type,
             "size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
 def _config(root, entries):
     (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": entries}))
-    data = {"root": ".", "manifest": "manifest.json",
-            "sources": {entry["id"]: {"source_id": f"src:{entry['id']}",
-                                      "title": entry["id"], "class": "test"} for entry in entries},
+    data = {"root": ".", "manifest_file": "manifest.json",
+            "manifest_ids": [entry["manifest_id"] for entry in entries],
             "parsing": {"ocr": {"mode": "off"}}}
     path = root / "config.json"
     path.write_text(json.dumps(data))
@@ -42,6 +43,288 @@ def _config(root, entries):
 
 
 class ParsingTests(unittest.TestCase):
+    def test_pdf_figure_asset_is_deterministic_and_linked(self):
+        from PIL import Image, ImageDraw
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = Image.new("RGB", (120, 120), "white")
+            ImageDraw.Draw(image).rectangle((20, 20, 80, 80), outline="black", width=3)
+            pdf = root / "source.pdf"
+            image.save(pdf, "PDF", resolution=72)
+            element = {"id": "el:" + "a" * 64, "kind": "figure",
+                       "location": {"format": "pdf", "page": 1,
+                                    "bbox": [20, 20, 80, 80]}}
+            outputs = []
+            for index in (1, 2):
+                target = root / f"run-{index}"
+                target.mkdir()
+                sidecar = [{"element_id": element["id"], "docling_ref": "#/pictures/0"}]
+                warnings = []
+                _save_pdf_figure_assets(pdf, [element], sidecar, target, warnings)
+                asset = sidecar[0]["asset"]
+                data = (target / asset["path"]).read_bytes()
+                self.assertEqual(warnings, [])
+                self.assertEqual(asset["media_type"], "image/png")
+                self.assertEqual(asset["representation_role"], "authoritative_visual")
+                self.assertEqual(asset["sha256"], hashlib.sha256(data).hexdigest())
+                self.assertEqual(Image.open(io.BytesIO(data)).size, (120, 120))
+                outputs.append((asset, data))
+            self.assertEqual(outputs[0], outputs[1])
+
+    def test_pdf_parse_output_links_figure_asset_without_schema_change(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "diagram.pdf"
+            Image.new("RGB", (120, 120), "white").save(path, "PDF", resolution=72)
+            entry = _fixture(root, "diagram.pdf", "application/pdf", path.read_bytes())
+            config = _config(root, [entry])
+            figure = {"kind": "figure", "text": "", "locator_key": "pdf:p1:block-1",
+                      "location": {"format": "pdf", "page": 1, "label": "block 1",
+                                   "bbox": [20, 20, 80, 80]},
+                      "parent_key": None,
+                      "details": {"docling_ref": "#/pictures/0", "evidence_role": "structural"}}
+            native = {"pages": {"1": {"size": {"width": 120, "height": 120}}},
+                      "pictures": [{"self_ref": "#/pictures/0"}], "texts": [], "tables": []}
+            with patch.dict(PARSERS, {"pdf": (lambda *_args: ([figure], native, []), "fixture")}):
+                outcome = parse_collection(config, root / "output")["outcomes"][0]
+            self.assertEqual(outcome["status"], "parsed")
+            folder = Path(outcome["output"])
+            bundle = json.loads((folder / "artifact-bundle.json").read_text())
+            sidecar = json.loads((folder / "parse.json").read_text())
+            Draft202012Validator(SCHEMA, format_checker=FormatChecker()).validate(bundle)
+            self.assertEqual(sidecar["elements"][0]["element_id"], bundle["elements"][0]["id"])
+            asset = sidecar["elements"][0]["asset"]
+            self.assertEqual(asset["sha256"], hashlib.sha256((folder / asset["path"]).read_bytes()).hexdigest())
+
+    def _picture_fixture(self, page, nodes):
+        picture_ref = "#/pictures/0"
+        native_nodes = []
+        for index, entry in enumerate(nodes):
+            label, value, box = entry[:3]
+            native_nodes.append({"self_ref": f"#/texts/{index}", "label": label,
+                                 "text": value, "orig": entry[3] if len(entry) > 3 else value,
+                                 "content_layer": "body",
+                                 "parent": {"$ref": picture_ref},
+                                 "prov": [{"page_no": page, "bbox": dict(zip(
+                                     ("l", "t", "r", "b"), box))}]})
+        native = {"pages": {str(page): {"size": {"width": 600, "height": 842}}},
+                  "texts": native_nodes, "groups": [], "tables": [], "pictures": [
+            {"self_ref": picture_ref, "children": [
+                {"$ref": node["self_ref"]} for node in native_nodes]}]}
+        picture = SimpleNamespace(label="picture", text="", marker=None,
+                                  prov=[SimpleNamespace(page_no=page, bbox=None)],
+                                  self_ref=picture_ref, parent=SimpleNamespace(cref="#/body"))
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(picture, 1)]),
+                                   pages={page: SimpleNamespace(size=SimpleNamespace(height=842))},
+                                   export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        return items, warnings, native
+
+    def test_pdf_picture_short_list_items_a_page_21(self):
+        items, warnings, _ = self._picture_fixture(21, [
+            ("text", "L'organisme doit pouvoir identifier les retraits effectués dans des conditions particulièrement inhabituelles et documenter les opérations.",
+             (72, 758, 531, 705)),
+            ("text", "Les informations recueillies au moment de l'opération permettent de circonstancier une déclaration transmise à Tracfin.",
+             (72, 686, 531, 647)),
+            ("list_item", "date et heure de l'opération ;", (90, 636, 249, 626),
+             "- date et heure de l'opération ;"),
+            ("text", "- lieux de l'opération ;", (90, 622, 207, 612)),
+            ("list_item", "référence de la carte utilisée", (90, 607, 247, 597),
+             "- référence de la carte utilisée"),
+            ("text", "- montant et composition de la somme requise.", (90, 592, 345, 582)),
+        ])
+        self.assertEqual([item["text"] for item in items[-4:]],
+                         ["- date et heure de l'opération ;", "- lieux de l'opération ;",
+                          "- référence de la carte utilisée",
+                          "- montant et composition de la somme requise."])
+        self.assertEqual([item["kind"] for item in items[-4:]], ["list_item"] * 4)
+        self.assertEqual([item["details"]["evidence_role"] for item in items[1:]],
+                         ["authoritative"] * 6)
+        self.assertEqual([item["parent_key"] for item in items[1:]], [None] * 6)
+        self.assertEqual(warnings, [])
+
+    def test_pdf_picture_word_fragments_a_page_63(self):
+        words = ["Je", "joins", "obligatoirement", "le", "formulaire", "de", "désignation."]
+        boxes = [(197, 416, 205, 404), (209, 416, 227, 404), (229, 415, 413, 405),
+                 (296, 416, 304, 404), (308, 416, 349, 404), (353, 416, 362, 404),
+                 (366, 416, 415, 404)]
+        branches = [("text", "Le représentant légal est une personne physique", (92, 276, 190, 258)),
+                    ("text", "Le représentant légal est une personne morale", (214, 276, 330, 258))]
+        items, warnings, native = self._picture_fixture(
+            63, [("text", word, box) for word, box in zip(words, boxes)] + branches)
+        self.assertEqual(items[1]["text"], "Je joins obligatoirement le formulaire de désignation.")
+        self.assertEqual(items[1]["details"]["docling_refs"],
+                         [node["self_ref"] for node in native["texts"][:7]])
+        self.assertEqual([part["text"] for part in items[1]["details"]["source_parts"]], words)
+        self.assertEqual(items[1]["location"]["page"], 63)
+        self.assertEqual(items[1]["location"]["bbox"], [197, 426, 415, 438])
+        self.assertEqual(items[1]["details"]["evidence_role"], "auxiliary")
+        self.assertEqual([item["text"] for item in items[2:]], [entry[1] for entry in branches])
+        self.assertEqual(warnings, [])
+        repeat_items, repeat_warnings, _ = self._picture_fixture(
+            63, [("text", word, box) for word, box in zip(words, boxes)] + branches)
+        self.assertEqual((repeat_items, repeat_warnings), (items, warnings))
+
+    def test_mixed_picture_keeps_document_flow_before_diagram(self):
+        items, warnings, _ = self._picture_fixture(63, [
+            ("text", "Un déclarant est une personne habilitée à établir et transmettre une déclaration à TRACFIN pour son organisme.",
+             (88, 557, 516, 519)),
+            ("text", "Un correspondant est une personne habilitée à renseigner TRACFIN en cas de demande d'information sur un dossier.",
+             (88, 505, 516, 476)),
+            ("section_header", "Schéma récapitulatif", (89, 464, 187, 453)),
+            ("text", "Je joins obligatoirement le formulaire de désignation.",
+             (196, 416, 415, 404)),
+        ])
+        self.assertEqual(warnings, [])
+        self.assertEqual([item["details"]["evidence_role"] for item in items[1:]],
+                         ["authoritative", "authoritative", "authoritative", "auxiliary"])
+        self.assertEqual(items[-1]["parent_key"], items[0]["locator_key"])
+
+    def test_pdf_picture_diagram_phrases_t_page_37_and_graphical_noise(self):
+        items, warnings, _ = self._picture_fixture(37, [
+            ("text", "Achat d'un bien", (282, 214, 344, 207)),
+            ("text", "immobilier pour 1,5 M€", (267, 205, 356, 198)),
+            ("text", "Société A", (202, 244, 239, 237)),
+            ("text", "Acquisition", (114, 214, 158, 207)),
+            ("text", "de titres pour 3 M€", (98, 205, 172, 198)),
+            ("text", "|", (144, 434, 145, 419)),
+            ("text", "6 M€", (210, 378, 229, 371)),
+        ])
+        self.assertEqual([item["text"] for item in items[1:]],
+                         ["Achat d'un bien immobilier pour 1,5 M€",
+                          "Acquisition de titres pour 3 M€"])
+        self.assertEqual([item["details"]["evidence_role"] for item in items[1:]],
+                         ["auxiliary", "auxiliary"])
+        self.assertEqual(warnings[0]["code"], "excluded_picture_ocr_fragments")
+        self.assertEqual(warnings[0]["refs"], ["#/texts/2", "#/texts/5", "#/texts/6"])
+
+    def test_pdf_picture_two_word_label_and_unresolved_fragment(self):
+        items, warnings, _ = self._picture_fixture(1, [
+            ("caption", "Compte bancaire", (10, 100, 100, 90)),
+            ("text", "Actionnaire à 100 %", (10, 90, 100, 80)),
+            ("list_item", "LeKBIS demon de", (10, 80, 100, 70)),
+            ("text", "O", (10, 60, 20, 50)),
+        ])
+        self.assertEqual([item["text"] for item in items[1:]],
+                         ["Compte bancaire", "Actionnaire à 100 %"])
+        self.assertEqual({warning["code"] for warning in warnings},
+                         {"excluded_figure_text_uncertain", "excluded_picture_ocr_fragments"})
+
+    def test_corrupt_picture_ocr_and_publisher_footer_are_excluded(self):
+        corrupt = "“FT voddns à] 2219281007 é 23/qOuId Un ZaQUCoUa SOA"
+        items, warnings, _ = self._picture_fixture(63, [
+            ("text", corrupt, (388, 98, 516, 80)),
+        ])
+        self.assertEqual([item["kind"] for item in items], ["figure"])
+        self.assertEqual([warning["code"] for warning in warnings],
+                         ["excluded_picture_corrupt_ocr"])
+        items, warnings, _ = self._picture_fixture(82, [
+            ("text", "Suivez Tracfin sur", (273, 96, 360, 85)),
+            ("text", "www.economie.gouv.fr/tracfin www.linkedin.com/company/tracfin",
+             (274, 84, 448, 60)),
+        ])
+        self.assertEqual([item["kind"] for item in items], ["figure"])
+        self.assertEqual([warning["code"] for warning in warnings],
+                         ["excluded_picture_furniture"])
+        self.assertEqual(warnings[0]["refs"], ["#/texts/0", "#/texts/1"])
+
+    def test_pdf_document_index_keeps_contents_and_cells(self):
+        cell = SimpleNamespace(start_row_offset_idx=0, start_col_offset_idx=0,
+                               text="INTRODUCTION", bbox=None, row_span=1, col_span=1,
+                               column_header=False, row_header=False)
+        index = SimpleNamespace(label="document_index", text="", marker=None,
+                                prov=[SimpleNamespace(page_no=2, bbox=None)],
+                                data=SimpleNamespace(table_cells=[cell]),
+                                self_ref="#/tables/0", parent=SimpleNamespace(cref="#/body"),
+                                export_to_markdown=lambda doc: "| INTRODUCTION | 2 |")
+        document = SimpleNamespace(
+            iterate_items=lambda with_groups: iter([(index, 1)]),
+            pages={2: SimpleNamespace(size=SimpleNamespace(height=842))},
+            export_to_dict=lambda: {},
+        )
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual([item["kind"] for item in items], ["table", "table_cell"])
+        self.assertIn("INTRODUCTION", items[0]["text"])
+        self.assertEqual(items[1]["text"], "INTRODUCTION")
+        self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
+        self.assertEqual(items[0]["location"]["page"], 2)
+
+    def test_pdf_picture_children_charspans_and_heading_hierarchy(self):
+        def part(page, start, end):
+            return SimpleNamespace(page_no=page, bbox=None, charspan=[start, end])
+
+        picture = SimpleNamespace(label="picture", text="", marker=None,
+                                  prov=[part(1, 0, 0)], self_ref="#/pictures/0",
+                                  parent=SimpleNamespace(cref="#/body"))
+        heading = SimpleNamespace(label="section_header", text="I. Main section", marker=None,
+                                  prov=[part(1, 0, 15)], self_ref="#/texts/0",
+                                  parent=SimpleNamespace(cref="#/body"))
+        subsection = SimpleNamespace(label="section_header", text="1.1. Details", marker=None,
+                                     prov=[part(1, 0, 12)], self_ref="#/texts/1",
+                                     parent=SimpleNamespace(cref="#/body"))
+        source_text = "First page has a meaningful passage. Second page has another meaningful passage."
+        split = source_text.index("Second")
+        paragraph = SimpleNamespace(label="text", text=source_text, marker=None,
+                                    prov=[part(1, 0, split), part(2, split, len(source_text))],
+                                    self_ref="#/texts/2", parent=SimpleNamespace(cref="#/body"))
+        native = {"texts": [
+            {"self_ref": "#/texts/3", "label": "text", "content_layer": "body",
+             "text": "Meaningful text inside this pictured process flow remains available.",
+             "prov": [{"page_no": 2, "charspan": [0, 66]}]},
+            {"self_ref": "#/texts/4", "label": "text", "content_layer": "body",
+             "text": "x", "prov": [{"page_no": 2, "charspan": [0, 1]}]},
+        ], "pictures": [{"self_ref": "#/pictures/0", "children": [
+            {"$ref": "#/groups/0"}, {"$ref": "#/texts/4"}]}],
+            "groups": [{"self_ref": "#/groups/0", "children": [{"$ref": "#/texts/3"}]}],
+            "tables": []}
+        document = SimpleNamespace(
+            iterate_items=lambda with_groups: iter([(heading, 1), (subsection, 1),
+                                                     (paragraph, 1), (picture, 1)]),
+            pages={1: SimpleNamespace(size=SimpleNamespace(height=842)),
+                   2: SimpleNamespace(size=SimpleNamespace(height=842))},
+            export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual([item["text"] for item in items[2:4]],
+                         [source_text[:split].strip(), source_text[split:].strip()])
+        self.assertEqual(items[1]["details"]["level"], 2)
+        self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
+        self.assertEqual(items[-1]["parent_key"], items[-2]["locator_key"])
+        self.assertEqual(items[-1]["kind"], "paragraph")
+        self.assertEqual([warning["code"] for warning in warnings], ["excluded_picture_ocr_fragments"])
+        self.assertEqual(warnings[0]["refs"], ["#/texts/4"])
+
+    def test_pdf_empty_table_is_diagnostic_and_checkbox_keeps_state(self):
+        provenance = SimpleNamespace(page_no=1, bbox=None, charspan=[0, 22])
+        empty_table = SimpleNamespace(label="table", text="", marker=None,
+                                      prov=[provenance], data=SimpleNamespace(table_cells=[]),
+                                      self_ref="#/tables/0", parent=SimpleNamespace(cref="#/body"),
+                                      export_to_markdown=lambda doc: "")
+        checkbox = SimpleNamespace(label="checkbox_unselected", text="Review the account owner", marker=None,
+                                   prov=[provenance], self_ref="#/texts/0",
+                                   parent=SimpleNamespace(cref="#/body"))
+        document = SimpleNamespace(
+            iterate_items=lambda with_groups: iter([(empty_table, 1), (checkbox, 1)]),
+            pages={1: SimpleNamespace(size=SimpleNamespace(height=842))},
+            export_to_dict=lambda: {"texts": [{"self_ref": "#/texts/0"}],
+                                    "tables": [{"self_ref": "#/tables/0"}]})
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual([item["kind"] for item in items], ["list_item"])
+        self.assertEqual(items[0]["details"]["checkbox_state"], "unselected")
+        self.assertEqual([warning["code"] for warning in warnings], ["empty_docling_table"])
+
     def test_pilot_html_clauses_have_resolvable_selectors_and_metadata_origins(self):
         with tempfile.TemporaryDirectory() as directory:
             report = parse_collection(ROOT / "config/pipeline.json", directory, ["L1", "L2"])
@@ -58,10 +341,29 @@ class ParsingTests(unittest.TestCase):
                     self.assertEqual(len(matches), 1)
                     self.assertIn(element["text"], " ".join(" ".join(matches[0].itertext()).split()))
                 self.assertEqual(sidecar["metadata_origins"]["source.version"]["origin"], "manifest")
+                self.assertEqual(sidecar["metadata_origins"]["source.id"]["origin"], "manifest")
+                self.assertEqual(sidecar["metadata_origins"]["html.content_selector"]["origin"], "parsing_config")
                 self.assertEqual(len(sidecar["elements"]), len(bundle["elements"]))
             l1 = json.loads((Path(report["outcomes"][0]["output"]) / "artifact-bundle.json").read_text())
             self.assertEqual({element["location"].get("clause") for element in l1["elements"]
                               if "clause" in element["location"]}, {"1°", "2°"})
+
+    def test_html_source_override_preserves_article_location(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
+            config.update(root=str(ROOT), manifest_ids=["L1"])
+            config["parsing"]["html"] = {"content_selector": "main", "source_overrides": {
+                "L1": {"content_selector": "article.js-article-content-to-copy", "article_id": "test-article"}}}
+            path = root / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            outcome = parse_collection(path, root / "output")["outcomes"][0]
+            self.assertEqual(outcome["status"], "parsed")
+            folder = Path(outcome["output"])
+            bundle = json.loads((folder / "artifact-bundle.json").read_text())
+            sidecar = json.loads((folder / "parse.json").read_text())
+            self.assertTrue(all(e["location"]["article_id"] == "test-article" for e in bundle["elements"]))
+            self.assertEqual(sidecar["metadata_origins"]["html.article_id"]["origin"], "parsing_config")
 
     def test_markdown_and_docx_preserve_order_tables_and_locations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -102,12 +404,24 @@ class ParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             good = _fixture(root, "good.md", "text/markdown", "# Heading\n\nText.\n")
-            missing = dict(good, id="missing.md", local_path="missing.md")
+            missing = dict(good, manifest_id="missing.md", local_path="missing.md")
             config = _config(root, [missing, good])
             report = parse_collection(config, root / "output")
             self.assertEqual([item["status"] for item in report["outcomes"]], ["failed", "parsed"])
             self.assertEqual(report["outcomes"][0]["error"]["code"], "missing_file")
             self.assertTrue((root / "output" / "report.json").is_file())
+
+    def test_cli_source_must_be_in_configured_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = _fixture(root, "first.md", "text/markdown", "# First\n")
+            second = _fixture(root, "second.md", "text/markdown", "# Second\n")
+            config_path = _config(root, [first, second])
+            config = json.loads(config_path.read_text())
+            config["manifest_ids"] = ["first.md"]
+            config_path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError, "not configured"):
+                parse_collection(config_path, root / "output", ["second.md"])
 
     def test_repeated_runs_keep_separate_reports(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -220,6 +534,21 @@ class ParsingTests(unittest.TestCase):
             self.assertEqual(outcome["warnings"][0]["code"], "unlocated_block")
             bundle = json.loads((Path(outcome["output"]) / "artifact-bundle.json").read_text())
             self.assertEqual(len(bundle["elements"]), 1)
+
+    def test_documented_ocr_exclusion_does_not_make_parse_partial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = _fixture(root, "sample.md", "text/markdown", "# Located\n")
+            config = _config(root, [entry])
+            item = {"kind": "heading", "text": "Located", "locator_key": "markdown:line-1:block-0",
+                    "location": {"format": "markdown", "heading_path": ["Located"],
+                                 "line_start": 1, "line_end": 1},
+                    "parent_key": None, "details": {}}
+            warning = {"code": "excluded_picture_ocr_fragments", "refs": ["#/texts/0"]}
+            with patch.dict(PARSERS, {"markdown": (lambda *_args: ([item], None, [warning]), "fixture")}):
+                outcome = parse_collection(config, root / "output")["outcomes"][0]
+            self.assertEqual(outcome["status"], "parsed")
+            self.assertEqual(outcome["warnings"], [warning])
 
     def test_markdown_code_block_keeps_text_and_lines(self):
         with tempfile.TemporaryDirectory() as directory:
