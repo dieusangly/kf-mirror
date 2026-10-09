@@ -10,4 +10,6 @@
 | 6. Contract | [Artifact schemas](artifact-schemas.md) | Records, IDs, evidence, and examples. |
 | 7. Ingestion | [Local ingestion](local-ingestion.md) | Task 3 inventory CLI. |
 | 8. Parsing | [Local parsing](local-parsing.md) | Parser setup, CLI, configuration, and outputs. |
-| 9. Quality | [Pilot parsing evaluation](pilot-parsing-evaluation.md) | Evaluation gate, checks, and usage. |
+| 9. Parsing evaluation | [Pilot parsing evaluation](pilot-parsing-evaluation.md) | Evaluation gate, checks, and usage. |
+| 10. Chunking | [Local chunking](local-chunking.md) | Task 5 CLI, configuration, evidence rules, and outputs. |
+| 11. Chunk evaluation | [Pilot chunking evaluation](pilot-chunking-evaluation.md) | Pilot quality gate and source-linked review workflow; supports new documents. |

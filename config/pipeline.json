@@ -2,6 +2,7 @@
   "root": "..",
   "manifest_file": "data/manifest.json",
   "manifest_ids": ["A", "T", "M", "L1", "L2"],
+  "chunking": {"max_tokens": 256},
   "parsing": {
     "pdf": {
       "backend": "docling_parse",
