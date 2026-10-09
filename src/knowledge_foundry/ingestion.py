@@ -132,7 +132,11 @@ def _ingest_entry(entry, root):
         }
         outcome.update(status="ingested", source=source, document=document)
     except IngestionError as exc:
-        outcome.update(status="failed", error={"code": exc.code, "message": str(exc)})
+        error = {"code": exc.code, "message": str(exc)}
+        if ("content_sha256" in outcome and isinstance(entry.get("sha256"), str)
+                and entry["sha256"] != outcome["content_sha256"]):
+            error["expected_sha256"] = entry["sha256"]
+        outcome.update(status="failed", error=error)
     except (OSError, TypeError, zipfile.BadZipFile) as exc:
         outcome.update(status="failed", error={"code": "read_error", "message": str(exc)})
     return outcome

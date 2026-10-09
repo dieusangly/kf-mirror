@@ -63,6 +63,7 @@ class IngestionTests(unittest.TestCase):
             config_path.write_text(json.dumps(config))
             outcome = ingest(config_path)["outcomes"][0]
             self.assertEqual(outcome["error"]["code"], "missing_source_metadata")
+            self.assertNotIn("expected_sha256", outcome["error"])
             config["manifest_ids"] = ["unknown"]
             config_path.write_text(json.dumps(config))
             with self.assertRaisesRegex(ValueError, "unknown configured manifest IDs"):
@@ -199,8 +200,22 @@ class IngestionTests(unittest.TestCase):
             config_path.write_text(json.dumps(config), encoding="utf-8")
             outcome = ingest(config_path)["outcomes"][0]
             self.assertEqual(outcome["error"]["code"], "hash_mismatch")
+            self.assertEqual(outcome["error"]["expected_sha256"], entry["sha256"])
+            self.assertEqual(outcome["content_sha256"], hashlib.sha256((root / "changed.pdf").read_bytes()).hexdigest())
             self.assertEqual(outcome["detected_format"], "pdf")
             self.assertNotIn("document", outcome)
+
+            entry["size_bytes"] += 1
+            (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": [entry]}), encoding="utf-8")
+            outcome = ingest(config_path)["outcomes"][0]
+            self.assertEqual(outcome["error"]["code"], "size_mismatch")
+            self.assertEqual(outcome["error"]["expected_sha256"], entry["sha256"])
+
+            entry["sha256"] = outcome["content_sha256"]
+            (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": [entry]}), encoding="utf-8")
+            outcome = ingest(config_path)["outcomes"][0]
+            self.assertEqual(outcome["error"]["code"], "size_mismatch")
+            self.assertNotIn("expected_sha256", outcome["error"])
 
 
 if __name__ == "__main__":
