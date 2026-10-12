@@ -264,16 +264,20 @@ def build_collection(config_path, input_dir, output_dir):
     result = {"schema_version": SCHEMA_VERSION, "sources": [], "documents": [],
               "elements": [], "chunks": [], "claims": [], "topics": [], "builds": []}
     figures = []
+    document_views = {}
     report = {"schema_version": SCHEMA_VERSION, "build_id": build_id,
               "settings": settings, "documents": []}
     for bundle, sidecar, folder in ordered:
+        document = bundle["documents"][0]
         result["sources"].extend(bundle["sources"])
         result["documents"].extend(bundle["documents"])
         result["elements"].extend(bundle["elements"])
         chunks, metrics = _chunk_document(bundle, sidecar, build_id, settings)
         result["chunks"].extend(chunks)
-        report["documents"].append({"source_id": bundle["sources"][0]["id"],
-                                    "document_id": bundle["documents"][0]["id"], **metrics})
+        document_report = {"source_id": bundle["sources"][0]["id"],
+                           "document_id": document["id"], **metrics}
+        report["documents"].append(document_report)
+        document_figures = []
         for item in sidecar["elements"]:
             asset = item.get("asset")
             if asset:
@@ -283,10 +287,18 @@ def build_collection(config_path, input_dir, output_dir):
                 file = folder / asset["path"]
                 if not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != asset["sha256"]:
                     raise ValueError(f"figure asset hash mismatch: {file}")
-                figures.append({"source_id": bundle["sources"][0]["id"],
-                                "document_id": bundle["documents"][0]["id"],
-                                "element_id": element["id"], "element_revision": element["revision"],
-                                "location": element["location"], "asset": {**asset, "path": str(file.relative_to(input_dir))}})
+                link = {"source_id": bundle["sources"][0]["id"],
+                        "document_id": document["id"],
+                        "element_id": element["id"], "element_revision": element["revision"],
+                        "location": element["location"], "asset": {**asset, "path": str(file.relative_to(input_dir))}}
+                figures.append(link)
+                document_figures.append(link)
+        document_views[document["id"]] = {
+            "view_version": 1, "build_id": build_id,
+            "source": bundle["sources"][0], "document": document,
+            "elements": bundle["elements"], "chunks": chunks,
+            "figure_links": document_figures, "report": document_report,
+        }
     result["builds"].append({"schema_version": SCHEMA_VERSION, "id": build_id,
                              "pipeline_version": PIPELINE_VERSION, "config_sha256": config_sha,
                              "input_document_ids": ids,
@@ -298,6 +310,20 @@ def build_collection(config_path, input_dir, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, value in (("artifact-bundle.json", result), ("figure-links.json", figures), ("report.json", report)):
         (output_dir / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    views_dir = output_dir / "documents"
+    for document_id, view in document_views.items():
+        folder = views_dir / document_id.removeprefix("doc:")
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "document-view.json").write_text(
+            json.dumps(view, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    current_folders = {document_id.removeprefix("doc:") for document_id in document_views}
+    for stale in sorted(views_dir.glob("*/document-view.json")):
+        if stale.parent.name not in current_folders:
+            stale.unlink()
+            try:
+                stale.parent.rmdir()
+            except OSError:
+                pass  # Leave a folder containing files that this stage does not own.
     return report
 
 

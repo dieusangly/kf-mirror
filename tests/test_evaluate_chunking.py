@@ -127,6 +127,16 @@ class ChunkEvaluationTests(unittest.TestCase):
             self.assertEqual(report["automatic_gate"], "pass")
             self.assertEqual(report["corpus"]["documents"], 1)
             self.assertTrue(all(item["metrics"]["max_tokens"] <= 64 for item in report["documents"]))
+            view_path = output / "documents" / doc_id.removeprefix("doc:") / "document-view.json"
+            view = json.loads(view_path.read_text(encoding="utf-8"))
+            view["chunks"][0]["text"] += " changed"
+            view_path.write_text(json.dumps(view), encoding="utf-8")
+            report = evaluate(output, input_dir, sample_count=2)
+            self.assertEqual(report["automatic_gate"], "fail")
+            self.assertIn("DOCUMENT_VIEW_MISMATCH", {item["code"] for item in report["findings"]})
+            view_path.unlink()
+            report = evaluate(output, input_dir, sample_count=2)
+            self.assertIn("DOCUMENT_VIEW_MISSING", {item["code"] for item in report["findings"]})
 
     @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
     def test_bundle_without_build_reports_failure(self):

@@ -313,6 +313,40 @@ def _apply_reviews(review, build_id, samples):
     return {"status": status, "reviewed": reviewed, "required": len(required), "failed": len(failed)}, findings
 
 
+def _audit_document_views(chunked_dir, bundle, build_report, links, chunks_by_doc):
+    """Check that each inspection view exactly mirrors the collection output."""
+    findings = {}
+    sources = {(item["id"], item["version"]): item for item in bundle["sources"]}
+    reports = {item["document_id"]: item for item in build_report.get("documents", [])}
+    expected_folders = set()
+    for document in bundle["documents"]:
+        document_id = document["id"]
+        folder_name = document_id.removeprefix("doc:")
+        expected_folders.add(folder_name)
+        path = chunked_dir / "documents" / folder_name / "document-view.json"
+        expected = {
+            "view_version": 1, "build_id": bundle["builds"][0]["id"],
+            "source": sources[(document["source_id"], document["source_version"])],
+            "document": document,
+            "elements": [item for item in bundle["elements"] if item["document_id"] == document_id],
+            "chunks": chunks_by_doc[document_id],
+            "figure_links": [item for item in links if item["document_id"] == document_id],
+            "report": reports.get(document_id),
+        }
+        try:
+            view = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            _finding(findings, "DOCUMENT_VIEW_MISSING", "error",
+                     {"document_id": document_id, "reason": str(exc)[:200]})
+            continue
+        if view != expected:
+            _finding(findings, "DOCUMENT_VIEW_MISMATCH", "error", {"document_id": document_id})
+    for path in sorted((chunked_dir / "documents").glob("*/document-view.json")):
+        if path.parent.name not in expected_folders:
+            _finding(findings, "DOCUMENT_VIEW_EXTRA", "error", {"folder": path.parent.name})
+    return list(findings.values())
+
+
 def evaluate(chunked_dir, parsed_dir, sample_count=12, reference_path=None, review_path=None,
              manifest_path=ROOT / "data/manifest.json"):
     """Return a deterministic report; never mutate parsing or chunk artifacts."""
@@ -347,6 +381,8 @@ def evaluate(chunked_dir, parsed_dir, sample_count=12, reference_path=None, revi
     chunks_by_doc = defaultdict(list)
     for chunk in bundle["chunks"]:
         chunks_by_doc[chunk["document_id"]].append(chunk)
+    for item in _audit_document_views(chunked_dir, bundle, build_report, links, chunks_by_doc):
+        findings[item["code"]] = item
     sidecars = {}
     documents = []
     for doc in bundle["documents"]:

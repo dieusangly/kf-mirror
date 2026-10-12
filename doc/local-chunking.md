@@ -6,15 +6,45 @@ The chunking step consumes saved parsing bundles and `parse.json` sidecars from 
 .venv/bin/python scripts/chunk.py --config config/pipeline.json
 ```
 
-`--input-dir` defaults to `artifacts/parsed`; `--output-dir` defaults to `artifacts/chunked`. In `config/pipeline.json`, `manifest_ids` contains short **manifest selectors** such as `A` and `T`. The chunker resolves each selector through `data/manifest.json` to a source ID, then requires exactly one matching parsed document for each selected source and no extras. Parsed document folders are named by full document ID without the `doc:` prefix, not by the short selector. A missing sidecar, invalid record link, figure asset, or schema contract stops the build.
+`--input-dir` defaults to `artifacts/parsed`; `--output-dir` defaults to `artifacts/chunked`. In `config/pipeline.json`, `manifest_ids` contains short **manifest selectors** such as `A` and `T`. The chunker resolves each selector through `data/manifest.json` to a source ID, then requires exactly one matching parsed document for each selected source and no extras. Parsed document folders are named by full document ID without the `doc:` prefix, not by the short selector. The build stops if a per-document sidecar (`parse.json`) is missing, a record link or schema is invalid, or a referenced figure asset is missing or fails its hash check.
 
 ## Output
 
-The command writes three deterministic files in `artifacts/chunked/`:
+The command writes three deterministic collection files in `artifacts/chunked/`:
 
 - `artifact-bundle.json`: source, document, element, chunk, and one complete build record. Claim and topic arrays and their build outputs are empty; those are downstream steps.
 - `figure-links.json`: figure element IDs, revisions, native locations, and verified visual asset links relative to the input directory. This file does not assert diagram relationships.
 - `report.json`: build ID, effective settings, and per-document element, duplicate, repetition, and chunk counts.
+
+It also writes `documents/<document-id-without-doc-prefix>/document-view.json` for each selected document. Each view copies that document's source and document records, elements, chunks, figure links, and metrics from the collection output. These files make one document easier to inspect; they are derived views, not standalone artifact-schema bundles. `artifact-bundle.json` remains the schema-valid collection artifact and the source of truth. The views use the same chunk IDs and build ID as the collection artifact. A rerun removes stale generated views for documents no longer selected.
+
+## Refresh one document
+
+Use the short manifest selector with the parser's `--source` option. Before parsing a changed file, record its current parsed folder name from `artifacts/parsed/documents/`. For example, after updating the saved file and its matching entry in `data/manifest.json` (`sha256`, `size_bytes`, and edition metadata such as `source_version`), parse source `A` only:
+
+```sh
+.venv/bin/python scripts/parse.py --config config/pipeline.json --source A
+```
+
+Parsing writes `A`'s parsed bundle and `parse.json` under `artifacts/parsed/documents/<document-id-without-doc-prefix>/`. The other four parsed document folders stay in place. The parser's latest `report.json` describes this subset run.
+
+If the file's bytes changed, its new document ID gives it a **new** parsed folder. After the new parse succeeds, move the old folder out of the active `artifacts/parsed/documents/` directory:
+
+```sh
+mkdir -p artifacts/parsed-history/documents
+mv artifacts/parsed/documents/OLD_DOCUMENT_HASH artifacts/parsed-history/documents/
+```
+
+Replace `OLD_DOCUMENT_HASH` with the folder name recorded before parsing. Keep exactly one parsed folder for each configured manifest source in the active input directory; otherwise chunking stops with a document-set mismatch. If the bytes did not change, the parser replaces the same folder and no move is needed.
+
+Then rebuild and evaluate the chunk collection:
+
+```sh
+.venv/bin/python scripts/chunk.py --config config/pipeline.json
+.venv/bin/python scripts/evaluate_chunking.py
+```
+
+Chunking currently has no `--source` option or incremental cache. It reads all five configured parsed documents, then rewrites the collection `artifacts/chunked/artifact-bundle.json`, `figure-links.json`, `report.json`, and every per-document `document-view.json`. The unchanged documents keep deterministic chunk content and IDs; the collection build ID changes when an input document ID changes. The evaluator checks the resulting collection. Add `--reference tests/fixtures/pilot_parsing_reference.json` only if its source-checked passages still apply to the revised edition. The previous chunk collection is overwritten; archive it with its matching parsed inputs if you need history. Automatic reuse of unchanged parsed or chunked outputs across editions belongs to the later repeat-build workflow.
 
 ## Configuration and version IDs
 

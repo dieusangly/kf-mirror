@@ -31,7 +31,7 @@ To evaluate outputs in other locations, pass their paths together:
   --output artifacts/chunked-new/chunking-evaluation-report.json
 ```
 
-- `--chunked-dir` points to the directory containing `artifact-bundle.json`, `figure-links.json`, and `report.json`. Its default is `artifacts/chunked/`.
+- `--chunked-dir` points to the directory containing `artifact-bundle.json`, `figure-links.json`, `report.json`, and per-document `documents/<document-id-without-doc-prefix>/document-view.json` files. Its default is `artifacts/chunked/`.
 - `--parsed-dir` points to the parsing output with `documents/<document-id-without-doc-prefix>/artifact-bundle.json` and `parse.json`, plus any linked figure assets. Its default is `artifacts/parsed/`.
 - `--manifest` points to the source inventory whose source IDs, versions, and hashes match the documents. It also supplies each saved source path for review. Its default is `data/manifest.json`. Use the manifest that was used to select and parse those documents.
 - `--output` sets the evaluation report filename; by default the report is written to the chunked directory.
@@ -44,7 +44,7 @@ A pass requires:
 - complete, ordered coverage of authoritative element text through body spans, without auxiliary or structural elements as independent evidence;
 - exact reconstruction of chunk text from cited source spans, including heading context;
 - token-limit, section, list-item, and table-boundary rules; and
-- verified figure asset links. If `--reference` is supplied, each source-checked passage must appear in a chunk citing the expected source page.
+- verified figure asset links and per-document inspection views that exactly match the collection output. If `--reference` is supplied, each source-checked passage must appear in a chunk citing the expected source page.
 
 Findings have codes, counts, and up to five examples. Per-document metrics include short and near-limit chunks, split tables, split oversized list items, and token-size distribution. The corpus section totals the main metrics. The report has no timestamp, so the same inputs produce byte-identical output.
 
@@ -78,5 +78,7 @@ Change each `status` from `pending` to `pass` or `fail`; add a nonempty `notes` 
 ```
 
 The review file must name the current build ID and sampled chunk IDs. A changed chunk build makes an old review file stale. `review_gate` is `pending`, `pass`, or `fail`; overall `gate` is `pending_review`, `pass`, or `fail`. Exit code `0` means the automatic gate passed with no recorded review failure; `--require-review` also requires all sampled reviews to pass. Exit code `1` means a failed gate, and `2` means invalid input. The report is written for gate failures. The evaluator does not use an LLM or make legal judgments automatically.
+
+For a Codex-assisted source review, use the [chunking reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer) in a new session. It follows the review file and gate workflow above.
 
 Retrieval relevance against questions, ranking metrics, and answer support belong to the downstream [retrieval evaluation step](knowledge-foundry-implementation-plan.md). This gate checks chunk artifacts before claim generation and supplies passages for targeted manual review.

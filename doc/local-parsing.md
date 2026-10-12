@@ -62,7 +62,7 @@ Parsed files live in `documents/<document-hash>/`. The folder name is the docume
 
 PDF text with multiple Docling provenance entries is split using each entry's `charspan`, so each element contains only text supported by its page and box. Heading levels use explicit numbering and document-index indentation where those cues resolve a parent; unresolved headings remain conservative. `parse.json` warnings identify excluded graphical fragments, corrupt OCR, publisher furniture, uncertain visual labels, and any unresolved document-flow text by source reference.
 
-Re-parsing replaces that document's folder; historical reports remain.
+Re-parsing with the same source ID and saved bytes replaces the folder for that document ID; the latest parsing report describes the new run. If the saved bytes change, the content hash produces a new document ID and a new folder, while the old parsed folder remains. See [refresh one document](local-chunking.md#refresh-one-document) for the steps to build a current chunk collection from that new edition.
 
 ## Limits
 

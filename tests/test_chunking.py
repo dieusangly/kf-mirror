@@ -181,9 +181,13 @@ class ChunkingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first"
             second = Path(directory) / "second"
+            stale = first / "documents" / "stale" / "document-view.json"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("{}", encoding="utf-8")
             config = ROOT / "config/pipeline.json"
             report = build_collection(config, PARSED, first)
             build_collection(config, PARSED, second)
+            self.assertFalse(stale.exists())
             for name in ("artifact-bundle.json", "figure-links.json", "report.json"):
                 self.assertEqual((first / name).read_bytes(), (second / name).read_bytes(), name)
             result = json.loads((first / "artifact-bundle.json").read_text(encoding="utf-8"))
@@ -192,6 +196,19 @@ class ChunkingTests(unittest.TestCase):
             self.assertEqual(len(result["builds"]), 1)
             self.assertEqual(result["builds"][0]["status"], "complete")
             self.assertEqual(sum(item["chunks"] for item in report["documents"]), len(result["chunks"]))
+            figure_links = json.loads((first / "figure-links.json").read_text(encoding="utf-8"))
+            for document in result["documents"]:
+                relative = Path("documents") / document["id"].removeprefix("doc:") / "document-view.json"
+                self.assertEqual((first / relative).read_bytes(), (second / relative).read_bytes())
+                view = json.loads((first / relative).read_text(encoding="utf-8"))
+                self.assertEqual(view["build_id"], result["builds"][0]["id"])
+                self.assertEqual(view["document"], document)
+                self.assertEqual(view["elements"], [item for item in result["elements"]
+                                                    if item["document_id"] == document["id"]])
+                self.assertEqual(view["chunks"], [item for item in result["chunks"]
+                                                  if item["document_id"] == document["id"]])
+                self.assertEqual(view["figure_links"], [item for item in figure_links
+                                                         if item["document_id"] == document["id"]])
             elements = {item["id"]: item for item in result["elements"]}
             used = {ref["element_id"] for chunk in result["chunks"] for ref in chunk["evidence"]}
             citations_by_element = {}
