@@ -5,6 +5,22 @@
   "provider": "openai",
   "model": "gpt-6.1-sol",
   "reasoning_effort": "medium",
+  "pricing": {
+    "model": "gpt-6.1-sol",
+    "short_context_limit_tokens": 272000,
+    "short_context_usd_per_million_tokens": {
+      "input": 2.0,
+      "cached_input": 0.1,
+      "cache_write": 2.5,
+      "output": 10.0
+    },
+    "long_context_usd_per_million_tokens": {
+      "input": 4.0,
+      "cached_input": 0.2,
+      "cache_write": 5.0,
+      "output": 15.0
+    }
+  },
   "generation_version": "claim-generation-v1",
   "classification_version": "topic-classification-v1"
 }

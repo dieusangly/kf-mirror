@@ -1,6 +1,6 @@
 # Local topic compilation
 
-Compilation consumes an existing reviewed Task 5 chunk bundle. It never parses,
+Compilation consumes an existing reviewed chunk bundle. It never parses,
 rechunks, or changes the input directory. It writes a new directory and refuses
 to overwrite one.
 
@@ -12,6 +12,11 @@ do not commit it. The default provider is the OpenAI Responses API and the
 default model is `gpt-6.1-sol` with `medium` reasoning effort. Both values are
 configured in `config/compilation.json` and are recorded through its build
 configuration digest.
+
+The configuration also contains a rate snapshot for the configured model. Update
+that snapshot when changing model, processing tier, or published pricing; the
+final CLI cost is an estimate derived from API-reported token usage and this
+snapshot, not an invoice total.
 
 Curate stable topic IDs in `config/topics-v1.json` before compiling. IDs must
 remain stable across builds; title or scope changes are taxonomy revisions, not
@@ -37,6 +42,11 @@ classifies each candidate separately. A candidate can cite several chunks, but
 each citation must select an existing chunk evidence reference with an exact
 element span. Bounded retries apply to each model request. The output reports
 failed batches and unclassified candidates without assigning them to a topic.
+
+Progress is printed coarsely to stderr at the start of each phase and at roughly
+10% intervals. At completion, stderr reports the elapsed seconds and the OpenAI
+cost estimate. The JSON report remains on stdout, so it can still be redirected
+or processed by another command.
 
 For a deterministic test run, set `provider` to `fixture` in a copied
 compilation config and supply a fixture response file with `--fixture`. Tests

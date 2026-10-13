@@ -25,6 +25,19 @@ def _output_text(response):
     raise OpenAIResponseError("OpenAI response has no output text")
 
 
+def _usage_record(response):
+    usage = response.get("usage")
+    details = usage.get("input_tokens_details", {}) if isinstance(usage, dict) else {}
+
+    def count(value):
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+    return {"input_tokens": count(usage.get("input_tokens")) if isinstance(usage, dict) else 0,
+            "cached_input_tokens": count(details.get("cached_tokens")),
+            "cache_write_tokens": count(details.get("cache_write_tokens")),
+            "output_tokens": count(usage.get("output_tokens")) if isinstance(usage, dict) else 0}
+
+
 class OpenAIResponsesTool:
     """Call the Responses API without making the SDK a runtime dependency."""
 
@@ -37,6 +50,7 @@ class OpenAIResponsesTool:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.url = url
         self.timeout = timeout
+        self.usage_records = []
         if not self.api_key:
             raise OpenAIResponseError("OPENAI_API_KEY is required for provider openai")
 
@@ -57,6 +71,7 @@ class OpenAIResponsesTool:
                 body = json.loads(response.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError) as exc:
             raise OpenAIResponseError(f"OpenAI request failed: {exc}") from exc
+        self.usage_records.append(_usage_record(body))
         try:
             return json.loads(_output_text(body))
         except json.JSONDecodeError as exc:

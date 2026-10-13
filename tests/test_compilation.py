@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from knowledge_foundry.compilation import ROOT, compile_bundle
+from knowledge_foundry.compilation import ROOT, _telemetry, compile_bundle
 from knowledge_foundry.openai_tools import DEFAULT_MODEL
 from scripts.validate_artifact_examples import check
 
@@ -22,6 +22,11 @@ class CompilationTests(unittest.TestCase):
     def _write_settings(self, directory, provider="fixture"):
         config = {"pipeline_version": "compilation-test-v1", "batch_size": 4, "retries": 0,
                   "provider": provider, "model": DEFAULT_MODEL, "reasoning_effort": "medium",
+                  "pricing": {"model": DEFAULT_MODEL, "short_context_limit_tokens": 272000,
+                              "short_context_usd_per_million_tokens": {"input": 2, "cached_input": 0.1,
+                                                                       "cache_write": 2.5, "output": 10},
+                              "long_context_usd_per_million_tokens": {"input": 4, "cached_input": 0.2,
+                                                                      "cache_write": 5, "output": 15}},
                   "generation_version": "claim-generation-test-v1",
                   "classification_version": "topic-classification-test-v1"}
         taxonomy = {"taxonomy_version": "taxonomy-test-v1", "topics": [
@@ -48,7 +53,9 @@ class CompilationTests(unittest.TestCase):
             fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             output = root / "compiled"
-            report = compile_bundle(chunked, output, config_path, taxonomy_path, fixture_path)
+            events = []
+            report = compile_bundle(chunked, output, config_path, taxonomy_path, fixture_path,
+                                    on_progress=events.append)
             self.assertEqual((report["status"], report["claims"], report["topics"]), ("complete", 1, 1))
             result = json.loads((output / "artifact-bundle.json").read_text(encoding="utf-8"))
             check(result)
@@ -61,6 +68,27 @@ class CompilationTests(unittest.TestCase):
             self.assertTrue((output / "topics" / "beneficial-ownership.json").is_file())
             self.assertTrue((output / "topics" / "beneficial-ownership.md").is_file())
             self.assertTrue((output / "build-manifest.json").is_file())
+            self.assertEqual([event["phase"] for event in events],
+                             ["generation", "generation", "generation", "classification", "classification",
+                              "export", "complete"])
+            self.assertEqual(events[-1]["telemetry"]["estimated_cost_usd"], 0)
+
+    def test_telemetry_uses_cached_and_long_context_pricing(self):
+        provider = type("Provider", (), {"model_id": DEFAULT_MODEL, "usage_records": [
+            {"input_tokens": 100, "cached_input_tokens": 20, "cache_write_tokens": 10, "output_tokens": 5},
+            {"input_tokens": 300000, "cached_input_tokens": 0, "cache_write_tokens": 0, "output_tokens": 10},
+        ]})()
+        config = {"provider": "openai", "pricing": {
+            "short_context_limit_tokens": 272000,
+            "short_context_usd_per_million_tokens": {"input": 2, "cached_input": 0.1,
+                                                       "cache_write": 2.5, "output": 10},
+            "long_context_usd_per_million_tokens": {"input": 4, "cached_input": 0.2,
+                                                      "cache_write": 5, "output": 15},
+        }}
+        telemetry = _telemetry(provider, config)
+        self.assertEqual(telemetry["usage"], {"input_tokens": 300100, "cached_input_tokens": 20,
+                                               "cache_write_tokens": 10, "output_tokens": 15})
+        self.assertAlmostEqual(telemetry["estimated_cost_usd"], 1.200367)
 
     def test_compiled_claim_requires_exact_span(self):
         bundle = self._input_bundle()

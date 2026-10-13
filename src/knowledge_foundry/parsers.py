@@ -1,4 +1,4 @@
-"""Format adapters producing source-located blocks for Task 4."""
+"""Format adapters producing source-located blocks for parsing."""
 
 import re
 from collections import Counter

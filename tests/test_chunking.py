@@ -287,7 +287,7 @@ class ChunkingTests(unittest.TestCase):
                                      for ref in chunk["evidence"] if "span" in ref))
         self.assertTrue(all(token_count(chunk["text"]) <= 32 for chunk in chunks))
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 4 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved parsed pilot artifacts are unavailable")
     def test_exact_duplicates_keep_distinct_t_locations(self):
         bundle, sidecar = parsed_source("src:tracfin-threat-report-tome-3")
         details = {item["element_id"]: item for item in sidecar["elements"]}
@@ -331,7 +331,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertNotIn(duplicate["id"], cited)
         self.assertEqual(metrics["exact_duplicates_removed"], 1)
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 4 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved parsed pilot artifacts are unavailable")
     def test_table_aggregate_splits_at_configured_limit(self):
         bundle, sidecar = parsed_source("src:tracfin-threat-report-tome-3")
         table = next(element for element in bundle["elements"] if element["kind"] == "table" and "\n" in element["text"])
@@ -345,7 +345,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertTrue(any("\n" in chunk["text"] for chunk in chunks))
         self.assertTrue(all({ref["element_id"] for ref in chunk["evidence"]} == {table["id"]} for chunk in chunks))
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 4 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved parsed pilot artifacts are unavailable")
     def test_sentence_moves_intact_to_next_chunk_when_it_fits_there(self):
         bundle, sidecar = parsed_source("src:cmf-L561-2-2")
         sample = copy.deepcopy(bundle)
@@ -363,7 +363,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual(citations[0]["span"], {"start": 0, "end": len(second["text"])})
         self.assertTrue(all(token_count(chunk["text"]) <= 32 for chunk in chunks))
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 4 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved parsed pilot artifacts are unavailable")
     def test_fitting_list_item_keeps_one_span_by_dropping_heading_context(self):
         bundle, sidecar = parsed_source("src:cmf-L561-2-2")
         sample = copy.deepcopy(bundle)
@@ -381,7 +381,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual(citations[0]["span"], {"start": 0, "end": len(item["text"])})
         self.assertTrue(all(token_count(chunk["text"]) <= 32 for chunk in chunks))
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 4 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved parsed pilot artifacts are unavailable")
     def test_pilot_schema_evidence_tables_figures_and_repeat_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first"

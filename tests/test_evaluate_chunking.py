@@ -100,7 +100,7 @@ class ChunkEvaluationTests(unittest.TestCase):
                                  [table], sidecar, 16, 1)
         self.assertEqual(result["findings"], [])
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_pilot_gate_reference_cases_and_review_sample(self):
         report = evaluate(CHUNKED, PARSED, reference_path=ROOT / "tests/fixtures/pilot_parsing_reference.json")
         self.assertEqual(report["automatic_gate"], "pass")
@@ -121,7 +121,7 @@ class ChunkEvaluationTests(unittest.TestCase):
         self.assertEqual(report, evaluate(CHUNKED, PARSED,
                                           reference_path=ROOT / "tests/fixtures/pilot_parsing_reference.json"))
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_detects_unsupported_text_and_missing_coverage(self):
         bundle = json.loads((CHUNKED / "artifact-bundle.json").read_text(encoding="utf-8"))
         doc = next(item for item in bundle["documents"] if item["source_id"] == "src:cmf-L561-2-2")
@@ -136,7 +136,7 @@ class ChunkEvaluationTests(unittest.TestCase):
         codes = {item["code"] for item in _audit_document(doc, source, chunks, elements, sidecar, 256, 1)["findings"]}
         self.assertIn("AUTHORITATIVE_TEXT_MISSING", codes)
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_figure_link_failure(self):
         bundle = json.loads((CHUNKED / "artifact-bundle.json").read_text(encoding="utf-8"))
         link = copy.deepcopy(json.loads((CHUNKED / "figure-links.json").read_text(encoding="utf-8"))[0])
@@ -223,7 +223,7 @@ class ChunkEvaluationTests(unittest.TestCase):
                                         "build:test", samples, loaded)
             self.assertEqual(summary["status"], "pass")
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_reference_failure_is_reported(self):
         bundle = json.loads((CHUNKED / "artifact-bundle.json").read_text(encoding="utf-8"))
         manifest = json.loads((ROOT / "data/manifest.json").read_text(encoding="utf-8"))
@@ -268,7 +268,7 @@ class ChunkEvaluationTests(unittest.TestCase):
             report = evaluate(output, input_dir, sample_count=2)
             self.assertIn("DOCUMENT_VIEW_MISSING", {item["code"] for item in report["findings"]})
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved Task 5 pilot artifacts are unavailable")
+    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_bundle_without_build_reports_failure(self):
         bundle = json.loads((CHUNKED / "artifact-bundle.json").read_text(encoding="utf-8"))
         bundle["chunks"] = []

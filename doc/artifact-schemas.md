@@ -4,7 +4,7 @@ The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines seven record t
 
 The bundle contains `schema_version` and seven arrays: `sources`, `documents`, `elements`, `chunks`, `claims`, `topics`, and `builds`. Nested definitions cover locations, evidence, generation, and spans.
 
-A **bundle** validates records from one or more saved files; it does not prescribe one JSON file per PDF. The [PDF example](../examples/artifact-bundle-pdf.json) samples one paragraph, chunk, draft claim, and draft topic from a 70-page file. Task 6 will define the export layout.
+A **bundle** validates records from one or more saved files; it does not prescribe one JSON file per PDF. The [PDF example](../examples/artifact-bundle-pdf.json) samples one paragraph, chunk, draft claim, and draft topic from a 70-page file. Compilation defines the export layout.
 
 The bundle and every record use `schema_version: "1.0.0"` for field layout, distinct from the publisher's document version.
 

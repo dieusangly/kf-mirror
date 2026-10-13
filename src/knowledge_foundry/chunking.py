@@ -439,7 +439,7 @@ def build_collection(config_path, input_dir, output_dir):
         sidecar = json.loads(path.with_name("parse.json").read_text(encoding="utf-8"))
         Draft202012Validator(SCHEMA, format_checker=FormatChecker()).validate(bundle)
         if len(bundle["sources"]) != 1 or len(bundle["documents"]) != 1 or any(bundle[key] for key in ("chunks", "claims", "topics", "builds")):
-            raise ValueError(f"expected one Task 4 parsing bundle: {path}")
+            raise ValueError(f"expected one parsed-document bundle: {path}")
         if sidecar["document_id"] != bundle["documents"][0]["id"] or path.parent.name != bundle["documents"][0]["id"].removeprefix("doc:"):
             raise ValueError(f"sidecar or folder document mismatch: {path}")
         ordered.append((bundle, sidecar, path.parent))

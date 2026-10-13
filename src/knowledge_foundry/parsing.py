@@ -403,7 +403,7 @@ def _print_progress(event):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Parse verified local documents into Task 4 artifacts")
+    parser = argparse.ArgumentParser(description="Parse verified local documents into source-linked artifacts")
     parser.add_argument("--config", required=True, type=Path, help="pipeline JSON configuration file")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/parsed"),
                         help="output directory (default: artifacts/parsed)")
