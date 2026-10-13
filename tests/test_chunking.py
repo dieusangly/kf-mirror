@@ -96,6 +96,48 @@ class ChunkingTests(unittest.TestCase):
         self.assertIn("Encadré", continuation["text"])
         self.assertNotIn("Note sur un autre passage", continuation["text"])
 
+    def test_numbered_footnote_paragraph_does_not_break_list_sentence_continuation(self):
+        chunks = self._small_document([
+            ("heading", "Encadré", 19, ["Encadré"]),
+            ("list_item", "65. Lorsqu'un organisme est sollicité, ce", 19, ["Encadré"]),
+            ("footnote", "54 Référence pour le passage précédent.", 19, ["Encadré"]),
+            ("paragraph", "55 Cette obligation relève d'une autre note", 19, ["Encadré"]),
+            ("footnote", "56 Autre référence.", 19, ["Encadré"]),
+            ("paragraph", "dernier peut être soumis à validation avant engagement.", 20,
+             ["Encadré"]),
+        ])
+        continuation = next(chunk for chunk in chunks if "dernier peut être soumis" in chunk["text"])
+        self.assertIn("65. Lorsqu'un organisme est sollicité, ce", continuation["text"])
+        self.assertNotIn("55 Cette obligation", continuation["text"])
+
+    def test_oversized_list_repeats_lead_for_every_item(self):
+        path = ["Conditions"]
+        items = [
+            "- first condition " + "alpha " * 14 + ";",
+            "- second condition " + "beta " * 14 + ";",
+            "- third condition " + "gamma " * 14 + ".",
+        ]
+        chunks = self._small_document([
+            ("heading", "Conditions", 1, path),
+            ("paragraph", "A person qualifies when one of these conditions applies:", 1, path),
+            *(("list_item", item, 1, path) for item in items),
+        ], 64)
+        for term in ("first condition", "second condition", "third condition"):
+            chunk = next(chunk for chunk in chunks if term in chunk["text"])
+            self.assertIn("one of these conditions applies", chunk["text"])
+
+    def test_oversized_list_keeps_lead_with_unmarked_lowercase_alternative(self):
+        path = ["Outcomes"]
+        chunks = self._small_document([
+            ("heading", "Outcomes", 1, path),
+            ("paragraph", "After review, the alert is:", 1, path),
+            ("list_item", "- closed after a documented assessment " + "with reasons " * 9 + ";", 1, path),
+            ("list_item", "- reported to the competent authority " + "after analysis " * 9 + ";", 1, path),
+            ("paragraph", "or subject to enhanced examination with supporting documents.", 1, path),
+        ], 48)
+        continuation = next(chunk for chunk in chunks if "or subject to enhanced" in chunk["text"])
+        self.assertIn("After review, the alert is", continuation["text"])
+
     def test_page_footnote_does_not_inherit_later_section_heading(self):
         chunks = self._small_document([
             ("heading", "New section", 1, ["New section"]),

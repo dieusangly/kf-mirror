@@ -552,6 +552,16 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
             "findings": list(findings.values())}
 
 
+def _write_review_seed(path, report):
+    """Create the pending review file for one newly evaluated chunk build."""
+    path = Path(path)
+    if path.exists():
+        raise FileExistsError(f"review file already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report["review_template"], ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunked-dir", type=Path, default=ROOT / "artifacts/chunked")
@@ -559,26 +569,39 @@ def main(argv=None):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sample-per-document", type=int,
                         help="override evaluation.chunking.sample_per_document in config/pipeline.json")
-    parser.add_argument("--reference", type=Path)
-    parser.add_argument("--review", type=Path)
+    parser.add_argument("--reference-fixture", type=Path)
+    parser.add_argument("--review-file", type=Path)
+    parser.add_argument("--initialize-review", nargs="?", type=Path, metavar="PATH", const=None,
+                        default=argparse.SUPPRESS,
+                        help="create a pending review file; default: <chunked-dir>/chunking-review.json")
     parser.add_argument("--review-policy", type=Path, default=DEFAULT_REVIEW_POLICY)
     parser.add_argument("--manifest", type=Path, default=ROOT / "data/manifest.json")
-    parser.add_argument("--require-review", action="store_true")
     args = parser.parse_args(argv)
     output = args.output or args.chunked_dir / "chunking-evaluation-report.json"
+    write_review = getattr(args, "initialize_review", None)
+    if hasattr(args, "initialize_review") and write_review is None:
+        write_review = args.chunked_dir / "chunking-review.json"
+    if write_review and args.review_file:
+        parser.error("--initialize-review cannot be used with --review-file")
+    if write_review and write_review.exists():
+        parser.error(f"review file already exists: {write_review}")
+    if write_review and write_review.resolve() == output.resolve():
+        parser.error("--initialize-review path must differ from --output")
     try:
         sample_count = (_read_sample_per_document() if args.sample_per_document is None
                         else args.sample_per_document)
         report = evaluate(args.chunked_dir, args.parsed_dir, sample_count,
-                          args.reference, args.review, args.manifest, args.review_policy)
+                          args.reference_fixture, args.review_file, args.manifest, args.review_policy)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if write_review:
+            _write_review_seed(write_review, report)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         parser.exit(2, f"chunk evaluation failed: {exc}\n")
     print(json.dumps({"automatic_gate": report["automatic_gate"],
                       "review_gate": report["review_gate"], "gate": report["gate"],
                       "report": str(output)}, ensure_ascii=False))
-    return 1 if report["gate"] == "fail" or args.require_review and report["gate"] != "pass" else 0
+    return 1 if report["gate"] == "fail" or args.review_file and report["gate"] != "pass" else 0
 
 
 if __name__ == "__main__":

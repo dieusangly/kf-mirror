@@ -19,7 +19,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from knowledge_foundry.ingestion import ingest
-from knowledge_foundry.parsers import parse_docx, parse_html, parse_markdown, parse_pdf
+from knowledge_foundry.parsers import build_pdf_converter, parse_docx, parse_html, parse_markdown, parse_pdf
 
 
 SCHEMA_VERSION = "1.0.0"
@@ -298,6 +298,7 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
               "config_sha256": settings_digest, "settings": settings, "outcomes": []}
     output_dir.mkdir(parents=True, exist_ok=True)
     total = len(outcomes)
+    pdf_converter = None
     for index, outcome in enumerate(outcomes, start=1):
         result = {"manifest_id": outcome["manifest_id"],
                   "local_path": outcome["local_path"]}
@@ -323,15 +324,22 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             parser, parser_name = PARSERS[format_name]
             parser_settings = dict(settings[format_name])
             selector_origin = None
+            reuse_pdf_converter = format_name == "pdf" and parser is parse_pdf
             if format_name == "pdf":
                 parser_settings["ocr"] = settings["ocr"]
+                if reuse_pdf_converter and pdf_converter is None:
+                    pdf_converter = build_pdf_converter(parser_settings)
             if format_name == "html":
                 overrides = parser_settings.pop("source_overrides")
                 selected_override = overrides.get(outcome["manifest_id"], {})
                 parser_settings.update(selected_override)
                 selector_origin = ("parsing_config" if "content_selector" in selected_override or
                                    "content_selector" in config.get("parsing", {}).get("html", {}) else "parser_default")
-            items, native, warnings = parser(local_path, source, parser_settings)
+            if reuse_pdf_converter:
+                items, native, warnings = parse_pdf(local_path, source, parser_settings,
+                                                     converter=pdf_converter)
+            else:
+                items, native, warnings = parser(local_path, source, parser_settings)
             if not items:
                 raise ValueError("parser produced no located elements")
             bundle, sidecar = _normalize(source, document, items)

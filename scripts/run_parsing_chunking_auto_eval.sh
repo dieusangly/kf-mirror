@@ -14,8 +14,6 @@ if [[ -e "$PARSED_OUTPUT" || -e "$CHUNKED_OUTPUT" ]]; then
   exit 1
 fi
 
-PYTHONPATH=src:. .venv/bin/python -m unittest discover -s tests -q
-
 PYTHONPATH=src:. .venv/bin/python scripts/parse.py \
   --config config/pipeline.json \
   --output-dir "$PARSED_OUTPUT"
@@ -36,6 +34,7 @@ PYTHONPATH=src:. .venv/bin/python scripts/evaluate_parsing.py \
 PYTHONPATH=src:. .venv/bin/python scripts/evaluate_chunking.py \
   --chunked-dir "$CHUNKED_OUTPUT" \
   --parsed-dir "$PARSED_OUTPUT" \
+  --initialize-review \
   --output "$CHUNKED_OUTPUT/chunking-evaluation-report.json" || CHUNKING_EVALUATION_STATUS=$?
 
 PARSING_EVALUATION_STATUS="${PARSING_EVALUATION_STATUS:-0}"

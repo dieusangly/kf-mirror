@@ -44,12 +44,12 @@ Then rebuild and evaluate the chunk collection:
 .venv/bin/python scripts/evaluate_chunking.py
 ```
 
-Chunking has no `--source` option or incremental cache: it rewrites the collection and views for all configured documents. Unchanged documents retain deterministic chunk IDs; an input document ID change changes the collection build ID. Add `--reference tests/fixtures/pilot_parsing_reference.json` only if its passages still apply. Archive the old collection with its parsed inputs before rebuilding if you need it; collection outputs are rewritten.
+Chunking has no `--source` option or incremental cache: it rewrites the collection and views for all configured documents. Unchanged documents retain deterministic chunk IDs; an input document ID change changes the collection build ID. Add `--reference-fixture tests/fixtures/pilot_parsing_reference.json` only if its passages still apply. Archive the old collection with its parsed inputs before rebuilding if you need it; collection outputs are rewritten.
 
 ## Configuration and version IDs
 
 - `chunking.max_tokens` must be at least 32; the default/pilot value is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
-- Build version `chunking-v1` and chunker version `structural-v2` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
+- Build version `chunking-v1` and chunker version `structural-v3` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
 - Outputs have no timestamps; identical inputs and settings produce identical bytes.
 
 ## Chunking rules

@@ -1,15 +1,18 @@
 """Focused checks for the reusable chunk-quality gate."""
 
 import copy
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from knowledge_foundry.chunking import ROOT, _chunk_document, build_collection, digest
 from scripts.evaluate_chunking import (
     _apply_reviews, _audit_document, _audit_figures, _audit_references,
-    _read_review_policy, _read_sample_per_document, evaluate,
+    _read_review_policy, _read_sample_per_document, _write_review_seed, evaluate, main,
 )
 
 
@@ -21,6 +24,34 @@ REVIEW_POLICY = json.loads((ROOT / "config/chunking-review-policy.json").read_te
 
 
 class ChunkEvaluationTests(unittest.TestCase):
+    def test_write_review_uses_default_path_and_refuses_overwrite(self):
+        report = {
+            "automatic_gate": "pass", "review_gate": "pending", "gate": "pending_review",
+            "review_template": {"build_id": "build:test", "reviews": [
+                {"chunk_id": "chunk:test", "status": "pending", "severity": None,
+                 "notes": "source inspection pending"}
+            ]},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            chunked = Path(directory) / "chunked"
+            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+                self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review"]), 0)
+            review_path = chunked / "chunking-review.json"
+            self.assertEqual(json.loads(review_path.read_text(encoding="utf-8")), report["review_template"])
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                main(["--chunked-dir", str(chunked), "--initialize-review"])
+            self.assertEqual(error.exception.code, 2)
+            with self.assertRaises(FileExistsError):
+                _write_review_seed(review_path, report)
+            custom_path = chunked / "custom-review.json"
+            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+                self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review",
+                                       str(custom_path)]), 0)
+            self.assertEqual(json.loads(custom_path.read_text(encoding="utf-8")), report["review_template"])
+            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+                self.assertEqual(main(["--chunked-dir", str(chunked), "--review-file",
+                                       str(review_path)]), 1)
+
     def test_sample_size_is_read_from_pipeline_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "pipeline.json"

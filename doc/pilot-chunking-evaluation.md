@@ -2,21 +2,33 @@
 
 The chunk-quality evaluator reads saved chunk and parse artifacts without changing them. It supports the pilot corpus and compatible new documents.
 
+## Two-stage workflow
+
+1. In a build session, run:
+
+   ```sh
+   scripts/run_parsing_chunking_auto_eval.sh
+   ```
+
+   It runs parsing, parsing evaluation, chunking, and initial automatic chunking evaluation, then reports a run ID and creates the pending review file.
+2. In a separate review session, use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer) with that run ID. The reviewer verifies the selected chunks against saved originals, updates only the review file, and runs the final policy evaluation. It must not run parsing, chunking, or the build script.
+
 ## Run it
 
 For the pilot, include its source-checked passages:
 
 ```sh
 .venv/bin/python scripts/evaluate_chunking.py \
-  --reference tests/fixtures/pilot_parsing_reference.json
+  --reference-fixture tests/fixtures/pilot_parsing_reference.json \
+  --initialize-review
 ```
 
 The default report is `artifacts/chunked/chunking-evaluation-report.json`. The fixture is a checked-in evaluation input with draft source-checked passages, not expert-approved legal labels; generated reports stay under `artifacts/`.
 
-For a new source without a reference fixture, omit `--reference`:
+For a new source without a reference fixture, omit `--reference-fixture`:
 
 ```sh
-.venv/bin/python scripts/evaluate_chunking.py
+.venv/bin/python scripts/evaluate_chunking.py --initialize-review
 ```
 
 Automatic checks need no pilot IDs but do require matching manifest, parse, and chunk artifacts. Without a source-checked reference, they cannot detect text the parser itself omitted.
@@ -44,7 +56,7 @@ A pass requires:
 - ordered coverage of authoritative text, with no auxiliary or structural text as independent evidence;
 - exact reconstruction from cited spans and heading context;
 - token, section, list, and table boundaries; and
-- valid figure links and views matching the collection. With `--reference`, each passage must appear with its expected source page.
+- valid figure links and views matching the collection. With `--reference-fixture`, each passage must appear with its expected source page.
 
 Findings have codes, counts, and up to five examples. Metrics cover chunk sizes, split tables/lists, and corpus totals. The report has no timestamp and is deterministic for the same inputs.
 
@@ -63,23 +75,19 @@ Each `review_sample` includes full text, selection reasons, source file/URL/vers
 - sentence, list, table, and footnote boundaries;
 - source support, exact location, and absence of unsupported visual claims.
 
-Copy the report's `review_template` to a separate file:
+The initial evaluation creates `chunking-review.json` when run with `--initialize-review`; without a path, it writes it in the chunked directory. `--initialize-review PATH` selects another path. It refuses to overwrite an existing review file.
 
-```sh
-.venv/bin/python -c 'import json; r=json.load(open("artifacts/chunked/chunking-evaluation-report.json")); print(json.dumps(r["review_template"], ensure_ascii=False, indent=2))' > artifacts/chunked/chunking-review.json
-```
-
-Set each status to `pass`, `fail`, or `pending` after source review. Pending and failed samples need source-located `notes`; failures also need `severity`: `critical` for materially wrong text/citation/table association, `major` for misleading missing context, or `minor` for limited context/serialization defects without a meaning change. Then run:
+Set each status in that file to `pass`, `fail`, or `pending` after source review. Pending and failed samples need source-located `notes`; failures also need `severity`: `critical` for materially wrong text/citation/table association, `major` for misleading missing context, or `minor` for limited context/serialization defects without a meaning change. When a reference fixture applies, pass `--reference-fixture` to both evaluator runs: it supplies the automatic reference checks in each run, while `--review-file` separately adds the human-review policy gate. Then run:
 
 ```sh
 .venv/bin/python scripts/evaluate_chunking.py \
-  --reference tests/fixtures/pilot_parsing_reference.json \
-  --review artifacts/chunked/chunking-review.json --require-review
+  --reference-fixture tests/fixtures/pilot_parsing_reference.json \
+  --review-file artifacts/chunked/chunking-review.json
 ```
 
 The file must preserve the current build ID and every sampled chunk ID; a new build makes it stale. The [review policy](../config/chunking-review-policy.json) (or `--review-policy`) requires **100% coverage**, pass rate ≥80%, weighted score ≥90, and zero critical failures. `review.to_review` counts samples; `review.reviewed` counts `pass` or `fail` statuses.
 
-Configured points are pass 10, minor 8, major 2, critical 0. `weighted_score = 100 × awarded points / (reviewed × pass points)`; points and the minimum are configurable. A critical failure fails regardless of score. `review_gate` is `pending`, `pass`, or `fail`; overall `gate` is `pending_review`, `pass`, or `fail`. With `--require-review`, exit `0` requires both gates to pass; without it, a pending review can still return `0`. Exit `1` means a failed gate, and `2` invalid input. Failed-gate reports are still written. The evaluator makes no automatic legal judgment.
+Configured points are pass 10, minor 8, major 2, critical 0. `weighted_score = 100 × awarded points / (reviewed × pass points)`; points and the minimum are configurable. A critical failure fails regardless of score. `review_gate` is `pending`, `pass`, or `fail`; overall `gate` is `pending_review`, `pass`, or `fail`. Without `--review-file`, a pending review can return exit `0`; with it, exit `0` requires both gates to pass. Exit `1` means a failed gate or pending supplied review, and `2` invalid input. Failed-gate reports are still written. The evaluator makes no automatic legal judgment.
 
 For Codex-assisted review, use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer) in a new session.
 

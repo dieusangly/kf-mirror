@@ -6,7 +6,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from docx import Document
 from jsonschema import Draft202012Validator, FormatChecker
@@ -45,6 +45,19 @@ def _config(root, entries):
 
 
 class ParsingTests(unittest.TestCase):
+    def test_parse_pdf_uses_supplied_converter(self):
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter(()), pages={},
+                                   export_to_dict=lambda: {"texts": [], "pictures": [],
+                                                          "tables": [], "groups": []})
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status="success", document=document)
+        with patch("docling.document_converter.DocumentConverter") as factory:
+            items, _native, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}},
+                                                 converter=converter)
+        factory.assert_not_called()
+        converter.convert.assert_called_once_with(Path("unused.pdf"))
+        self.assertEqual((items, warnings), ([], []))
+
     def test_pdf_table_serializes_cells_once_and_preserves_empty_columns(self):
         def cell(row, column, value):
             return SimpleNamespace(start_row_offset_idx=row,

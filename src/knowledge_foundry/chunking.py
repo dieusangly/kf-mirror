@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
 PIPELINE_VERSION = "chunking-v1"
-CHUNKER_VERSION = "structural-v2"
+CHUNKER_VERSION = "structural-v3"
 TOKEN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 SENTENCE_END = re.compile(r"(?<=[.!?;])\s+", re.UNICODE)
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
@@ -190,9 +190,11 @@ def _chunk_document(bundle, sidecar, build_id, settings):
     pending = []
     section = None
     active_lead = None
+    active_lead_is_oversized = False
     compact_lead = None
     first_numbered = None
     last_flow = None
+    previous_authoritative = None
     step_reference = None
     seen = set()
     metrics = {"authoritative_elements": 0, "structural_elements": 0,
@@ -262,6 +264,12 @@ def _chunk_document(bundle, sidecar, build_id, settings):
                    cleaned.endswith((":", ",", "…")) and
                    following is not None and following["kind"] == "list_item" and
                    tuple(info[following["id"]].get("heading_path") or []) == path)
+        is_unmarked_list_continuation = (
+            active_lead is not None and element["kind"] == "paragraph" and
+            last_flow is not None and last_flow["kind"] == "list_item" and
+            tuple(info[last_flow["id"]].get("heading_path") or []) == path and
+            re.match(r"^[a-zà-ÿ]", cleaned)
+        )
         is_subheading = (element["kind"] == "list_item" and following is not None and
                          following["kind"] == "paragraph" and token_count(cleaned) <= 32 and
                          not cleaned.endswith((".", ";", ":", "?", "!")) and
@@ -270,17 +278,21 @@ def _chunk_document(bundle, sidecar, build_id, settings):
             if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
                 emit()
             active_lead = element if is_lead else None
+            active_lead_is_oversized = False
             compact_lead = None
         elif (active_lead and active_lead["kind"] == "list_item" and
               element["kind"] == "list_item" and re.match(r"^\d+[.)]\s", cleaned)):
             if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
                 emit()
             active_lead = None
+            active_lead_is_oversized = False
             compact_lead = None
-        elif active_lead and element["kind"] not in {"list_item", "footnote"}:
+        elif (active_lead and element["kind"] not in {"list_item", "footnote"} and
+              not is_unmarked_list_continuation):
             if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
                 emit()
             active_lead = None
+            active_lead_is_oversized = False
             compact_lead = None
         if is_table and any(kind != "heading" for kind in pending_body_kinds()):
             emit()  # A table starts independently of preceding prose.
@@ -305,12 +317,23 @@ def _chunk_document(bundle, sidecar, build_id, settings):
             group_tokens = sum(token_count(clean(item["text"])) for item in group)
             full_tokens = group_tokens + sum(token_count(clean(item["text"])) for item in context)
             short_tokens = group_tokens + (token_count(clean(context[-1]["text"])) if context else 0)
+            active_lead_is_oversized = group_tokens > maximum
             if full_tokens > maximum >= short_tokens:
                 compact_lead = element["id"]
+        if (active_lead_is_oversized and active_lead and
+                (element["kind"] == "list_item" or is_unmarked_list_continuation) and
+                any("span" in ref and ref["element_id"] != active_lead["id"]
+                    for _, ref in pending)):
+            # A lead such as "one of the following conditions" must not govern
+            # only an unlabeled subset of an oversized list. Start every item or
+            # unmarked continuation with the cited governing lead instead.
+            emit()
         if compact_lead and active_lead and compact_lead == active_lead["id"]:
             context = context[-1:]
         extra_context = []
         if element["kind"] == "list_item" and active_lead and active_lead["id"] != element["id"]:
+            extra_context.append(active_lead)
+        elif is_unmarked_list_continuation:
             extra_context.append(active_lead)
         if element["kind"] == "list_item" and re.match(r"^1\s", cleaned):
             first_numbered = element
@@ -322,7 +345,7 @@ def _chunk_document(bundle, sidecar, build_id, settings):
         step_number = re.match(r"^(\d+)[.)\s]", cleaned) if element["kind"] == "list_item" else None
         if step_reference and step_number and int(step_number.group(1)) == step_reference[0]:
             extra_context.insert(0, step_reference[1])
-        if (element["kind"] == "paragraph" and last_flow and
+        if (element["kind"] == "paragraph" and not is_unmarked_list_continuation and last_flow and
                 last_flow["kind"] in {"paragraph", "list_item"} and
                 last_flow["location"].get("format") == element["location"].get("format") == "pdf" and
                 element["location"].get("page", 0) - last_flow["location"].get("page", 0) in {0, 1} and
@@ -387,8 +410,13 @@ def _chunk_document(bundle, sidecar, build_id, settings):
                 if token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
                     raise ValueError("split passage exceeds fresh chunk budget")
                 pending.append((part, _reference(element, source_id, span)))
-        if element["kind"] not in {"heading", "footnote", "table"}:
+        footnote_like_paragraph = (
+            element["kind"] == "paragraph" and previous_authoritative and
+            previous_authoritative["kind"] == "footnote" and re.match(r"^\d+\s", cleaned)
+        )
+        if element["kind"] not in {"heading", "footnote", "table"} and not footnote_like_paragraph:
             last_flow = element
+        previous_authoritative = element
         if element["kind"] == "paragraph":
             mentioned_step = re.search(r"\b(?:point|étape)\s+(\d+)\b", cleaned, re.I)
             if mentioned_step:

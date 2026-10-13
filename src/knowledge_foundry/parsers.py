@@ -639,7 +639,8 @@ def parse_docx(path, _source, _options):
     return items, None, []
 
 
-def parse_pdf(path, _source, options):
+def build_pdf_converter(options):
+    """Create one configured Docling converter for a sequential parse run."""
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -661,7 +662,12 @@ def parse_pdf(path, _source, options):
             tesseract_cmd=ocr.get("tesseract_cmd", "tesseract"),
             path=ocr.get("tessdata_path"),
         )
-    converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline)})
+    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline)})
+
+
+def parse_pdf(path, _source, options, converter=None):
+    """Parse one PDF, optionally reusing a converter created for this run."""
+    converter = converter or build_pdf_converter(options)
     result = converter.convert(path)
     if str(result.status).lower().split(".")[-1] != "success":
         raise ValueError(f"Docling conversion status: {result.status}")
