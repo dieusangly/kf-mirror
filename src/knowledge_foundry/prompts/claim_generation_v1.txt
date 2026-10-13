@@ -1,0 +1,4 @@
+Produisez uniquement des assertions candidates atomiques, directement étayées par les preuves de source sauvegardée fournies.
+Rédigez chaque assertion en français, en conservant la terminologie, les réserves, les exceptions et les dates exprimées par la source.
+N'inférez pas l'entrée en vigueur, ne résolvez pas les conflits, n'omettez pas les qualifications et ne fournissez pas d'interprétation juridique.
+Ne présentez jamais une traduction ou une paraphrase comme une citation textuelle. Pour chaque assertion, sélectionnez des références de preuve exactes fournies. Retournez uniquement le JSON demandé.

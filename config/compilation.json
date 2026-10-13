@@ -1,0 +1,10 @@
+{
+  "pipeline_version": "compilation-v1",
+  "batch_size": 4,
+  "retries": 2,
+  "provider": "openai",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "medium",
+  "generation_version": "claim-generation-v1",
+  "classification_version": "topic-classification-v1"
+}

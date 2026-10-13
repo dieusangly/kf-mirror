@@ -97,9 +97,12 @@ def check(bundle):
         require(claim["topic_id"] in records["topics"], "claim topic missing")
         chunks = [records["chunks"].get(chunk_id) for chunk_id in claim["chunk_ids"]]
         require(all(chunks), "claim chunk missing")
-        require(all(chunk["build_id"] == claim["build_id"] for chunk in chunks), "claim chunk build mismatch")
+        claim_build = records["builds"][claim["build_id"]]
+        require(all(chunk["document_id"] in claim_build["input_document_ids"] for chunk in chunks),
+                "claim chunk outside build inputs")
         supporting = {canonical_evidence([item]) for chunk in chunks for item in chunk["evidence"]}
         for evidence in claim["evidence"]:
+            require("span" in evidence, "claim evidence requires an exact span")
             check_evidence(evidence, records, {chunk["document_id"] for chunk in chunks})
             require(canonical_evidence([evidence]) in supporting, "claim evidence outside supporting chunks")
         expected = "claim:" + digest(claim["build_id"] + "\n" + canonical_evidence(claim["evidence"]) + "\n" + claim["text"])

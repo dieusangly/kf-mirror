@@ -820,7 +820,7 @@ def parse_pdf(path, _source, options, converter=None):
             details = {"docling_ref": ref, "docling_parent_ref": parent_ref,
                        "level": heading_level, "heading_path": heading_path,
                        "evidence_role": local_role,
-                       "provenance": "ocr_or_pdf_text" if pipeline.do_ocr else "pdf_text"}
+                       "provenance": "ocr_or_pdf_text" if options.get("ocr", {}).get("mode", "auto") != "off" else "pdf_text"}
             if checkbox_state:
                 details["checkbox_state"] = checkbox_state
             if annotation_figure is not None:

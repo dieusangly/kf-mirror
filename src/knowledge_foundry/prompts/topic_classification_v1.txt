@@ -1,0 +1,2 @@
+Attribuez l'assertion candidate fournie à un identifiant de thème organisé uniquement lorsque l'assertion étayée par les preuves correspond au périmètre indiqué ; sinon, retournez un topic_id nul.
+N'ajoutez ni résolution de conflit ni interprétation juridique. Retournez uniquement le JSON demandé.

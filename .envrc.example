@@ -1,0 +1,2 @@
+# Copy to .envrc and replace the placeholder locally. Never commit .envrc.
+export OPENAI_API_KEY="replace-with-your-openai-api-key"

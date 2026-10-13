@@ -1,0 +1,15 @@
+{
+  "taxonomy_version": "aml-cft-pilot-v1",
+  "topics": [
+    {
+      "id": "topic:beneficial-ownership",
+      "title": "Bénéficiaires effectifs",
+      "scope": "Identification, vérification et traitement des bénéficiaires effectifs."
+    },
+    {
+      "id": "topic:ongoing-vigilance",
+      "title": "Vigilance constante",
+      "scope": "Suivi des relations d'affaires et des opérations dans la durée."
+    }
+  ]
+}

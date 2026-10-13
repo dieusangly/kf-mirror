@@ -13,3 +13,4 @@
 | 9. Parsing evaluation | [Pilot parsing evaluation](pilot-parsing-evaluation.md) | Evaluation gate, checks, and usage. |
 | 10. Chunking | [Local chunking](local-chunking.md) | Task 5 CLI, configuration, evidence rules, and outputs. |
 | 11. Chunk evaluation | [Pilot chunking evaluation](pilot-chunking-evaluation.md) | Pilot quality gate and source-linked review workflow; supports new documents. |
+| 12. Topic compilation | [Local topic compilation](local-compilation.md) | Task 6 CLI, model setup, draft review, and exports. |
