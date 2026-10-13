@@ -19,7 +19,7 @@ class OpenAIToolsTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual((tool.model, payload["model"], payload["reasoning"]),
-                         ("gpt-6.1-sol", DEFAULT_MODEL, {"effort": "medium"}))
+                         ("gpt-6-luna", DEFAULT_MODEL, {"effort": "medium"}))
         self.assertEqual(value, {"topic_id": "topic:test"})
         self.assertEqual(tool.usage_records, [{"input_tokens": 100, "cached_input_tokens": 30,
                                                 "cache_write_tokens": 10, "output_tokens": 20}])

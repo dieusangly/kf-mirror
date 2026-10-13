@@ -16,7 +16,8 @@ def _print_progress(event):
     phase = event["phase"]
     if event["state"] == "started":
         if phase == "generation":
-            print(f"[compile] Input: {event['chunks']} chunks; generating claims in {event['total']} batches",
+            prefix = f"Sample: {event['chunks']}/{event['source_chunks']} chunks; " if event["sample"] else "Input: "
+            print(f"[compile] {prefix}generating claims in {event['total']}/{event['source_total']} batches",
                   file=sys.stderr, flush=True)
         elif phase == "classification":
             print(f"[compile] Classifying {event['total']} candidates", file=sys.stderr, flush=True)
@@ -37,6 +38,12 @@ def _print_summary(report, telemetry, elapsed):
     print(f"[compile] {report['status'].capitalize()} in {elapsed:.1f} s — {label}: "
           f"${telemetry['estimated_cost_usd']:.6f} ({telemetry['requests']} API requests)",
           file=sys.stderr, flush=True)
+    projection = report.get("projected_full_build")
+    if projection:
+        scope = report["compilation_scope"]
+        print(f"[compile] Projected full build from {len(scope['selected_batch_numbers'])}/"
+              f"{scope['total_batches']} sampled batches: ${projection['estimated_cost_usd']:.6f} (estimate)",
+              file=sys.stderr, flush=True)
 
 
 def main(argv=None):
@@ -47,6 +54,8 @@ def main(argv=None):
     parser.add_argument("--taxonomy", type=Path, default=ROOT / "config" / "topics-v1.json")
     parser.add_argument("--fixture", type=Path, help="deterministic fixture required by provider fixture")
     parser.add_argument("--review-file", type=Path)
+    parser.add_argument("--sample-batches", type=int,
+                        help="compile this many length-stratified claim-generation batches")
     args = parser.parse_args(argv)
     telemetry = None
 
@@ -59,7 +68,8 @@ def main(argv=None):
     started = time.monotonic()
     try:
         report = compile_bundle(args.chunked_dir, args.output_dir, args.config, args.taxonomy,
-                                args.fixture, args.review_file, on_progress=progress)
+                                args.fixture, args.review_file, on_progress=progress,
+                                sample_batches=args.sample_batches)
     except (OSError, ValueError) as exc:
         parser.exit(2, f"compilation failed: {exc}\n")
     _print_summary(report, telemetry, time.monotonic() - started)

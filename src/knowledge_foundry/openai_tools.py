@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-DEFAULT_MODEL = "gpt-6.1-sol"
+DEFAULT_MODEL = "gpt-6-luna"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
@@ -55,15 +55,8 @@ class OpenAIResponsesTool:
             raise OpenAIResponseError("OPENAI_API_KEY is required for provider openai")
 
     def json_response(self, *, instructions, input_text, schema_name, schema):
-        payload = {
-            "model": self.model,
-            "reasoning": {"effort": self.reasoning_effort},
-            "instructions": instructions,
-            "input": input_text,
-            "text": {"format": {"type": "json_schema", "name": schema_name,
-                                "strict": True, "schema": schema}},
-        }
-        request = Request(self.url, data=json.dumps(payload).encode("utf-8"), method="POST",
+        payload = self._payload(instructions, input_text, schema_name, schema)
+        request = Request(self.url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST",
                           headers={"Authorization": f"Bearer {self.api_key}",
                                    "Content-Type": "application/json"})
         try:
@@ -76,3 +69,17 @@ class OpenAIResponsesTool:
             return json.loads(_output_text(body))
         except json.JSONDecodeError as exc:
             raise OpenAIResponseError("OpenAI response was not JSON") from exc
+
+    def request_characters(self, *, instructions, input_text, schema_name, schema):
+        """Return Unicode character count for the exact JSON request payload."""
+        return len(json.dumps(self._payload(instructions, input_text, schema_name, schema), ensure_ascii=False))
+
+    def _payload(self, instructions, input_text, schema_name, schema):
+        return {
+            "model": self.model,
+            "reasoning": {"effort": self.reasoning_effort},
+            "instructions": instructions,
+            "input": input_text,
+            "text": {"format": {"type": "json_schema", "name": schema_name,
+                                "strict": True, "schema": schema}},
+        }

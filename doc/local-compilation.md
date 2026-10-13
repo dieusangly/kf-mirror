@@ -9,14 +9,19 @@ to overwrite one.
 Copy `.envrc.example` to `.envrc`, replace its placeholder with the local
 `OPENAI_API_KEY`, and load it with your shell or `direnv`. `.envrc` is ignored;
 do not commit it. The default provider is the OpenAI Responses API and the
-default model is `gpt-6.1-sol` with `medium` reasoning effort. Both values are
+default model is `gpt-6-luna` with `medium` reasoning effort. Both values are
 configured in `config/compilation.json` and are recorded through its build
 configuration digest.
 
-The configuration also contains a rate snapshot for the configured model. Update
-that snapshot when changing model, processing tier, or published pricing; the
-final CLI cost is an estimate derived from API-reported token usage and this
-snapshot, not an invoice total.
+The configuration's versioned rate catalogue contains entries for the available
+models. When changing `model`, select an existing entry or add its published
+rate card; do not replace historical rates. Each report records the model and
+specific rate card used. CLI costs are estimates derived from API-reported token
+usage and that card, not invoice totals.
+
+`batch_size_chunks` is the number of saved chunks sent in one claim-generation
+request (the pilot value is `4`). Topic classification remains one request per
+candidate claim.
 
 Curate stable topic IDs in `config/topics-v1.json` before compiling. IDs must
 remain stable across builds; title or scope changes are taxonomy revisions, not
@@ -37,6 +42,23 @@ Choose a fresh output directory:
   --output-dir artifacts/compiled-20261013-114244
 ```
 
+To inspect real claims and topic views before compiling all chunks, run a
+length-stratified sample in a different fresh directory:
+
+```sh
+.venv/bin/python scripts/compile_topics.py \
+  --chunked-dir artifacts/chunked-20261013-114244 \
+  --output-dir artifacts/compiled-sample-20261013-114244 \
+  --sample-batches 10
+```
+
+The sample selects ten original generation batches (up to forty chunks), spread
+across the cumulative character volume of the exact serialized generation
+requests. It makes real model calls and produces normal draft views, while
+retaining all input chunk records for lineage. Only its claims and topics come
+from the selected chunks. Its manifest and report identify it as a sample and
+its build ID differs from a full compilation.
+
 The compiler batches saved chunks, asks the model for atomic candidates, then
 classifies each candidate separately. A candidate can cite several chunks, but
 each citation must select an existing chunk evidence reference with an exact
@@ -47,6 +69,14 @@ Progress is printed coarsely to stderr at the start of each phase and at roughly
 10% intervals. At completion, stderr reports the elapsed seconds and the OpenAI
 cost estimate. The JSON report remains on stdout, so it can still be redirected
 or processed by another command.
+
+A sample also reports a projected whole-build cost. Generation cost is scaled
+from observed usage by the known serialized-request character volume of all
+batches; classification cost is scaled from the observed candidates and
+classification usage. It is an estimate: claim yield, output/reasoning tokens,
+and token-to-character ratios can vary. Use more sampled batches for a more
+representative estimate; do not multiply a short run's cost by the number of
+chunks.
 
 For a deterministic test run, set `provider` to `fixture` in a copied
 compilation config and supply a fixture response file with `--fixture`. Tests
@@ -61,7 +91,8 @@ The output directory contains:
 - `chunks.jsonl` and `claims.jsonl`: collection records suitable for streaming.
 - `topics/<topic-id>.json` and `.md`: draft inspection views.
 - `build-manifest.json`: input, taxonomy, prompt, configuration, and export
-  hashes; `report.json`: counts, provider failures, and unclassified candidates.
+  hashes; `report.json`: scope, applied rate card, usage, estimated cost,
+  provider failures, and unclassified candidates.
 
 All generated claims begin with both review statuses set to `draft`; topic views
 are also `draft`. A review file passed with `--review-file` may independently
