@@ -19,6 +19,19 @@ from scripts.validate_artifact_examples import check as validate_bundle  # noqa:
 
 EVALUATION_VERSION = "chunk-eval-v1"
 EXAMPLE_LIMIT = 5
+REVIEW_STATUSES = {"pending", "pass", "fail"}
+REVIEW_SEVERITIES = {"critical", "major", "minor"}
+DEFAULT_REVIEW_POLICY = ROOT / "config/chunking-review-policy.json"
+DEFAULT_PIPELINE_CONFIG = ROOT / "config/pipeline.json"
+
+
+def _read_sample_per_document(config_path=DEFAULT_PIPELINE_CONFIG):
+    """Read the reproducible source-review sample size from pipeline configuration."""
+    config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    sample_count = config.get("evaluation", {}).get("chunking", {}).get("sample_per_document")
+    if isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 1:
+        raise ValueError("evaluation.chunking.sample_per_document must be an integer >= 1")
+    return sample_count
 
 
 def _finding(findings, code, severity, example):
@@ -37,6 +50,12 @@ def _location_key(element):
     if location["format"] == "pdf" and "bbox" in location:
         return ("pdf", location["page"], tuple(location["bbox"]))
     return (element["locator_key"],)
+
+
+def _table_header_span(element):
+    """Return the first serialized table row, which may repeat as context."""
+    end = element["text"].find("\n")
+    return (0, len(element["text"]) if end < 0 else end)
 
 
 def _normalized(text):
@@ -125,6 +144,7 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
     body_refs = defaultdict(list)
     body_chunks = defaultdict(set)
     body_order = []
+    repeated_table_headers = set()
     sizes = []
     for chunk in chunks:
         size = token_count(chunk["text"])
@@ -139,6 +159,7 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
         paths = set()
         table_ids = set()
         non_table_ids = set()
+        body_seen = False
         for ref in chunk["evidence"]:
             element = ids.get(ref["element_id"])
             if element is None:
@@ -150,7 +171,7 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
                          {"chunk_id": chunk["id"], "element_id": element["id"], "role": detail.get("evidence_role")})
             span = ref.get("span")
             if span is None:
-                if element["kind"] != "heading":
+                if element["kind"] != "heading" and (body_seen or not body_refs[element["id"]]):
                     _finding(findings, "UNSPANNED_BODY", "error", {"chunk_id": chunk["id"], "element_id": element["id"]})
                 text = element["text"]
             else:
@@ -161,8 +182,16 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
                 text = element["text"][start:end]
                 body_refs[element["id"]].append((start, end, chunk["id"]))
                 body_chunks[element["id"]].add(chunk["id"])
-                body_order.append((element["ordinal"], start))
-                paths.add(tuple(detail.get("heading_path") or []))
+                header_context = (element["kind"] == "table" and
+                                  (start, end) == _table_header_span(element) and
+                                  element["id"] in repeated_table_headers)
+                if not header_context:
+                    body_order.append((element["ordinal"], start))
+                if element["kind"] == "table" and (start, end) == _table_header_span(element):
+                    repeated_table_headers.add(element["id"])
+                body_seen = True
+                if element["kind"] != "heading":
+                    paths.add(tuple(detail.get("heading_path") or []))
                 if element["kind"] == "table":
                     table_ids.add(element["id"])
                 elif element["kind"] != "heading":
@@ -204,7 +233,19 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
             _finding(findings, "AUTHORITATIVE_TEXT_MISSING", "error", {"element_id": element["id"]})
             continue
         metrics["covered_elements"] += 1
-        actual = [token for start, end, _ in refs for token in _tokens(clean(element["text"][start:end], table=is_table))]
+        coverage_refs = refs
+        if is_table:
+            header = _table_header_span(element)
+            header_seen = False
+            coverage_refs = []
+            for ref in refs:
+                if ref[:2] == header:
+                    if header_seen:
+                        continue
+                    header_seen = True
+                coverage_refs.append(ref)
+        actual = [token for start, end, _ in coverage_refs
+                  for token in _tokens(clean(element["text"][start:end], table=is_table))]
         expected = _tokens(source_text)
         if actual != expected:
             _finding(findings, "TEXT_COVERAGE", "error", {"element_id": element["id"],
@@ -292,25 +333,87 @@ def _audit_references(reference, manifest, docs, chunks, elements):
     return results, list(findings.values())
 
 
-def _apply_reviews(review, build_id, samples):
+def _read_review_policy(path):
+    """Load and validate the policy that turns reviewed samples into a gate."""
+    policy = json.loads(Path(path).read_text(encoding="utf-8"))
+    required = {
+        "policy_version", "minimum_review_pass_rate", "minimum_weighted_score",
+        "maximum_critical_failures", "review_points",
+    }
+    if set(policy) != required or not isinstance(policy["policy_version"], str):
+        raise ValueError("review policy has an invalid shape")
+    pass_rate = policy["minimum_review_pass_rate"]
+    if isinstance(pass_rate, bool) or not isinstance(pass_rate, (int, float)) or not 0 <= pass_rate <= 1:
+        raise ValueError("review policy minimum_review_pass_rate must be a number from 0 to 1")
+    minimum_score = policy["minimum_weighted_score"]
+    if (isinstance(minimum_score, bool) or not isinstance(minimum_score, (int, float)) or
+            not 0 <= minimum_score <= 100):
+        raise ValueError("review policy minimum_weighted_score must be a number from 0 to 100")
+    critical_limit = policy["maximum_critical_failures"]
+    if isinstance(critical_limit, bool) or not isinstance(critical_limit, int) or critical_limit < 0:
+        raise ValueError("review policy maximum_critical_failures must be a non-negative integer")
+    points = policy["review_points"]
+    if (not isinstance(points, dict) or set(points) != REVIEW_SEVERITIES | {"pass"} or
+            any(isinstance(value, bool) or not isinstance(value, (int, float))
+                for value in points.values()) or
+            not 0 <= points["critical"] < points["major"] < points["minor"] < points["pass"]):
+        raise ValueError("review policy review_points must satisfy 0 <= critical < major < minor < pass")
+    return policy
+
+
+def _apply_reviews(review, build_id, samples, policy):
+    to_review = len(samples)
+    empty = {"status": "pending", "reviewed": 0, "to_review": to_review,
+             "passed": 0, "failed": 0, "pending": to_review,
+             "review_coverage": 0.0, "review_pass_rate": None, "weighted_score": None,
+             "severity_counts": {severity: 0 for severity in sorted(REVIEW_SEVERITIES)},
+             "allowed_failures": {"critical": policy["maximum_critical_failures"]}}
     if review is None:
-        return {"status": "pending", "reviewed": 0, "required": len(samples), "failed": 0}, []
+        return empty, []
     if review.get("build_id") != build_id or not isinstance(review.get("reviews"), list):
         raise ValueError("review file must name the current build_id and a reviews array")
-    required = {item["chunk_id"] for item in samples}
+    sample_ids = {item["chunk_id"] for item in samples}
     seen = {}
     for item in review["reviews"]:
-        if (item.get("chunk_id") not in required or item["chunk_id"] in seen or
-                item.get("status") not in {"pending", "pass", "fail"} or
-                (item["status"] == "fail" and not str(item.get("notes", "")).strip())):
-            raise ValueError("reviews need unique sampled chunk IDs, pending/pass/fail status, and notes for failures")
+        status = item.get("status")
+        notes = str(item.get("notes", "")).strip()
+        if item.get("chunk_id") not in sample_ids or item["chunk_id"] in seen or status not in REVIEW_STATUSES:
+            raise ValueError("reviews need unique sampled chunk IDs and pending/pass/fail status")
+        if status in {"pending", "fail"} and not notes:
+            raise ValueError("pending and failed reviews need notes")
+        if status == "fail" and item.get("severity") not in REVIEW_SEVERITIES:
+            raise ValueError("failed reviews need critical, major, or minor severity")
         seen[item["chunk_id"]] = item
+    passed = sum(item["status"] == "pass" for item in seen.values())
     failed = [item for item in seen.values() if item["status"] == "fail"]
-    reviewed = sum(item["status"] != "pending" for item in seen.values())
-    status = "fail" if failed else "pass" if reviewed == len(required) else "pending"
-    findings = [{"code": "MANUAL_REVIEW_FAILED", "severity": "error", "count": len(failed),
-                 "examples": [{"chunk_id": item["chunk_id"], "notes": item["notes"]} for item in failed[:EXAMPLE_LIMIT]]}] if failed else []
-    return {"status": status, "reviewed": reviewed, "required": len(required), "failed": len(failed)}, findings
+    reviewed = passed + len(failed)
+    pending = to_review - reviewed
+    severity_counts = {severity: sum(item.get("severity") == severity for item in failed)
+                       for severity in sorted(REVIEW_SEVERITIES)}
+    allowed = {"critical": policy["maximum_critical_failures"]}
+    coverage = reviewed / to_review if to_review else 1.0
+    pass_rate = passed / reviewed if reviewed else None
+    points = policy["review_points"]
+    score = None if not reviewed else 100 * (
+        passed * points["pass"] + sum(
+            severity_counts[severity] * points[severity] for severity in REVIEW_SEVERITIES)
+    ) / (reviewed * points["pass"])
+    if pending:
+        status = "pending"
+    elif (pass_rate < policy["minimum_review_pass_rate"] or
+          score < policy["minimum_weighted_score"] or
+          severity_counts["critical"] > allowed["critical"]):
+        status = "fail"
+    else:
+        status = "pass"
+    findings = [{"code": "MANUAL_REVIEW_POLICY_FAILED", "severity": "error", "count": len(failed),
+                 "examples": [{"chunk_id": item["chunk_id"], "severity": item["severity"],
+                               "notes": item["notes"]} for item in failed[:EXAMPLE_LIMIT]]}] if status == "fail" else []
+    return {"status": status, "reviewed": reviewed, "to_review": to_review,
+            "passed": passed, "failed": len(failed), "pending": pending,
+            "review_coverage": coverage, "review_pass_rate": pass_rate,
+            "weighted_score": score, "severity_counts": severity_counts,
+            "allowed_failures": allowed}, findings
 
 
 def _audit_document_views(chunked_dir, bundle, build_report, links, chunks_by_doc):
@@ -347,17 +450,19 @@ def _audit_document_views(chunked_dir, bundle, build_report, links, chunks_by_do
     return list(findings.values())
 
 
-def evaluate(chunked_dir, parsed_dir, sample_count=12, reference_path=None, review_path=None,
-             manifest_path=ROOT / "data/manifest.json"):
+def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, review_path=None,
+             manifest_path=ROOT / "data/manifest.json", review_policy_path=DEFAULT_REVIEW_POLICY):
     """Return a deterministic report; never mutate parsing or chunk artifacts."""
     chunked_dir = Path(chunked_dir).resolve()
     parsed_dir = Path(parsed_dir).resolve()
+    sample_count = _read_sample_per_document() if sample_count is None else sample_count
     bundle = json.loads((chunked_dir / "artifact-bundle.json").read_text(encoding="utf-8"))
     build_report = json.loads((chunked_dir / "report.json").read_text(encoding="utf-8"))
     links = json.loads((chunked_dir / "figure-links.json").read_text(encoding="utf-8"))
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     if sample_count < 1:
         raise ValueError("sample-per-document must be >= 1")
+    policy = _read_review_policy(review_policy_path)
     findings = {}
     try:
         validate_bundle(bundle)
@@ -421,11 +526,13 @@ def evaluate(chunked_dir, parsed_dir, sample_count=12, reference_path=None, revi
             findings[item["code"]] = item
     samples = [sample for document in documents for sample in document["review_sample"]]
     review = json.loads(Path(review_path).read_text(encoding="utf-8")) if review_path else None
-    review_summary, review_findings = _apply_reviews(review, bundle["builds"][0]["id"], samples)
+    review_summary, review_findings = _apply_reviews(review, bundle["builds"][0]["id"], samples, policy)
     for item in review_findings:
         findings[item["code"]] = item
     document_errors = any(item["severity"] == "error" for doc in documents for item in doc["findings"])
-    automatic_gate = "fail" if document_errors or any(item["severity"] == "error" for item in findings.values() if item["code"] != "MANUAL_REVIEW_FAILED") else "pass"
+    automatic_gate = "fail" if document_errors or any(
+        item["severity"] == "error" for item in findings.values()
+        if item["code"] != "MANUAL_REVIEW_POLICY_FAILED") else "pass"
     gate = "fail" if automatic_gate == "fail" or review_summary["status"] == "fail" else "pass" if review_summary["status"] == "pass" else "pending_review"
     corpus = {"documents": len(documents), "chunks": sum(item["metrics"]["chunks"] for item in documents),
               "authoritative_elements": sum(item["metrics"]["authoritative_elements"] for item in documents),
@@ -437,9 +544,10 @@ def evaluate(chunked_dir, parsed_dir, sample_count=12, reference_path=None, revi
             "automatic_gate": automatic_gate, "review_gate": review_summary["status"],
             "gate": gate, "max_tokens": maximum, "corpus": corpus, "documents": documents,
             "figures": {key: figure_audit[key] for key in ("expected", "linked")},
-            "references": references, "review": review_summary,
+            "references": references, "review_policy": policy, "review": review_summary,
             "review_template": {"build_id": bundle["builds"][0]["id"],
-                                "reviews": [{"chunk_id": item["chunk_id"], "status": "pending", "notes": ""}
+                                "reviews": [{"chunk_id": item["chunk_id"], "status": "pending",
+                                             "severity": None, "notes": "source inspection pending"}
                                             for item in samples]},
             "findings": list(findings.values())}
 
@@ -449,16 +557,20 @@ def main(argv=None):
     parser.add_argument("--chunked-dir", type=Path, default=ROOT / "artifacts/chunked")
     parser.add_argument("--parsed-dir", type=Path, default=ROOT / "artifacts/parsed")
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--sample-per-document", type=int, default=12)
+    parser.add_argument("--sample-per-document", type=int,
+                        help="override evaluation.chunking.sample_per_document in config/pipeline.json")
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--review", type=Path)
+    parser.add_argument("--review-policy", type=Path, default=DEFAULT_REVIEW_POLICY)
     parser.add_argument("--manifest", type=Path, default=ROOT / "data/manifest.json")
     parser.add_argument("--require-review", action="store_true")
     args = parser.parse_args(argv)
     output = args.output or args.chunked_dir / "chunking-evaluation-report.json"
     try:
-        report = evaluate(args.chunked_dir, args.parsed_dir, args.sample_per_document,
-                          args.reference, args.review, args.manifest)
+        sample_count = (_read_sample_per_document() if args.sample_per_document is None
+                        else args.sample_per_document)
+        report = evaluate(args.chunked_dir, args.parsed_dir, sample_count,
+                          args.reference, args.review, args.manifest, args.review_policy)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError, KeyError, TypeError) as exc:

@@ -17,6 +17,7 @@ from validate_artifact_examples import check as validate_bundle
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from knowledge_foundry.parsers import (  # noqa: E402
+    _pdf_text,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
 )
 
@@ -46,7 +47,7 @@ METRIC_KEYS = ("source_text_checked", "source_text_lost", "duplicate_content_gro
 
 
 def normalized(text):
-    text = unicodedata.normalize("NFKD", text).casefold()
+    text = unicodedata.normalize("NFKD", _pdf_text(text)).casefold()
     text = "".join(char for char in text if not unicodedata.combining(char))
     return " ".join("".join(char if char.isalnum() else " " for char in text).split())
 
@@ -90,6 +91,12 @@ def audit_document(outcome, elements, sidecar, folder):
 
     ids = {element["id"]: element for element in elements}
     details = {detail["element_id"]: detail for detail in sidecar}
+    repeated_pages = defaultdict(set)
+    page_counts = Counter()
+    for element in elements:
+        if element["location"].get("format") == "pdf":
+            repeated_pages[normalized(element["text"])].add(element["location"].get("page"))
+            page_counts[element["location"].get("page")] += 1
     if len(elements) != len(sidecar) or set(ids) != set(details):
         flag("SIDECAR_MISMATCH", "error", {"elements": len(elements), "sidecar": len(sidecar)})
     by_ref = defaultdict(list)
@@ -111,7 +118,27 @@ def audit_document(outcome, elements, sidecar, folder):
         auxiliary = (detail.get("evidence_role") == "auxiliary" and parent_id in ids and
                      ids[parent_id]["kind"] == "figure" and element["kind"] not in
                      {"table_cell", "figure"})
-        if detail.get("evidence_role") != expected_role and not auxiliary:
+        cover_furniture = (detail.get("evidence_role") == "auxiliary" and
+                           element["kind"] == "paragraph" and parent_id is None and
+                           element["location"].get("format") == "pdf" and
+                           element["location"].get("page") == 1 and
+                           len(element["text"].split()) < 15)
+        running_header = (detail.get("evidence_role") == "structural" and
+                          element["kind"] == "paragraph" and
+                          len(repeated_pages[value]) >= 3)
+        drop_cap = (detail.get("evidence_role") == "structural" and
+                    element["kind"] == "paragraph" and
+                    len(element["text"].strip()) == 1 and
+                    element["text"].strip().isalpha() and
+                    element["location"].get("format") == "pdf" and
+                    bool(element["location"].get("bbox")))
+        sparse_fragment = (detail.get("evidence_role") == "structural" and
+                           element["kind"] == "paragraph" and
+                           element["location"].get("format") == "pdf" and
+                           page_counts[element["location"].get("page")] <= 10 and
+                           len(re.sub(r"\W", "", element["text"])) <= 4)
+        if detail.get("evidence_role") != expected_role and not (
+                auxiliary or cover_furniture or running_header or drop_cap or sparse_fragment):
             flag("INVALID_EVIDENCE_ROLE", "error", {"element_id": element["id"],
                                                     "kind": element["kind"],
                                                     "role": detail.get("evidence_role")})
@@ -138,7 +165,7 @@ def audit_document(outcome, elements, sidecar, folder):
         if element["kind"] == "heading" and (not isinstance(path, list) or
                                               not path or normalized(path[-1]) != value):
             flag("BROKEN_HEADING_PATH", "error", {"element_id": element["id"]})
-        if parent_id in details and path and details[parent_id].get("heading_path"):
+        if parent_id in details and path and details[parent_id].get("heading_path") and not auxiliary:
             parent_path = details[parent_id]["heading_path"]
             if path[:len(parent_path)] != parent_path:
                 flag("BROKEN_HEADING_PATH", "error", {"element_id": element["id"],

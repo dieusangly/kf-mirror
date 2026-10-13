@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
 PIPELINE_VERSION = "chunking-v1"
-CHUNKER_VERSION = "structural-v1"
+CHUNKER_VERSION = "structural-v2"
 TOKEN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 SENTENCE_END = re.compile(r"(?<=[.!?;])\s+", re.UNICODE)
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
@@ -66,6 +66,12 @@ def _parts(text, maximum, table=False):
             continue
         if token_count(clean(text[start:end])) > maximum:
             if start < end:
+                if table and spans and spans[-1][1] == start:
+                    room = maximum - token_count(clean(text[spans[-1][0]:start], table=True))
+                    if room >= min(32, maximum // 4):
+                        prefix = _token_parts(text, start, end, room)[0]
+                        spans[-1] = (spans[-1][0], prefix[1])
+                        start = prefix[1]
                 spans.extend(_token_parts(text, start, end, maximum))
             start = end
             continue
@@ -107,6 +113,44 @@ def _token_parts(text, start, end, maximum):
     return spans
 
 
+def _table_parts(text, maximum):
+    """Split table rows while repeating the first serialized header row."""
+    lines = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        end = offset + len(line.rstrip("\r\n"))
+        if line.strip():
+            lines.append((offset, end))
+        offset += len(line)
+    if len(lines) < 2 or token_count(clean(text[lines[0][0]:lines[0][1]], table=True)) >= maximum:
+        return [[span] for span in _parts(text, maximum, table=True)]
+    header = lines[0]
+    header_tokens = token_count(clean(text[header[0]:header[1]], table=True))
+    chunks = []
+    current = [header]
+    current_tokens = header_tokens
+    for row in lines[1:]:
+        row_tokens = token_count(clean(text[row[0]:row[1]], table=True))
+        if current_tokens + row_tokens <= maximum:
+            current.append(row)
+            current_tokens += row_tokens
+            continue
+        if len(current) > 1:
+            chunks.append(current)
+            current = [header]
+            current_tokens = header_tokens
+        available = maximum - header_tokens
+        if row_tokens <= available:
+            current.append(row)
+            current_tokens += row_tokens
+            continue
+        for piece in _token_parts(text, row[0], row[1], max(1, available)):
+            chunks.append([header, piece])
+    if len(current) > 1 or not chunks:
+        chunks.append(current)
+    return chunks
+
+
 def _location_key(element):
     location = element["location"]
     if location["format"] == "pdf" and "bbox" in location:
@@ -145,6 +189,11 @@ def _chunk_document(bundle, sidecar, build_id, settings):
     headings = {}
     pending = []
     section = None
+    active_lead = None
+    compact_lead = None
+    first_numbered = None
+    last_flow = None
+    step_reference = None
     seen = set()
     metrics = {"authoritative_elements": 0, "structural_elements": 0,
                "auxiliary_elements": 0, "exact_duplicates_removed": 0,
@@ -166,6 +215,17 @@ def _chunk_document(bundle, sidecar, build_id, settings):
         chunk["id"] = "chunk:" + digest(document["id"] + "\n" + CHUNKER_VERSION + "\n" + canonical(evidence) + "\n" + text)
         chunks.append(chunk)
         pending = []
+
+    def pending_body_kinds():
+        return [by_id[ref["element_id"]]["kind"] for _, ref in pending if "span" in ref]
+
+    by_id = {element["id"]: element for element in elements}
+    authoritative = [element for element in elements
+                     if info[element["id"]].get("evidence_role") == "authoritative" and
+                     clean(element["text"]) and element["kind"] != "table_cell"]
+    flow = [element for element in authoritative if element["kind"] != "footnote"]
+    next_body = {element["id"]: flow[index + 1] if index + 1 < len(flow) else None
+                 for index, element in enumerate(flow)}
 
     for element in elements:
         details = info[element["id"]]
@@ -191,16 +251,94 @@ def _chunk_document(bundle, sidecar, build_id, settings):
         earlier_locations.add(location)
         path = tuple(details.get("heading_path") or [])
         if path != section:
-            emit()
+            if pending_body_kinds() and pending_body_kinds() != ["heading"] * len(pending_body_kinds()):
+                emit()
             section = path
-        if is_table:
+        body_kinds = pending_body_kinds()
+        if body_kinds and ((element["kind"] == "footnote") != (body_kinds[-1] == "footnote")):
+            emit()
+        following = next_body.get(element["id"])
+        is_lead = (element["kind"] in {"paragraph", "list_item"} and
+                   cleaned.endswith((":", ",", "…")) and
+                   following is not None and following["kind"] == "list_item" and
+                   tuple(info[following["id"]].get("heading_path") or []) == path)
+        is_subheading = (element["kind"] == "list_item" and following is not None and
+                         following["kind"] == "paragraph" and token_count(cleaned) <= 32 and
+                         not cleaned.endswith((".", ";", ":", "?", "!")) and
+                         tuple(info[following["id"]].get("heading_path") or []) == path)
+        if is_lead or is_subheading:
+            if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
+                emit()
+            active_lead = element if is_lead else None
+            compact_lead = None
+        elif (active_lead and active_lead["kind"] == "list_item" and
+              element["kind"] == "list_item" and re.match(r"^\d+[.)]\s", cleaned)):
+            if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
+                emit()
+            active_lead = None
+            compact_lead = None
+        elif active_lead and element["kind"] not in {"list_item", "footnote"}:
+            if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
+                emit()
+            active_lead = None
+            compact_lead = None
+        if is_table and any(kind != "heading" for kind in pending_body_kinds()):
             emit()  # A table starts independently of preceding prose.
         if element["kind"] == "heading":
             headings[path] = element
+            step_reference = None
+            first_numbered = None
+            last_flow = None
         # Reserve context space, while guaranteeing room for source text.
         context = _context(path, headings, max(0, maximum // 4))
+        if element["kind"] == "footnote":
+            context = []  # Page-bottom notes may refer to an earlier section on the page.
         if element["kind"] == "heading":
             context = [item for item in context if item["id"] != element["id"]]
+        if is_lead:
+            group = [element]
+            cursor = following
+            while cursor and cursor["kind"] == "list_item" and tuple(
+                    info[cursor["id"]].get("heading_path") or []) == path:
+                group.append(cursor)
+                cursor = next_body.get(cursor["id"])
+            group_tokens = sum(token_count(clean(item["text"])) for item in group)
+            full_tokens = group_tokens + sum(token_count(clean(item["text"])) for item in context)
+            short_tokens = group_tokens + (token_count(clean(context[-1]["text"])) if context else 0)
+            if full_tokens > maximum >= short_tokens:
+                compact_lead = element["id"]
+        if compact_lead and active_lead and compact_lead == active_lead["id"]:
+            context = context[-1:]
+        extra_context = []
+        if element["kind"] == "list_item" and active_lead and active_lead["id"] != element["id"]:
+            extra_context.append(active_lead)
+        if element["kind"] == "list_item" and re.match(r"^1\s", cleaned):
+            first_numbered = element
+        elif element["kind"] == "list_item" and first_numbered and re.match(r"^[2-9]\s", cleaned):
+            if first_numbered["id"] != element["id"] and not active_lead:
+                extra_context.append(first_numbered)
+        elif element["kind"] not in {"footnote", "heading"}:
+            first_numbered = None
+        step_number = re.match(r"^(\d+)[.)\s]", cleaned) if element["kind"] == "list_item" else None
+        if step_reference and step_number and int(step_number.group(1)) == step_reference[0]:
+            extra_context.insert(0, step_reference[1])
+        if (element["kind"] == "paragraph" and last_flow and
+                last_flow["kind"] in {"paragraph", "list_item"} and
+                last_flow["location"].get("format") == element["location"].get("format") == "pdf" and
+                element["location"].get("page", 0) - last_flow["location"].get("page", 0) in {0, 1} and
+                not clean(last_flow["text"]).endswith((".", "!", "?", ";", ":")) and
+                re.match(r"^[a-zà-ÿ]", cleaned)):
+            extra_context.append(last_flow)
+            emit()
+        while extra_context and token_count(cleaned) + sum(token_count(clean(item["text"]))
+                for item in extra_context) > maximum:
+            extra_context.pop()
+        while context and token_count(cleaned) + sum(token_count(clean(item["text"]))
+                for item in [*context, *extra_context]) > maximum:
+            context.pop(0)
+        while extra_context and token_count(cleaned) + sum(token_count(clean(item["text"]))
+                for item in [*context, *extra_context]) > maximum:
+            extra_context.pop()
         if element["kind"] == "list_item" and token_count(cleaned) <= maximum:
             # An optional ancestor heading must not force an otherwise fitting
             # list item to split. Drop outer headings before the nearest one.
@@ -210,25 +348,51 @@ def _chunk_document(bundle, sidecar, build_id, settings):
                 context.pop(0)
         # A heading is included once per chunk and cited as supporting context.
         if not pending:
-            for heading in context:
-                pending.append((clean(heading["text"]), _reference(heading, source_id)))
+            for item in [*context, *extra_context]:
+                pending.append((clean(item["text"]), _reference(item, source_id)))
         # Split against a fresh chunk's budget. A sentence that fits there
         # must move intact instead of being split to fill the current chunk.
-        fresh_budget = maximum - token_count("\n\n".join(clean(heading["text"]) for heading in context))
-        pieces = _parts(element["text"], fresh_budget, table=is_table)
-        for span in pieces:
-            part = clean(element["text"][span[0]:span[1]], table=is_table)
-            if not part:
-                continue
-            if pending and token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
+        fresh_budget = maximum - token_count("\n\n".join(
+            clean(item["text"]) for item in [*context, *extra_context]))
+        if pending and all(kind == "heading" for kind in pending_body_kinds()) and pending_body_kinds():
+            if element["kind"] == "list_item" and token_count(cleaned) <= maximum and \
+                    token_count(cleaned) + token_count("\n\n".join(part for part, _ in pending)) > maximum:
                 emit()
-                for heading in context:
-                    pending.append((clean(heading["text"]), _reference(heading, source_id)))
-            if token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
-                raise ValueError("split passage exceeds fresh chunk budget")
-            pending.append((part, _reference(element, source_id, span)))
-        if element["kind"] == "table":
-            emit()  # Do not mix table rows with prose or another table.
+            fresh_budget = min(fresh_budget, maximum - token_count(
+                "\n\n".join(part for part, _ in pending)))
+        fresh_budget = max(1, fresh_budget)
+        if is_table:
+            for table_piece in _table_parts(element["text"], fresh_budget):
+                if not pending:
+                    for item in [*context, *extra_context]:
+                        pending.append((clean(item["text"]), _reference(item, source_id)))
+                for span in table_piece:
+                    part = clean(element["text"][span[0]:span[1]], table=True)
+                    if not part:
+                        continue
+                    if token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
+                        raise ValueError("split table exceeds fresh chunk budget")
+                    pending.append((part, _reference(element, source_id, span)))
+                emit()  # Do not mix table rows with prose or another table.
+        else:
+            pieces = _parts(element["text"], fresh_budget)
+            for span in pieces:
+                part = clean(element["text"][span[0]:span[1]])
+                if not part:
+                    continue
+                if pending and token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
+                    emit()
+                    for item in [*context, *extra_context]:
+                        pending.append((clean(item["text"]), _reference(item, source_id)))
+                if token_count("\n\n".join([*(p for p, _ in pending), part])) > maximum:
+                    raise ValueError("split passage exceeds fresh chunk budget")
+                pending.append((part, _reference(element, source_id, span)))
+        if element["kind"] not in {"heading", "footnote", "table"}:
+            last_flow = element
+        if element["kind"] == "paragraph":
+            mentioned_step = re.search(r"\b(?:point|étape)\s+(\d+)\b", cleaned, re.I)
+            if mentioned_step:
+                step_reference = (int(mentioned_step.group(1)), element)
     emit()
     metrics["chunks"] = len(chunks)
     return chunks, metrics

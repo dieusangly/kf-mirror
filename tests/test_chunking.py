@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from knowledge_foundry.chunking import (
-    ROOT, _chunk_document, build_collection, clean, digest, settings_from_config,
+    ROOT, _chunk_document, _parts, build_collection, clean, digest, settings_from_config,
     token_count,
 )
 from scripts.validate_artifact_examples import check
@@ -25,6 +25,169 @@ def parsed_source(source_id):
 
 
 class ChunkingTests(unittest.TestCase):
+    def test_oversized_table_row_keeps_header_with_row_content(self):
+        value = "Column A | Column B\n" + " ".join(f"value{i}" for i in range(80))
+        spans = _parts(value, 40, table=True)
+        self.assertIn("Column A", value[spans[0][0]:spans[0][1]])
+        self.assertIn("value0", value[spans[0][0]:spans[0][1]])
+        self.assertTrue(all(token_count(value[start:end]) <= 40 for start, end in spans))
+
+    def test_split_table_repeats_header_with_every_row_continuation(self):
+        header = "Sector | Alert criterion | Bank | Insurer"
+        chunks = self._small_document([
+            ("table", "\n".join([header, *(f"row{i} | " + "detail " * 14
+                                      for i in range(4))]), 1, ["Matrix"]),
+        ], 48)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(header in chunk["text"] for chunk in chunks))
+        for chunk in chunks:
+            table_refs = [ref for ref in chunk["evidence"] if "span" in ref]
+            self.assertTrue(any(ref["span"]["start"] == 0 and
+                                ref["span"]["end"] == len(header) for ref in table_refs))
+
+    def _small_document(self, rows, maximum=64):
+        bundle = json.loads((ROOT / "examples/artifact-bundle-html.json").read_text(encoding="utf-8"))
+        bundle["elements"] = []
+        details = []
+        template = json.loads((ROOT / "examples/artifact-bundle-html.json").read_text(encoding="utf-8"))["elements"][0]
+        for index, (kind, value, page, path) in enumerate(rows):
+            element = copy.deepcopy(template)
+            element.update(id="el:" + digest(str(index)), kind=kind, text=value,
+                           ordinal=index, locator_key=f"pdf:p{page}:block-{index}",
+                           revision=digest(kind + "\n" + value),
+                           location={"format": "pdf", "page": page, "label": f"block {index}"})
+            bundle["elements"].append(element)
+            details.append({"element_id": element["id"], "evidence_role": "authoritative",
+                            "heading_path": path})
+        return _chunk_document(bundle, {"elements": details}, "build:test", {"max_tokens": maximum})[0]
+
+    def test_parent_headings_attach_to_first_body(self):
+        chunks = self._small_document([
+            ("heading", "Section principale", 1, ["Section principale"]),
+            ("heading", "Sous-section", 1, ["Section principale", "Sous-section"]),
+            ("paragraph", "Le passage explique la règle applicable.", 1,
+             ["Section principale", "Sous-section"]),
+        ])
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(len([ref for ref in chunks[0]["evidence"] if "span" in ref]), 3)
+
+    def test_list_lead_repeats_as_source_context_at_split(self):
+        path = ["Liste"]
+        chunks = self._small_document([
+            ("heading", "Liste", 1, path),
+            ("paragraph", "Les critères sont les suivants :", 1, path),
+            ("list_item", "- " + " ".join(f"premier{i}" for i in range(27)) + ".", 1, path),
+            ("list_item", "- " + " ".join(f"deuxième{i}" for i in range(27)) + ".", 1, path),
+        ], 64)
+        second = next(chunk for chunk in chunks if "deuxième0" in chunk["text"])
+        self.assertIn("Les critères sont les suivants :", second["text"])
+        self.assertEqual(sum("span" in ref for ref in second["evidence"] if
+                             ref["element_id"] == chunks[0]["evidence"][1]["element_id"]), 0)
+
+    def test_footnotes_separate_and_cross_page_sentence_keeps_context(self):
+        chunks = self._small_document([
+            ("heading", "Encadré", 20, ["Encadré"]),
+            ("paragraph", "Ces cartes peuvent être adossées à des comptes et peuvent être", 20, ["Encadré"]),
+            ("footnote", "1 Note sur un autre passage.", 20, ["Encadré"]),
+            ("paragraph", "émises en France ou à l'étranger.", 21, ["Encadré"]),
+        ])
+        continuation = next(chunk for chunk in chunks if "émises en France" in chunk["text"])
+        self.assertIn("peuvent être", continuation["text"])
+        self.assertIn("Encadré", continuation["text"])
+        self.assertNotIn("Note sur un autre passage", continuation["text"])
+
+    def test_page_footnote_does_not_inherit_later_section_heading(self):
+        chunks = self._small_document([
+            ("heading", "New section", 1, ["New section"]),
+            ("paragraph", "The section begins with a separate rule.", 1, ["New section"]),
+            ("footnote", "1 Note citing introductory text.", 1, ["New section"]),
+        ])
+        note = next(chunk for chunk in chunks if "Note citing" in chunk["text"])
+        self.assertNotIn("New section", note["text"])
+
+    def test_lowercase_continuation_of_list_item_keeps_its_source_context(self):
+        chunks = self._small_document([
+            ("heading", "Section", 1, ["Section"]),
+            ("list_item", "9. Les organismes appliquent les obligations", 1, ["Section"]),
+            ("paragraph", "de vigilance françaises.", 1, ["Section"]),
+        ])
+        continuation = next(chunk for chunk in chunks if "de vigilance françaises" in chunk["text"])
+        self.assertIn("9. Les organismes appliquent", continuation["text"])
+
+    def test_full_short_list_fits_by_dropping_outer_heading(self):
+        path = ["Long parent heading", "Specific list"]
+        chunks = self._small_document([
+            ("heading", "Long parent heading", 1, path[:1]),
+            ("heading", "Specific list", 1, path),
+            ("paragraph", "The cases in this example are as follows :", 1, path),
+            ("list_item", "- first condition applies to the described client ;", 1, path),
+            ("list_item", "- second condition applies to the described client ;", 1, path),
+            ("list_item", "- third condition applies to the described client ;", 1, path),
+        ], 43)
+        self.assertTrue(any(all(term in chunk["text"] for term in
+                                ("first condition", "second condition", "third condition"))
+                            for chunk in chunks))
+
+    def test_new_comma_lead_replaces_prior_ellipsis_list_context(self):
+        path = ["Rules"]
+        chunks = self._small_document([
+            ("heading", "Rules", 1, path),
+            ("paragraph", "By exception, checks may occur…", 1, path),
+            ("list_item", "- during onboarding;", 1, path),
+            ("paragraph", "And throughout the relationship,", 1, path),
+            ("list_item", "- records must be kept current.", 1, path),
+        ], 40)
+        ongoing = next(chunk for chunk in chunks if "records must be kept current" in chunk["text"])
+        self.assertIn("And throughout the relationship", ongoing["text"])
+        self.assertNotIn("By exception", ongoing["text"])
+
+    def test_page_footnotes_do_not_hide_following_list_from_lead(self):
+        path = ["Example"]
+        chunks = self._small_document([
+            ("heading", "Example", 6, path),
+            ("paragraph", "The persons satisfying either condition,", 6, path),
+            ("footnote", "5 Citation for the preceding section.", 6, path),
+            ("list_item", "- first condition on the next page;", 7, path),
+            ("list_item", "- second condition on the next page.", 7, path),
+        ], 40)
+        following = next(chunk for chunk in chunks if "first condition" in chunk["text"])
+        self.assertIn("The persons satisfying either condition", following["text"])
+        self.assertNotIn("Citation for the preceding section", following["text"])
+
+    def test_short_list_subheading_moves_to_following_prose(self):
+        chunks = self._small_document([
+            ("heading", "Section", 1, ["Section"]),
+            ("paragraph", "Les deux positions précédentes sont terminées.", 1, ["Section"]),
+            ("list_item", "➢ Informations pertinentes pour les personnes morales lorsque la relation d'affaires est établie à distance et que les pièces justificatives sont examinées", 1, ["Section"]),
+            ("paragraph", "Les statuts et l'objet social sont examinés.", 1, ["Section"]),
+        ])
+        subheading = next(chunk for chunk in chunks if "➢ Informations" in chunk["text"])
+        self.assertIn("Les statuts", subheading["text"])
+        self.assertNotIn("positions précédentes", subheading["text"])
+
+    def test_numbered_step_keeps_prior_explanation_when_split(self):
+        path = ["Cas"]
+        chunks = self._small_document([
+            ("heading", "Cas", 1, path),
+            ("paragraph", "Les déclarants peuvent déceler le point 3 de ce schéma.", 1, path),
+            ("list_item", "1 " + " ".join(f"situation{i}" for i in range(27)) + ".", 1, path),
+            ("list_item", "2 " + " ".join(f"action{i}" for i in range(27)) + ".", 1, path),
+            ("list_item", "3 " + " ".join(f"observation{i}" for i in range(27)) + ".", 1, path),
+        ], 64)
+        third = next(chunk for chunk in chunks if "observation0" in chunk["text"])
+        self.assertIn("point 3 de ce schéma", third["text"])
+
+    def test_numbered_parent_does_not_govern_next_numbered_item(self):
+        path = ["Introduction"]
+        chunks = self._small_document([
+            ("heading", "Introduction", 1, path),
+            ("list_item", "3. Elle tient compte :", 1, path),
+            ("list_item", "- de la jurisprudence récente ;", 1, path),
+            ("list_item", "4. Le document est public.", 1, path),
+        ])
+        fourth = next(chunk for chunk in chunks if "4. Le document" in chunk["text"])
+        self.assertNotIn("3. Elle tient compte", fourth["text"])
+
     def test_configuration_and_cleanup(self):
         self.assertEqual(settings_from_config({}), {"max_tokens": 256})
         for value in (0, 31, True, "256"):
@@ -212,6 +375,7 @@ class ChunkingTests(unittest.TestCase):
             elements = {item["id"]: item for item in result["elements"]}
             used = {ref["element_id"] for chunk in result["chunks"] for ref in chunk["evidence"]}
             citations_by_element = {}
+            body_citations_by_element = {}
             for chunk in result["chunks"]:
                 body_kinds = [elements[ref["element_id"]]["kind"] for ref in chunk["evidence"]
                               if "span" in ref]
@@ -219,6 +383,8 @@ class ChunkingTests(unittest.TestCase):
                     self.assertEqual(set(body_kinds) - {"table", "heading"}, set())
                 for ref in chunk["evidence"]:
                     citations_by_element.setdefault(ref["element_id"], set()).add(chunk["id"])
+                    if "span" in ref:
+                        body_citations_by_element.setdefault(ref["element_id"], set()).add(chunk["id"])
             roles = {}
             flow = set()
             auxiliary = set()
@@ -244,7 +410,7 @@ class ChunkingTests(unittest.TestCase):
             self.assertTrue(tables <= used)
             self.assertFalse(cells & used)
             self.assertTrue(all(roles[item] == "authoritative" for item in used))
-            self.assertTrue(all(len(citations_by_element[element["id"]]) == 1
+            self.assertTrue(all(len(body_citations_by_element[element["id"]]) == 1
                                 for element in result["elements"]
                                 if element["kind"] == "list_item" and element["id"] in used
                                 and token_count(clean(element["text"])) <= 256))

@@ -16,6 +16,124 @@ PICTURE_CONNECTORS = {"a", "à", "au", "aux", "d", "de", "des", "du", "dans", "e
                       "the", "of", "in", "to", "for", "and", "with"}
 FIGURE_HEADING = re.compile(r"\b(?:schéma|diagramme|figure|flowchart|diagram)\b", re.I)
 URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
+PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
+HEADER_LABEL = re.compile(r"\s+(?=(?:Les|Le|La|Critères)\s)")
+FILENAME_FOOTNOTE = re.compile(
+    r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
+
+
+def _pdf_text(value):
+    """Remove text-layer controls and join a word broken by a layout hyphen."""
+    return WRAPPED_WORD.sub("", PDF_CONTROLS.sub("", value or ""))
+
+
+def _pdf_table_cells(item):
+    """Return table cells with repaired, source-positioned header slots.
+
+    Some narrow PDF tables have adjacent, vertical header labels merged by
+    Docling into one cell despite distinct physical columns. Split only those
+    labels at a new header phrase, then use their x positions to retain the
+    original column mapping for the table body.
+    """
+    cells = getattr(getattr(item, "data", None), "table_cells", []) or []
+    if not cells:
+        return []
+    raw = sorted(cells, key=lambda cell: (cell.start_row_offset_idx,
+                                          cell.start_col_offset_idx))
+    header_cells = [cell for cell in raw if getattr(cell, "column_header", False)]
+    parts_by_cell = {
+        id(cell): [part for part in HEADER_LABEL.split(" ".join(_pdf_text(cell.text).split())) if part]
+        if getattr(cell, "column_header", False) else [" ".join(_pdf_text(cell.text).split())]
+        for cell in raw
+    }
+    repaired_headers = any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
+    lefts = sorted(getattr(getattr(cell, "bbox", None), "l", None)
+                   for cell in header_cells if getattr(getattr(cell, "bbox", None), "l", None) is not None)
+    gaps = [right - left for left, right in zip(lefts, lefts[1:]) if 8 <= right - left <= 35]
+    column_width = gaps[len(gaps) // 2] if gaps else None
+    header_slots = []
+    normalized = []
+    next_header_column = 0
+    for cell in raw:
+        row = cell.start_row_offset_idx
+        column = cell.start_col_offset_idx
+        values = parts_by_cell[id(cell)]
+        is_header = getattr(cell, "column_header", False)
+        if is_header:
+            column = max(column, next_header_column)
+            next_header_column = column + len(values)
+        elif repaired_headers:
+            left = getattr(getattr(cell, "bbox", None), "l", None)
+            if left is not None and header_slots:
+                column = min(header_slots, key=lambda slot: abs(slot[1] - left))[0]
+        for offset, value in enumerate(values):
+            slot = column + offset
+            if is_header:
+                left = getattr(getattr(cell, "bbox", None), "l", None)
+                if left is not None:
+                    header_slots.append((slot, left + offset * (column_width or 0)))
+            normalized.append({
+                "row": row,
+                "column": slot,
+                "text": value,
+                "row_span": getattr(cell, "row_span", 1) or 1,
+                "col_span": 1 if len(values) > 1 else getattr(cell, "col_span", 1) or 1,
+                "header": bool(getattr(cell, "column_header", False) or
+                               getattr(cell, "row_header", False)),
+                "bbox": getattr(cell, "bbox", None),
+            })
+    return normalized
+
+
+def _pdf_table_text(item, doc):
+    """Serialize recognized cells once while retaining their column positions."""
+    cells = _pdf_table_cells(item)
+    if not cells:
+        return _pdf_text(item.export_to_markdown(doc=doc)) if hasattr(item, "export_to_markdown") else ""
+    rows = {}
+    for cell in cells:
+        rows.setdefault(cell["row"], []).append(cell)
+    lines = []
+    for _, row in sorted(rows.items()):
+        values = []
+        for cell in sorted(row, key=lambda value: value["column"]):
+            value = cell["text"]
+            column = cell["column"]
+            span = cell["col_span"]
+            if len(values) <= column:
+                values.extend([""] * (column + 1 - len(values)))
+            values[column] = value
+            if len(values) < column + span:
+                values.extend([""] * (column + span - len(values)))
+        while values and not values[-1]:
+            values.pop()
+        if any(values):
+            lines.append(" | ".join(values))
+    return "\n".join(lines)
+
+
+def _pdf_running_headers(native):
+    """Find text repeated in the top strip of three or more PDF pages."""
+    pages = native.get("pages", {})
+    matches = {}
+    for node in native.get("texts", []):
+        value = node.get("text", "")
+        for part in node.get("prov") or []:
+            page_no = part.get("page_no")
+            page = pages.get(str(page_no)) or pages.get(page_no) or {}
+            height = page.get("size", {}).get("height")
+            box = part.get("bbox")
+            if not height or not box:
+                continue
+            top = box["t"] if box.get("coord_origin") == "TOPLEFT" else height - box["t"]
+            if top > height * .16:
+                continue
+            start, end = part.get("charspan", [0, len(value)])
+            fragment = " ".join(_pdf_text(value[start:end]).split())
+            if len(fragment) >= 30:
+                matches.setdefault(fragment, set()).add(page_no)
+    return {fragment for fragment, seen_pages in matches.items() if len(seen_pages) >= 3}
 
 
 def _picture_contact_furniture(group, pages):
@@ -554,6 +672,44 @@ def parse_pdf(path, _source, options):
     page_counts = {}
     heading_stack = []
     toc_levels = _pdf_toc_levels(native)
+    running_headers = _pdf_running_headers(native)
+    figures_by_page = {}
+    for picture in native.get("pictures", []):
+        for part in picture.get("prov") or []:
+            if part.get("bbox"):
+                figures_by_page.setdefault(part["page_no"], []).append(part["bbox"])
+    first_page_body = [node for node in native.get("texts", [])
+                       if node.get("parent", {}).get("$ref") == "#/body" and
+                       any(part.get("page_no") == 1 for part in node.get("prov") or [])]
+    page_text_counts = Counter(part.get("page_no") for node in native.get("texts", [])
+                               for part in node.get("prov") or [])
+
+    def large_picture(page, box):
+        size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+        width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+        return bool(width and height and (box["r"] - box["l"]) > width * .5 and
+                    abs(box["t"] - box["b"]) > height * .3)
+
+    def picture_annotation(page, location):
+        box = location.get("bbox")
+        if not box:
+            return None
+        size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+        width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+        if not width or not height:
+            return None
+        for figure_box in figures_by_page.get(page, []):
+            if ((figure_box["r"] - figure_box["l"]) <= width * .5 or
+                    abs(figure_box["t"] - figure_box["b"]) <= height * .1):
+                continue
+            bottom = (figure_box["b"] if figure_box.get("coord_origin") == "TOPLEFT"
+                      else height - figure_box["b"])
+            if 0 <= box[1] - bottom <= 70 and box[0] < figure_box["r"]:
+                return figure_box
+        return None
+
+    cover_page = len(first_page_body) <= 3 and any(
+        large_picture(1, box) for box in figures_by_page.get(1, []))
     native_by_ref = {node["self_ref"]: node for collection in ("texts", "pictures", "tables", "groups")
                      for node in native.get(collection, [])}
     vocabulary = Counter(word.casefold() for node in native.get("texts", [])
@@ -585,9 +741,11 @@ def parse_pdf(path, _source, options):
                                      "provenance_index": index})
                     continue
                 piece = text[span[0]:span[1]]
+            piece = _pdf_text(piece)
             if not piece.strip() and kind != "figure":
-                warnings.append({"code": "empty_pdf_charspan", "ref": ref, "page": page,
-                                 "provenance_index": index})
+                if _pdf_text(text).strip():
+                    warnings.append({"code": "empty_pdf_charspan", "ref": ref, "page": page,
+                                     "provenance_index": index})
                 continue
             page_counts[page] = page_counts.get(page, 0) + 1
             key = f"pdf:p{page}:block-{page_counts[page]}"
@@ -608,6 +766,30 @@ def parse_pdf(path, _source, options):
                 else:
                     box = bbox.to_top_left_origin(doc.pages[page].size.height)
                     location["bbox"] = [box.l, box.t, box.r, box.b]
+            local_role = evidence_role
+            annotation_figure = None
+            if kind == "paragraph" and local_role == "authoritative":
+                if " ".join(piece.split()) in running_headers:
+                    local_role = "structural"
+                elif cover_page and page == 1 and len(piece.split()) < 15:
+                    local_role = "auxiliary"
+                elif len(piece.split()) <= 32 and not piece.rstrip().endswith((".", ";", ":", "?", "!")):
+                    annotation_figure = picture_annotation(page, location)
+                    if annotation_figure is not None:
+                        local_role = "auxiliary"
+                if (local_role == "authoritative" and len(piece.strip()) == 1 and
+                        piece.strip().isalpha() and location.get("bbox")):
+                    box = location["bbox"]
+                    size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+                    width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+                    if width and height and box[0] < width * .2 and box[1] < height * .16:
+                        local_role = "structural"
+                if (local_role == "authoritative" and page_text_counts[page] <= 10 and
+                        len(re.sub(r"\W", "", piece)) <= 4 and location.get("bbox")):
+                    size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+                    height = size.get("size", {}).get("height")
+                    if height and location["bbox"][1] > height * .6:
+                        local_role = "structural"
             if kind == "heading":
                 heading_level, role = _pdf_heading_level(piece, stack, toc_levels)
                 heading_level = max(heading_level, minimum_heading_level)
@@ -623,13 +805,20 @@ def parse_pdf(path, _source, options):
                           if picture_child else None)
             if parent_key is None:
                 parent_key = stack[-1][1] if stack else None
+            if annotation_figure is not None:
+                figure_parent = next((item["locator_key"] for item in reversed(items)
+                                      if item["kind"] == "figure" and
+                                      item["location"]["page"] == page), None)
+                parent_key = figure_parent or parent_key
             heading_path = [entry[2] for entry in stack] + ([piece] if kind == "heading" else [])
             details = {"docling_ref": ref, "docling_parent_ref": parent_ref,
                        "level": heading_level, "heading_path": heading_path,
-                       "evidence_role": evidence_role,
+                       "evidence_role": local_role,
                        "provenance": "ocr_or_pdf_text" if pipeline.do_ocr else "pdf_text"}
             if checkbox_state:
                 details["checkbox_state"] = checkbox_state
+            if annotation_figure is not None:
+                details["visual_annotation"] = True
             items.append(_item(kind, piece, key, location, parent_key=parent_key, details=details))
             if kind == "heading":
                 stack.append((heading_level, key, piece, role))
@@ -778,23 +967,40 @@ def parse_pdf(path, _source, options):
         else:
             kind = "paragraph"
         if kind == "table":
-            text = item.export_to_markdown(doc=doc) if hasattr(item, "export_to_markdown") else ""
+            text = _pdf_table_text(item, doc)
         else:
             text = getattr(item, "text", "") or ""
         marker = getattr(item, "marker", None)
         if kind == "list_item":
             text = getattr(item, "orig", None) or (f"{marker} {text}" if marker else text)
+        if kind == "heading" and re.match(r"^\d{2,}\.\s+.*:\s*$", text):
+            kind = "paragraph"  # A numbered quotation lead is not a section.
+        if kind == "heading" and text.rstrip().endswith("…"):
+            kind = "paragraph"  # A sentence introducing examples is not a section.
+        if kind in {"heading", "list_item", "paragraph"} and \
+                " ".join(_pdf_text(text).split()) in running_headers:
+            kind = "paragraph"  # Repeated top-strip text is publisher furniture.
+        if kind == "heading" and len(text.split()) <= 12 and (prov := getattr(item, "prov", None)):
+            first = prov[0]
+            bbox = getattr(first, "bbox", None)
+            if bbox is not None:
+                page = first.page_no
+                box = bbox.to_top_left_origin(doc.pages[page].size.height)
+                if picture_annotation(page, {"bbox": [box.l, box.t, box.r, box.b]}):
+                    kind = "paragraph"  # A short label below a large image annotates it.
+        if kind == "paragraph" and re.match(r"^[a-z]\.\s+", text, re.I):
+            kind = "list_item"  # Alphabetic alternatives in a quoted rule.
         prov = getattr(item, "prov", []) or []
         ref = getattr(item, "self_ref", None)
         parent_ref = getattr(getattr(item, "parent", None), "cref", None)
         if kind == "table" and not text.strip():
-            cells = getattr(getattr(item, "data", None), "table_cells", []) or []
+            cells = _pdf_table_cells(item)
             if cells:
                 rows = {}
                 for cell in cells:
-                    rows.setdefault(cell.start_row_offset_idx, []).append(cell)
-                text = "\n".join(" | ".join(cell.text for cell in sorted(row,
-                    key=lambda value: value.start_col_offset_idx)) for _, row in sorted(rows.items()))
+                    rows.setdefault(cell["row"], []).append(cell)
+                text = "\n".join(" | ".join(cell["text"] for cell in sorted(row,
+                    key=lambda value: value["column"])) for _, row in sorted(rows.items()))
             if not text.strip():
                 warnings.append({"code": "empty_docling_table", "ref": ref,
                                  "message": "table has no text or cells"})
@@ -803,44 +1009,50 @@ def parse_pdf(path, _source, options):
             warnings.append({"code": "multi_page_table", "ref": ref,
                              "message": "table omitted until its cells can be assigned to pages"})
             continue
+        filename_only_footnote = kind == "footnote" and FILENAME_FOOTNOTE.match(text)
         key = add_block(kind, text, ref, parent_ref, prov, heading_stack,
-                        evidence_role="structural" if kind == "figure" else "authoritative",
+                        evidence_role="structural" if kind == "figure" or filename_only_footnote else "authoritative",
                         checkbox_state=("selected" if label == "checkbox_selected" else "unselected")
                         if label in {"checkbox_selected", "checkbox_unselected"} else None)
         if key is None:
             continue
         items[-1]["details"]["docling_group_depth"] = level
+        if filename_only_footnote:
+            items[-1]["details"]["link_text_role"] = "non_substantive_filename"
         if kind == "figure":
             picture_descendants(ref, list(heading_stack))
         if kind == "table" and getattr(item, "data", None) is not None:
             for provenance in prov:
                 page = provenance.page_no
                 location = items[-1]["location"]
-                for cell in item.data.table_cells:
-                    row = cell.start_row_offset_idx
-                    col = cell.start_col_offset_idx
+                for cell in _pdf_table_cells(item):
+                    row = cell["row"]
+                    col = cell["column"]
                     cell_location = dict(location)
-                    cell_bbox = getattr(cell, "bbox", None)
+                    cell_bbox = cell["bbox"]
                     if cell_bbox is not None:
                         try:
                             box = cell_bbox.to_top_left_origin(doc.pages[page].size.height)
                             cell_location["bbox"] = [box.l, box.t, box.r, box.b]
                         except (AttributeError, TypeError, KeyError):
                             cell_location.pop("bbox", None)
-                    items.append(_item("table_cell", cell.text,
+                    items.append(_item("table_cell", cell["text"],
                                        f"{key}:r{row}:c{col}", cell_location,
                                        parent_key=key,
                                        details={"row": row, "column": col,
-                                                "row_span": cell.row_span,
-                                                "col_span": cell.col_span,
-                                                "header": cell.column_header or cell.row_header,
+                                                "row_span": cell["row_span"],
+                                                "col_span": cell["col_span"],
+                                                "header": cell["header"],
                                                 "header_origin": "docling_table_structure",
                                                 "evidence_role": "structural"}))
     for node in native.get("texts", []):
         ref = node["self_ref"]
         if (node.get("content_layer") != "furniture" and ref not in represented_refs and
-                ref not in excluded_picture_refs):
+                ref not in excluded_picture_refs and _pdf_text(node.get("text", "")).strip()):
             warnings.append({"code": "unrepresented_pdf_text", "ref": ref,
                              "parent_ref": node.get("parent", {}).get("$ref"),
                              "message": node.get("text", "")[:120]})
+    # A multi-page Docling node can be yielded before the previous page's
+    # footnotes. Restore page order while retaining Docling's within-page order.
+    items.sort(key=lambda item: item["location"]["page"])
     return items, native, warnings

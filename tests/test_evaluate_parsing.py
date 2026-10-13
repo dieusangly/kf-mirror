@@ -15,6 +15,43 @@ from evaluate_parsing import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
+    def test_pdf_furniture_roles_and_visual_parent_across_heading_paths(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            (folder / "parse.json").write_text('{"warnings": []}')
+            elements = [
+                {"id": "cover", "kind": "paragraph", "ordinal": 0, "text": "Liberté",
+                 "location": {"format": "pdf", "page": 1}},
+                {"id": "figure", "kind": "figure", "ordinal": 1, "text": "",
+                 "location": {"format": "pdf", "page": 2}},
+                {"id": "label", "kind": "paragraph", "ordinal": 2, "text": "Fraude fiscale",
+                 "location": {"format": "pdf", "page": 2}},
+            ]
+            sidecar = [
+                {"element_id": "cover", "evidence_role": "auxiliary", "parent_element_id": None},
+                {"element_id": "figure", "evidence_role": "structural", "heading_path": ["Case"]},
+                {"element_id": "label", "evidence_role": "auxiliary", "parent_element_id": "figure",
+                 "heading_path": ["Case", "Suspected offence"]},
+            ]
+            for page in (3, 4, 5):
+                elements.append({"id": f"header-{page}", "kind": "paragraph",
+                                 "ordinal": len(elements), "text": "Repeated publication header",
+                                 "location": {"format": "pdf", "page": page}})
+                sidecar.append({"element_id": f"header-{page}", "evidence_role": "structural"})
+            elements.append({"id": "drop-cap", "kind": "paragraph", "ordinal": len(elements),
+                             "text": "F", "location": {"format": "pdf", "page": 6,
+                                                       "bbox": [35, 60, 70, 85]}})
+            sidecar.append({"element_id": "drop-cap", "evidence_role": "structural"})
+            elements.append({"id": "graphic-noise", "kind": "paragraph", "ordinal": len(elements),
+                             "text": "EDP", "location": {"format": "pdf", "page": 7,
+                                                         "bbox": [100, 600, 200, 620]}})
+            sidecar.append({"element_id": "graphic-noise", "evidence_role": "structural"})
+            result = audit_document({"manifest_id": "sample", "status": "parsed",
+                                     "warnings": []}, elements, sidecar, folder)
+            role_errors = [finding for finding in result["findings"]
+                           if finding["code"] in {"INVALID_EVIDENCE_ROLE", "BROKEN_HEADING_PATH"}]
+            self.assertEqual(role_errors, [])
+
     def test_figure_asset_hash_provenance_and_auxiliary_text(self):
         from PIL import Image
 

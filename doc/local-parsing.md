@@ -1,6 +1,6 @@
 # Local parsing
 
-Parse files selected by the [`manifest_ids` list in `config/pipeline.json`](../config/pipeline.json) into [schema v1.0.0](artifact-schemas.md) source, document, and element records. Later-stage arrays remain empty.
+Parse files selected by [`manifest_ids` in `config/pipeline.json`](../config/pipeline.json) into [schema v1.0.0](artifact-schemas.md) records. Later-stage arrays remain empty.
 
 ## Setup
 
@@ -18,7 +18,7 @@ sudo apt install tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng
 tesseract --list-langs  # should include fra and eng
 ```
 
-For other systems, see [Tesseract installation](https://tesseract-ocr.github.io/tessdoc/Installation.html). Docling may download PDF model weights on first use; `parsing.pdf.artifacts_path` can point to local weights.
+For other systems, see [Tesseract installation](https://tesseract-ocr.github.io/tessdoc/Installation.html). Docling may download model weights on first use; `parsing.pdf.artifacts_path` can point to local weights.
 
 ## Run
 
@@ -28,42 +28,44 @@ python scripts/parse.py --config config/pipeline.json --output-dir /tmp/kf-parse
 python scripts/evaluate_parsing.py --input-dir artifacts/parsed --output artifacts/parsed/parsing-evaluation-report.json
 ```
 
-`--config` is required; `--output-dir` defaults to `artifacts/parsed`. The top-level `manifest_ids` list selects and orders manifest `manifest_id` values. Repeat `--source` to parse a subset of that list, or omit it for all configured sources. Per-document progress and elapsed parsing time go to stderr; the JSON report goes to stdout. The parser continues after a document fails. Exit codes: `0` all parsed; `1` any failed or partial; `2` invalid configuration or manifest. Verification failures have no parsing time; missing OCR dependencies fail affected PDFs only.
+`--config` is required; `--output-dir` defaults to `artifacts/parsed`. `manifest_ids` selects and orders sources; repeat `--source` for a subset. Progress and elapsed time go to stderr, the JSON report to stdout. Parsing continues after a document fails. Exit codes: `0` all parsed; `1` any failed or partial; `2` invalid configuration or manifest. Missing OCR dependencies fail affected PDFs only.
 
-When evaluating a subset rerun saved in another directory, pass that directory to `scripts/evaluate_parsing.py` with `--additional-input-dir`; the evaluator selects the newest valid outcome per manifest source across the supplied directories.
+For subset reruns in another directory, `--additional-input-dir` lets the [parsing evaluator](pilot-parsing-evaluation.md) select the newest valid outcome per source.
 
 ## Configuration
 
-Set `parsing` in [config/pipeline.json](../config/pipeline.json); `root`, `manifest_file`, and `manifest_ids` retain their ingestion meanings. Defaults are:
+Set `parsing` in [config/pipeline.json](../config/pipeline.json). Defaults are:
 
-- **PDF:** Docling backend `docling_parse`, table recognition on, `accurate` table mode, no local `artifacts_path`.
-- **OCR:** Tesseract `mode: auto` (`off` and `force` also supported), `languages: ["fra", "eng"]`, `scale: 3.0`, `psm: 3`, `tesseract_cmd: "tesseract"`, `tessdata_path: null`. `auto` OCRs PDF raster regions; `force` OCRs full pages.
-- **HTML:** `content_selector: "main"`; the pilot sets a Légifrance article selector. Optional `source_overrides` can set `content_selector` or `article_id` for a manifest ID. Each selector must match exactly one element.
+- **PDF:** Docling `docling_parse`, table recognition on, `accurate` mode, no local `artifacts_path`.
+- **OCR:** Tesseract `mode: auto`, `languages: ["fra", "eng"]`, `scale: 3.0`, `psm: 3`, `tesseract_cmd: "tesseract"`, `tessdata_path: null`. `auto` OCRs raster regions; `force` OCRs full pages; `off` disables OCR.
+- **HTML:** `content_selector: "main"`; the pilot overrides this for Légifrance. Per-source overrides may set `content_selector` or `article_id`. A selector must match exactly one element.
 - **Markdown / DOCX:** Pipe tables enabled; DOCX headers and footers excluded.
 
 ## Read the output
 
-`report.json` holds the latest run; `report-YYYYMMDD-HH-MM-SS-<id>.json` (UTC) preserves each run, including same-second runs. Reports show settings, outcomes, counts, times, and peak memory.
+`report.json` is the latest report; UTC `report-YYYYMMDD-HH-MM-SS-<id>.json` files retain earlier runs. Reports include settings, outcomes, counts, times, and peak memory.
 
-`parsed` means all content selected as canonical evidence was located; it may still have documented warnings for graphical/corrupt OCR, publisher furniture, uncertain visual labels, or an empty Docling table with no cells. `partial` means at least one warning affects completeness, including unresolved document-flow text or an unavailable figure asset. Both outcomes retain their warnings for review. Picture text assembled from adjacent Docling fragments keeps the original ordered refs, text, and provenance in `parse.json` as `docling_refs` and `source_parts`; its element box encloses those fragments.
+`parsed` means canonical evidence was located, though documented graphical/OCR or furniture warnings may remain. `partial` means completeness is uncertain, for example unresolved document-flow text or a missing figure asset. Both retain warnings. Picture text assembled from Docling fragments retains ordered refs and provenance in `parse.json` (`docling_refs`, `source_parts`).
 
-Parsed files live in `documents/<document-hash>/`. The folder name is the document ID without `doc:`: `doc:` + SHA-256 of `source_id + "\n" + content_sha256`, where `content_sha256` hashes saved bytes. OCR settings do not affect this ID.
+Parsed files live in `documents/<document-hash>/`. The document ID is `doc:` + SHA-256 of `source_id + "\n" + content_sha256` (saved-byte hash); the folder omits `doc:`. OCR settings do not affect it.
 
 | File | How to read it |
 | --- | --- |
-| `artifact-bundle.json` | The schema-valid source, document, and reading-ordered `elements`. Each element has text, kind, stable ID, and a location (PDF page and optional box, HTML selector, Markdown lines, or DOCX block). Later-stage arrays are empty. |
-| `parse.json` | Parser versions/settings, metadata origins, warnings, and extra structure. Join `elements[].element_id` to the bundle's `elements[].id` for parent links, heading context, and table cells or spans. |
-| `docling.json` (PDF only) | Docling's native pages, layout, and tables for inspection. This is parser-specific detail, not the normalized artifact contract. |
-| `figures/*.png` (PDF only) | Deterministic source-PDF crops for figure elements; hashes and relative paths are linked from their `parse.json` sidecar entries. |
+| `artifact-bundle.json` | Schema-valid source, document, and ordered elements with stable IDs and native locations. |
+| `parse.json` | Settings, warnings, provenance, evidence roles, parents, and heading/table detail; join on `element_id`. |
+| `docling.json` (PDF only) | Native PDF pages, layout, and tables for inspection. |
+| `figures/*.png` (PDF only) | Source-PDF figure crops linked and hashed in `parse.json`. |
 
 ### Evidence and structure contract
 
-`parse.json` assigns every element an `evidence_role`. Downstream text chunking uses only `authoritative` elements as independent evidence. A table is the authoritative text aggregate; its `table_cell` children are `structural`. A PDF `figure` is a structural text container whose linked PNG asset is the authoritative **visual** representation. The figure sidecar entry (joined by `element_id`) records `asset.path` relative to the document folder, `media_type`, `sha256`, `representation_role`, and render scale. The crop uses the figure's source page and exact PDF box at 2× resolution, with a filename derived from the stable element ID. Readable diagram labels are `auxiliary` children for search and review; they must not be chunked as independent evidence or used to infer arrows, ownership, or flow. Coherent document-flow prose and list items accidentally nested under a Docling picture remain normal `authoritative` text, with their Docling parent ref retained in the sidecar.
+`parse.json` assigns every element an `evidence_role`. Chunking uses only `authoritative` text. A table is authoritative as a whole; its cells are `structural`. A PDF `figure` is a structural text container with an authoritative **visual** PNG crop. Its sidecar entry records the relative asset path, media type, SHA-256, role, render scale, source page, and box. Diagram labels are `auxiliary`, not independent text claims or evidence of arrows and flow. Coherent prose nested under a Docling picture stays `authoritative` with its parent ref retained.
 
-PDF text with multiple Docling provenance entries is split using each entry's `charspan`, so each element contains only text supported by its page and box. Heading levels use explicit numbering and document-index indentation where those cues resolve a parent; unresolved headings remain conservative. `parse.json` warnings identify excluded graphical fragments, corrupt OCR, publisher furniture, uncertain visual labels, and any unresolved document-flow text by source reference.
+Multi-page PDF text is split by Docling `charspan` and page provenance. Heading levels use reliable numbering and index indentation. Warnings locate excluded graphics, corrupt OCR, furniture, uncertain labels, and unresolved document-flow text.
 
-Re-parsing with the same source ID and saved bytes replaces the folder for that document ID; the latest parsing report describes the new run. If the saved bytes change, the content hash produces a new document ID and a new folder, while the old parsed folder remains. See [refresh one document](local-chunking.md#refresh-one-document) for the steps to build a current chunk collection from that new edition.
+PDF cleanup removes control characters and joins layout-hyphenated words. Tables retain cell positions and may repair narrow merged headers. Repeated running page headers, sparse furniture, figure labels, and filename-only footnotes are not authoritative prose. Check these layout-dependent decisions against the saved PDF when meaning matters.
+
+Re-parsing unchanged bytes replaces the same document folder; changed bytes create a new ID and leave the old folder. See [refresh one document](local-chunking.md#refresh-one-document) before chunking a revised edition.
 
 ## Limits
 
-Partial PDFs carry warnings for missing page provenance, unavailable figure crops, unresolved document-flow text, or tables spanning pages. DOCX tracked changes and page numbers are unsupported. Figure images preserve visual layout, but the parser does not interpret graphical relationships. Docling may not expose element-level OCR origin. The pilot lacks a real scan; see the [parsing evaluation](pilot-parsing-evaluation.md).
+`partial` PDFs may have missing page provenance or figure crops, unresolved text, or multi-page tables. DOCX tracked changes and page numbers are unsupported. Figures preserve layout, not graphical relationships; Docling may not expose element-level OCR origin. The pilot lacks a real scan; see [parsing evaluation](pilot-parsing-evaluation.md).

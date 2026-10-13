@@ -1,41 +1,41 @@
 # Local chunking
 
-The chunking step consumes saved parsing bundles and `parse.json` sidecars from `artifacts/parsed/documents/`. It does not rerun parsing or change those files. With the project virtual environment and the dependencies in `requirements.txt` installed, run:
+Chunking reads saved bundles and `parse.json` sidecars from `artifacts/parsed/documents/`; it does not reparse or alter them. With the project virtual environment installed, run:
 
 ```sh
 .venv/bin/python scripts/chunk.py --config config/pipeline.json
 ```
 
-`--input-dir` defaults to `artifacts/parsed`; `--output-dir` defaults to `artifacts/chunked`. In `config/pipeline.json`, `manifest_ids` contains short **manifest selectors** such as `A` and `T`. The chunker resolves each selector through `data/manifest.json` to a source ID, then requires exactly one matching parsed document for each selected source and no extras. Parsed document folders are named by full document ID without the `doc:` prefix, not by the short selector. The build stops if a per-document sidecar (`parse.json`) is missing, a record link or schema is invalid, or a referenced figure asset is missing or fails its hash check.
+`--input-dir` defaults to `artifacts/parsed`; `--output-dir` to `artifacts/chunked`. `manifest_ids` contains short selectors such as `A`; the chunker resolves them through `data/manifest.json` and requires exactly one parsed document per selected source, with no extras. Folders use the full document ID without `doc:`, not the selector. Missing sidecars, invalid links/schema, or missing/mismatched figure assets stop the build.
 
 ## Output
 
-The command writes three deterministic collection files in `artifacts/chunked/`:
+The command writes three deterministic collection files:
 
-- `artifact-bundle.json`: source, document, element, chunk, and one complete build record. Claim and topic arrays and their build outputs are empty; those are downstream steps.
-- `figure-links.json`: figure element IDs, revisions, native locations, and verified visual asset links relative to the input directory. This file does not assert diagram relationships.
-- `report.json`: build ID, effective settings, and per-document element, duplicate, repetition, and chunk counts.
+- `artifact-bundle.json`: source, document, element, chunk, and build records. Claim/topic arrays remain empty.
+- `figure-links.json`: source locations and verified figure assets; no diagram relationships are inferred.
+- `report.json`: build ID, settings, and per-document counts.
 
-It also writes `documents/<document-id-without-doc-prefix>/document-view.json` for each selected document. Each view copies that document's source and document records, elements, chunks, figure links, and metrics from the collection output. These files make one document easier to inspect; they are derived views, not standalone artifact-schema bundles. `artifact-bundle.json` remains the schema-valid collection artifact and the source of truth. The views use the same chunk IDs and build ID as the collection artifact. A rerun removes stale generated views for documents no longer selected.
+Each document also gets `documents/<document-id-without-doc-prefix>/document-view.json`, a derived inspection view with its records, chunks, figure links, and metrics. The collection bundle remains the schema-valid source of truth; views share its chunk and build IDs. Reruns remove stale views.
 
 ## Refresh one document
 
-Use the short manifest selector with the parser's `--source` option. Before parsing a changed file, record its current parsed folder name from `artifacts/parsed/documents/`. For example, after updating the saved file and its matching entry in `data/manifest.json` (`sha256`, `size_bytes`, and edition metadata such as `source_version`), parse source `A` only:
+Before changing a saved file, record its parsed folder name. Update its `data/manifest.json` hash, size, and edition metadata, then parse it by short selector; for example:
 
 ```sh
 .venv/bin/python scripts/parse.py --config config/pipeline.json --source A
 ```
 
-Parsing writes `A`'s parsed bundle and `parse.json` under `artifacts/parsed/documents/<document-id-without-doc-prefix>/`. The other four parsed document folders stay in place. The parser's latest `report.json` describes this subset run.
+The parser writes a new `A` bundle and sidecar without re-parsing other sources.
 
-If the file's bytes changed, its new document ID gives it a **new** parsed folder. After the new parse succeeds, move the old folder out of the active `artifacts/parsed/documents/` directory:
+Changed bytes create a **new** folder. After a successful parse, move the old folder out of the active input directory:
 
 ```sh
 mkdir -p artifacts/parsed-history/documents
 mv artifacts/parsed/documents/OLD_DOCUMENT_HASH artifacts/parsed-history/documents/
 ```
 
-Replace `OLD_DOCUMENT_HASH` with the folder name recorded before parsing. Keep exactly one parsed folder for each configured manifest source in the active input directory; otherwise chunking stops with a document-set mismatch. If the bytes did not change, the parser replaces the same folder and no move is needed.
+Replace `OLD_DOCUMENT_HASH` with the recorded name. Keep exactly one folder per configured source; unchanged bytes replace the same folder, so no move is needed.
 
 Then rebuild and evaluate the chunk collection:
 
@@ -44,35 +44,34 @@ Then rebuild and evaluate the chunk collection:
 .venv/bin/python scripts/evaluate_chunking.py
 ```
 
-Chunking currently has no `--source` option or incremental cache. It reads all five configured parsed documents, then rewrites the collection `artifacts/chunked/artifact-bundle.json`, `figure-links.json`, `report.json`, and every per-document `document-view.json`. The unchanged documents keep deterministic chunk content and IDs; the collection build ID changes when an input document ID changes. The evaluator checks the resulting collection. Add `--reference tests/fixtures/pilot_parsing_reference.json` only if its source-checked passages still apply to the revised edition. The previous chunk collection is overwritten; archive it with its matching parsed inputs if you need history. Automatic reuse of unchanged parsed or chunked outputs across editions belongs to the later repeat-build workflow.
+Chunking has no `--source` option or incremental cache: it rewrites the collection and views for all configured documents. Unchanged documents retain deterministic chunk IDs; an input document ID change changes the collection build ID. Add `--reference tests/fixtures/pilot_parsing_reference.json` only if its passages still apply. Archive the old collection with its parsed inputs before rebuilding if you need it; collection outputs are rewritten.
 
 ## Configuration and version IDs
 
-- Set `chunking.max_tokens` in `config/pipeline.json` to an integer of at least 32. The default and pilot value is 256. The counter matches Unicode words and punctuation with `\w+|[^\w\s]`; it is reproducible but is **not** a particular language model's tokenizer. Every chunk stays within this count.
-- `chunking-v1` is the first pipeline implementation version recorded in the build; `structural-v1` is the first chunking algorithm version recorded in chunks. Pre-release iterations are part of this initial implementation. The settings and version tags contribute to deterministic build or chunk IDs, so a future output-changing release must use new version tags. The artifact schema version remains 1.0.0.
-- Outputs contain no runtime timestamps. The same parsed input and configuration produce byte-identical output.
+- `chunking.max_tokens` must be at least 32; the default/pilot value is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
+- Build version `chunking-v1` and chunker version `structural-v2` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
+- Outputs have no timestamps; identical inputs and settings produce identical bytes.
 
 ## Chunking rules
 
-- Cleanup removes soft hyphens, folds layout spaces and prose line breaks, and preserves table row breaks. It does not paraphrase, repair OCR, join broken words, or interpret visuals.
-- Chunking follows element `ordinal` order and starts a new group when the sidecar heading path changes. Earlier authoritative headings may be added as cited context, within a quarter of the token budget.
-- A sentence that fits a fresh chunk moves there intact when it does not fit the remaining space. Only a sentence larger than a fresh chunk budget splits at whitespace token boundaries. A list item that fits the full limit stays intact: optional outer heading context is dropped before splitting it. Longer list items prefer sentence boundaries.
-- Tables start in a fresh chunk, use the authoritative table aggregate, and prefer row boundaries; cells are structural and never become independent evidence. An oversized row may split.
+- Cleanup folds layout spaces and prose line breaks, removes soft hyphens, and preserves table rows; it does not repair OCR or interpret visuals.
+- Chunks follow element `ordinal` and heading-path changes. Earlier authoritative headings and list introductions may repeat as cited context; footnotes stay separate.
+- Fitting sentences and list items remain intact when possible. Outer heading context is dropped before splitting a fitting list item; oversized sentences split at whitespace and long lists prefer sentence boundaries.
+- Tables start new chunks, prefer row boundaries, and repeat the first header row when split. The table aggregate is evidence; cells are structural. Oversized rows may split.
+- Exact duplicates match kind, cleaned text, and native location. Repeated wording at distinct locations remains evidence.
+- Only `authoritative` elements supply text evidence. Auxiliary diagram labels and structural figure text are excluded; authoritative prose nested under a picture remains. Linked images preserve visual information without asserting relationships.
+- Evidence links each chunk to source, saved document, element revision, and split span; the element carries the native locator.
 
-- Exact duplicate detection compares kind and cleaned text at the same native location within a document. Repeated wording at distinct source locations stays as separate evidence, including repetitions in T.
-- Only `authoritative` parsing elements supply independent chunk evidence. Auxiliary diagram labels and structural figure text are excluded; coherent prose nested under a picture stays included when marked authoritative. Figure images remain linked for later visual review without creating text claims from them.
-- Each chunk cites the source, saved document, element revision, and text span where split. Its element provides the native page, selector, line, or block location. The build record lists all input documents and output chunks.
-
-Parsed PDF sidecars may contain OCR and layout warnings; chunking does not resolve them. The schema has no field for heading paths or figure assets on a chunk, so heading context appears as cited text and visual links live in the companion file.
+Chunking does not resolve parser OCR/layout warnings. Heading context appears as cited text; visual links live in `figure-links.json` because the chunk schema has no dedicated fields for them.
 
 ## Validate and evaluate
 
-The chunk command checks schema v1.0.0 and cross-record links before writing. For an independent check of the saved bundle, run:
+The chunk command validates schema v1.0.0 and links before writing. To check the saved bundle independently:
 
 ```sh
 .venv/bin/python scripts/validate_artifact_examples.py artifacts/chunked/artifact-bundle.json
 ```
 
-Despite its historical name, `validate_artifact_examples.py` accepts a supplied artifact bundle. It also validates the manifest and saved source file hashes and checks that bundle source metadata matches the manifest. This is an optional verification command, not a second chunking step. Unit tests are for development and CI, not part of the normal run command.
+The validator also checks manifest and saved-source hashes and matching bundle metadata; it does not rechunk. Unit tests are for development and CI.
 
-Run the [chunking evaluation](pilot-chunking-evaluation.md) after building chunks to check coverage, boundaries, and source links and to prepare source-linked chunks for review.
+Then run [chunking evaluation](pilot-chunking-evaluation.md) for coverage, boundaries, links, and source-linked review samples.

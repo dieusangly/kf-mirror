@@ -1,10 +1,10 @@
 # Pilot parsing evaluation
 
-This document describes the deterministic parsing-quality gate for the [pilot corpus](../data/manifest.json). The gate compares normalized elements with saved Docling output where available, checks source-verified landmarks, and validates artifact bundles. Run-specific status, counts, finding examples, and selected parse run IDs belong in the generated [evaluation report](../artifacts/parsed/parsing-evaluation-report.json).
+The parsing-quality gate compares normalized elements with saved Docling output where available, checks source-verified landmarks, and validates bundles. Run-specific results belong in the generated `parsing-evaluation-report.json`; the pilot uses this [manifest](../data/manifest.json).
 
 ## Run the evaluation
 
-From the repository root, with the virtual environment installed and parse artifacts in `artifacts/parsed`:
+From the repository root, with saved output in `artifacts/parsed`:
 
 ```sh
 .venv/bin/python scripts/evaluate_parsing.py \
@@ -12,30 +12,30 @@ From the repository root, with the virtual environment installed and parse artif
   --output artifacts/parsed/parsing-evaluation-report.json
 ```
 
-The script writes the report before exiting. Exit status `0` means the gate passed; `1` means it failed. Omit `--output` to print JSON to standard output. If a subset rerun lives elsewhere, repeat `--additional-input-dir PATH`. For another corpus, supply its source-checked landmarks with `--reference PATH`.
+The report is written before exit: `0` means pass, `1` fail. Omit `--output` for stdout, add `--additional-input-dir PATH` for subset reruns, or supply another corpus's source-checked landmarks with `--reference PATH`.
 
-The evaluator reads parse reports from the supplied directories and selects the newest outcome per manifest source whose saved bundle matches its reported element count. It reports when the selected documents come from different parse runs. `report.json` is the parser's latest-run alias; the dated `report-*.json` files allow the evaluator to assemble a corpus after subset reruns.
+The evaluator selects the newest valid outcome per manifest source across supplied directories and reports mixed parse runs. `report.json` is the latest-run alias; dated reports retain subset runs.
 
 ## Checks and acceptance criteria
 
-A pass requires every manifest source to have a parsed or partial outcome, every referenced passage and structural landmark to be found, every selected reading-order pair and element location to be valid, every bundle to pass schema and cross-record validation, and zero audit errors. Documented graphical/corrupt OCR, publisher furniture, and uncertain visual labels are warnings because the figure image remains available. Unresolved document-flow text is a `partial` warning; confirmed missing canonical text or a missing figure image is an error. A parse with only documented harmless exclusions is `parsed` and retains its warnings.
+A pass requires a parsed or partial outcome for each manifest source; valid landmarks, reading-order pairs, locations, bundles, and links; and zero audit errors. Documented graphical/OCR exclusions, furniture, and uncertain visual labels are warnings. Unresolved document-flow text makes a parse `partial`; confirmed missing canonical text or a missing figure image is an error. Harmless exclusions may leave it `parsed` with warnings.
 
-The [reference fixture](../tests/fixtures/pilot_parsing_reference.json) contains draft, source-checked locators. They are not expert-approved legal labels. The evaluator also checks:
+The pilot [reference fixture](../tests/fixtures/pilot_parsing_reference.json) has draft source-checked locators, not expert-approved legal labels. Other checks include:
 
-- **Text coverage:** each substantive document-flow Docling text node appears in normalized content on its source page, including prose accidentally nested under pictures. The general substantive threshold is five normalized words and 30 alphanumeric characters. Short picture text is checked separately. Reliable visual labels are auxiliary children of a figure; corrupt OCR, footer-only URLs, and uncertain visual tokens are diagnosed rather than treated as missing canonical prose. Source fragments and provenance remain in `parse.json` when a phrase spans Docling nodes.
-- **Figure assets:** every PDF figure has a linked PNG crop with a safe relative path, PNG media type, matching SHA-256, and page/bbox provenance matching Docling. The image is authoritative for visual layout; auxiliary labels cannot be promoted into independent text evidence.
-- **Duplication:** exact substantive text repeated in independent elements at the same source location, picture text emitted more than once, and table parent text overlapping child cells. Identical phrases at separate PDF boxes are counted as genuine source repetitions, not parser duplication. Table overlap is recorded separately as a retrieval duplication risk; repeated values in distinct cells are not treated as independent duplicates.
-- **Multi-provenance text:** page-specific elements match Docling `charspan` slices, rather than repeating the full node on each page.
-- **Structure:** empty paragraphs, headings, list items, and tables; invalid parent links; broken heading paths; marked document-flow list items nested under pictures that are typed as paragraphs; and heading-depth distribution. An all-depth-one heading tree in a sizeable PDF is a heuristic warning.
-- **Coverage of Docling structures:** unknown labels, unrepresented picture or table nodes, nonempty key-value or form collections, parser warnings, and excluded furniture.
+- **Text coverage:** substantive Docling text appears on its source page, including prose nested under pictures; the threshold is five normalized words and 30 alphanumeric characters. Short picture text is checked separately. Uncertain visual tokens and corrupt OCR are diagnosed, not treated as canonical prose; multi-node fragments retain provenance in `parse.json`.
+- **Figure assets:** each PDF figure has a safe linked PNG with matching hash and page/box provenance. Auxiliary labels are not independent text evidence.
+- **Duplication:** repeated content at one source location, repeated picture text, and table-parent/cell overlap. Identical text at distinct PDF boxes is genuine repetition; table overlap is a separate retrieval risk.
+- **Multi-provenance text:** page elements match Docling `charspan` slices, without repeating a full node on each page.
+- **Structure:** empty semantic elements, invalid parents/heading paths, mis-typed marked list items, and heading depth; an all-depth-one tree in a sizeable PDF is a warning.
+- **Docling coverage:** unknown labels, unrepresented pictures/tables, nonempty key-value/form collections, warnings, and excluded furniture.
 
-The JSON report contains `documents` with per-document metrics, coded findings, and gate status; `corpus` with totals and warning/error codes; the retained landmark and location measurements; selected run IDs; and the overall `gate` result. Finding examples are capped at five per code, while counts cover all detections.
+The JSON report has per-document and corpus metrics/findings, landmark and location measurements, selected run IDs, and `gate`. Examples are capped at five per finding code; counts are complete.
 
 ## Limits
 
-This is a Docling-to-normalized comparison. It cannot detect text Docling failed to recognize, verify OCR against original pages, infer visual relationships, judge legal meaning, or certify every ambiguous short graphical token. The landmark fixture samples selected evidence and structure rather than every paragraph or cell. HTML has no Docling source tree, so source-text loss, figure-asset, and picture-text checks are unavailable there; DOM locations, landmarks, normalized structure, duplication, and bundle validation still run. Table overlap indicates duplicated element content, not proven behavior of a later retrieval index.
+Docling-to-normalized checks cannot find text Docling missed, verify OCR against original pages, interpret diagrams, or judge legal meaning. Landmarks sample rather than certify every element. HTML lacks Docling source-tree, figure, and picture-text checks, but still gets DOM locations, landmarks, structure, duplication, and bundle validation. Table overlap is content duplication, not proven retrieval behavior.
 
-The generated report is under `artifacts/`, which the repository ignores. To validate changes to the evaluator itself, run:
+Generated reports under `artifacts/` are ignored by Git. To test evaluator changes:
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -p 'test_evaluate_parsing.py' -v

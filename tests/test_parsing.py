@@ -13,7 +13,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 from lxml import html
 
 from knowledge_foundry.parsing import PARSERS, SCHEMA, _save_pdf_figure_assets, main, parse_collection
-from knowledge_foundry.parsers import parse_docx, parse_markdown, parse_pdf
+from knowledge_foundry.parsers import (
+    _pdf_running_headers, _pdf_table_cells, _pdf_table_text, _pdf_text, parse_docx, parse_markdown, parse_pdf,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +45,258 @@ def _config(root, entries):
 
 
 class ParsingTests(unittest.TestCase):
+    def test_pdf_table_serializes_cells_once_and_preserves_empty_columns(self):
+        def cell(row, column, value):
+            return SimpleNamespace(start_row_offset_idx=row,
+                                   start_col_offset_idx=column, text=value)
+        index = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 0, "INTRODUCTION"), cell(0, 2, "2"),
+            cell(1, 0, "La mise en œuvre selon"),
+            cell(2, 0, "les risques"), cell(2, 3, "6"),
+            cell(3, 0, "Oui"), cell(3, 1, "Oui"),
+        ]))
+        self.assertEqual(_pdf_table_text(index, None),
+                         "INTRODUCTION |  | 2\nLa mise en œuvre selon\nles risques |  |  | 6\nOui | Oui")
+
+    def test_pdf_table_splits_merged_header_labels_into_distinct_slots(self):
+        def cell(row, column, value, header=False, left=None):
+            return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
+                                   text=value, row_span=1, col_span=1,
+                                   column_header=header, row_header=False,
+                                   bbox=SimpleNamespace(l=left) if left is not None else None)
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 0, "Thématique", True, 0),
+            cell(0, 1, "Les sociétés de domiciliation Les agents sportifs", True, 5),
+            cell(0, 2, "Le secteur du jeu Critères concernant particulièrement les déclarants", True, 10),
+            cell(1, 0, "Risque"), cell(1, 1, "x"), cell(1, 3, "x"),
+        ]))
+        self.assertEqual(_pdf_table_text(table, None),
+                         "Thématique | Les sociétés de domiciliation | Les agents sportifs | Le secteur du jeu | Critères concernant particulièrement les déclarants\nRisque | x |  | x")
+        headers = [cell for cell in _pdf_table_cells(table) if cell["row"] == 0]
+        self.assertEqual([(cell["column"], cell["text"]) for cell in headers], [
+            (0, "Thématique"), (1, "Les sociétés de domiciliation"),
+            (2, "Les agents sportifs"), (3, "Le secteur du jeu"),
+            (4, "Critères concernant particulièrement les déclarants"),
+        ])
+
+    def test_filename_only_pdf_footnote_is_structural_but_meaningful_note_remains_evidence(self):
+        def node(value, ref):
+            return SimpleNamespace(label="footnote", text=value, marker=None,
+                                   prov=[SimpleNamespace(page_no=1, bbox=None)], self_ref=ref,
+                                   parent=SimpleNamespace(cref="#/body"))
+        filename = node("23 20220404_lignes_directrices_revisees_relatives_identification.pdf", "#/texts/0")
+        note = node("24 Voir les lignes directrices ACPR sur l'identification.", "#/texts/1")
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(filename, 1), (note, 1)]),
+                                   pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: {"texts": [], "pictures": [], "tables": [], "groups": []})
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(status="success", document=document)
+            items, _, _ = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual([item["details"]["evidence_role"] for item in items],
+                         ["structural", "authoritative"])
+        self.assertEqual(items[0]["details"]["link_text_role"], "non_substantive_filename")
+
+    def test_pdf_text_removes_controls_and_layout_word_break(self):
+        self.assertEqual(_pdf_text("INTRODUCTION\b\x07 et malus écolo- gique"),
+                         "INTRODUCTION et malus écologique")
+
+    def test_control_only_pdf_node_is_not_missing_content(self):
+        node = SimpleNamespace(label="text", text="\b", marker=None,
+                               prov=[SimpleNamespace(page_no=1, bbox=None)],
+                               self_ref="#/texts/0", parent=SimpleNamespace(cref="#/body"))
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(node, 1)]),
+                                   pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: {"texts": [{"self_ref": "#/texts/0",
+                                       "text": "\b", "parent": {"$ref": "#/body"}}],
+                                       "pictures": [], "tables": [], "groups": []})
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(items, [])
+        self.assertEqual(warnings, [])
+
+    def test_page_edge_drop_cap_is_structural(self):
+        node = SimpleNamespace(label="text", text="F", marker=None,
+                               prov=[SimpleNamespace(page_no=2, bbox=SimpleNamespace(
+                                   to_top_left_origin=lambda height: SimpleNamespace(
+                                       l=35, t=60, r=70, b=85)))],
+                               self_ref="#/texts/0", parent=SimpleNamespace(cref="#/body"))
+        native = {"pages": {"2": {"size": {"width": 600, "height": 800}}},
+                  "texts": [{"self_ref": "#/texts/0", "text": "F",
+                             "parent": {"$ref": "#/body"}}], "pictures": [], "tables": [], "groups": []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(node, 1)]),
+                                   pages={2: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual(items[0]["details"]["evidence_role"], "structural")
+
+    def test_sparse_page_short_ocr_fragments_are_structural(self):
+        def node(value, ref, top):
+            return SimpleNamespace(label="text", text=value, marker=None,
+                                   prov=[SimpleNamespace(page_no=2, bbox=SimpleNamespace(
+                                       to_top_left_origin=lambda height: SimpleNamespace(
+                                           l=100, t=top, r=200, b=top + 20)))],
+                                   self_ref=ref, parent=SimpleNamespace(cref="#/body"))
+        title = node("Chapter title", "#/texts/0", 100)
+        noise = node("EDP", "#/texts/1", 600)
+        native = {"pages": {"2": {"size": {"width": 600, "height": 800}}},
+                  "texts": [{"self_ref": item.self_ref, "text": item.text,
+                             "prov": [{"page_no": 2}], "parent": {"$ref": "#/body"}}
+                            for item in (title, noise)],
+                  "pictures": [], "tables": [], "groups": []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([
+            (title, 1), (noise, 1)]),
+            pages={2: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual([item["details"]["evidence_role"] for item in items],
+                         ["authoritative", "structural"])
+
+    def test_repeated_top_strip_is_running_header(self):
+        header = "Position - recommandation et lignes directrices"
+        pages = {str(page): {"size": {"height": 800}} for page in range(1, 4)}
+        texts = [{"text": header, "prov": [{"page_no": page,
+                  "bbox": {"l": 10, "t": 770, "r": 500, "b": 750,
+                           "coord_origin": "BOTTOMLEFT"}, "charspan": [0, len(header)]}]}
+                 for page in range(1, 4)]
+        self.assertEqual(_pdf_running_headers({"pages": pages, "texts": texts}), {header})
+
+    def test_running_header_mislabeled_as_list_item_is_structural(self):
+        header = "Position - recommandation and publication details"
+        pages = {page: SimpleNamespace(size=SimpleNamespace(width=600, height=800))
+                 for page in range(1, 4)}
+        nodes = [SimpleNamespace(label="list_item", text=header, marker=None,
+                                 prov=[SimpleNamespace(page_no=page, bbox=SimpleNamespace(
+                                     to_top_left_origin=lambda height: SimpleNamespace(
+                                         l=20, t=30, r=500, b=50)))],
+                                 self_ref=f"#/texts/{page}",
+                                 parent=SimpleNamespace(cref="#/body"))
+                 for page in pages]
+        native = {"pages": {str(page): {"size": {"width": 600, "height": 800}}
+                            for page in pages},
+                  "texts": [{"self_ref": node.self_ref, "text": header,
+                             "prov": [{"page_no": node.prov[0].page_no,
+                                       "bbox": {"l": 20, "t": 750, "r": 500, "b": 730,
+                                                "coord_origin": "BOTTOMLEFT"},
+                                       "charspan": [0, len(header)]}]}
+                            for node in nodes], "pictures": [], "tables": [], "groups": []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter((node, 1)
+                                   for node in nodes), pages=pages, export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual({item["kind"] for item in items}, {"paragraph"})
+        self.assertEqual({item["details"]["evidence_role"] for item in items}, {"structural"})
+
+    def test_pdf_visual_caption_below_large_diagram_is_auxiliary(self):
+        figure_box = {"l": 50, "t": 700, "r": 500, "b": 320,
+                      "coord_origin": "BOTTOMLEFT"}
+        label_box = {"l": 45, "t": 280, "r": 210, "b": 260,
+                     "coord_origin": "BOTTOMLEFT"}
+        picture = SimpleNamespace(label="picture", text="", marker=None,
+                                  prov=[SimpleNamespace(page_no=23, bbox=SimpleNamespace(
+                                      to_top_left_origin=lambda height: SimpleNamespace(
+                                          l=50, t=100, r=500, b=480)))],
+                                  self_ref="#/pictures/0", parent=SimpleNamespace(cref="#/body"))
+        paragraph = SimpleNamespace(label="text", text="Infraction sous-jacente soupçonnée",
+                                    marker=None, prov=[SimpleNamespace(page_no=23,
+                                    bbox=SimpleNamespace(to_top_left_origin=lambda height:
+                                    SimpleNamespace(l=45, t=520, r=210, b=540)))],
+                                    self_ref="#/texts/0", parent=SimpleNamespace(cref="#/body"))
+        native = {"pages": {"23": {"size": {"width": 600, "height": 800}}},
+                  "pictures": [{"self_ref": "#/pictures/0", "prov": [
+                      {"page_no": 23, "bbox": figure_box}], "children": []}],
+                  "texts": [{"self_ref": "#/texts/0", "text": paragraph.text,
+                             "parent": {"$ref": "#/body"}, "prov": [
+                                 {"page_no": 23, "bbox": label_box}]}],
+                  "tables": [], "groups": []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([
+            (picture, 1), (paragraph, 1)]),
+            pages={23: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual(items[1]["details"]["evidence_role"], "auxiliary")
+        self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
+
+    def test_short_heading_below_diagram_is_visual_annotation(self):
+        figure_box = {"l": 50, "t": 700, "r": 500, "b": 320,
+                      "coord_origin": "BOTTOMLEFT"}
+        label_box = {"l": 45, "t": 280, "r": 210, "b": 260,
+                     "coord_origin": "BOTTOMLEFT"}
+        picture = SimpleNamespace(label="picture", text="", marker=None,
+                                  prov=[SimpleNamespace(page_no=2, bbox=SimpleNamespace(
+                                      to_top_left_origin=lambda height: SimpleNamespace(
+                                          l=50, t=100, r=500, b=480)))],
+                                  self_ref="#/pictures/0", parent=SimpleNamespace(cref="#/body"))
+        heading = SimpleNamespace(label="section_header", text="Diagram labels", marker=None,
+                                  prov=[SimpleNamespace(page_no=2, bbox=SimpleNamespace(
+                                      to_top_left_origin=lambda height: SimpleNamespace(
+                                          l=45, t=520, r=210, b=540)))],
+                                  self_ref="#/texts/0", parent=SimpleNamespace(cref="#/body"))
+        native = {"pages": {"2": {"size": {"width": 600, "height": 800}}},
+                  "pictures": [{"self_ref": "#/pictures/0", "prov": [{"page_no": 2,
+                      "bbox": figure_box}], "children": []}],
+                  "texts": [{"self_ref": "#/texts/0", "text": heading.text,
+                             "parent": {"$ref": "#/body"}, "prov": [{"page_no": 2,
+                                 "bbox": label_box}]}], "tables": [], "groups": []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([
+            (picture, 1), (heading, 1)]),
+            pages={2: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: native)
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(warnings, [])
+        self.assertEqual([item["kind"] for item in items], ["figure", "paragraph"])
+        self.assertEqual(items[1]["details"]["evidence_role"], "auxiliary")
+
+    def test_pdf_numbered_quotation_lead_and_lettered_alternative(self):
+        def node(label, value, ref):
+            return SimpleNamespace(label=label, text=value, marker=None,
+                                   prov=[SimpleNamespace(page_no=2, bbox=None)],
+                                   self_ref=ref, parent=SimpleNamespace(cref="#/body"))
+        lead = node("section_header", "219. Le client est:", "#/texts/0")
+        option = node("text", "a. une personne physique ou morale", "#/texts/1")
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([
+            (lead, 1), (option, 1)]),
+            pages={2: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: {"texts": [], "pictures": [], "tables": [], "groups": []})
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, _ = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual([item["kind"] for item in items], ["paragraph", "list_item"])
+
+    def test_sentence_like_ellipsis_heading_becomes_paragraph(self):
+        node = SimpleNamespace(label="section_header", text="Par exception, les diligences sont conduites…",
+                               marker=None, prov=[SimpleNamespace(page_no=1, bbox=None)],
+                               self_ref="#/texts/0", parent=SimpleNamespace(cref="#/body"))
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(node, 1)]),
+                                   pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: {"texts": [], "pictures": [],
+                                                           "tables": [], "groups": []})
+        with patch("docling.document_converter.DocumentConverter") as converter:
+            converter.return_value.convert.return_value = SimpleNamespace(
+                status="success", document=document)
+            items, _, _ = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
+        self.assertEqual(items[0]["kind"], "paragraph")
+
     def test_pdf_figure_asset_is_deterministic_and_linked(self):
         from PIL import Image, ImageDraw
 
@@ -295,12 +549,18 @@ class ParsingTests(unittest.TestCase):
         with patch("docling.document_converter.DocumentConverter") as converter:
             converter.return_value.convert.return_value = SimpleNamespace(status="success", document=document)
             items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
-        self.assertEqual([item["text"] for item in items[2:4]],
+        self.assertEqual([item["text"] for item in items
+                          if item["details"].get("docling_ref") == "#/texts/2"],
                          [source_text[:split].strip(), source_text[split:].strip()])
+        self.assertEqual([item["location"]["page"] for item in items],
+                         sorted(item["location"]["page"] for item in items))
         self.assertEqual(items[1]["details"]["level"], 2)
         self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
-        self.assertEqual(items[-1]["parent_key"], items[-2]["locator_key"])
-        self.assertEqual(items[-1]["kind"], "paragraph")
+        picture_key = next(item["locator_key"] for item in items if item["kind"] == "figure")
+        picture_prose = next(item for item in items
+                             if item["details"].get("docling_ref") == "#/texts/3")
+        self.assertEqual(picture_prose["parent_key"], picture_key)
+        self.assertEqual(picture_prose["kind"], "paragraph")
         self.assertEqual([warning["code"] for warning in warnings], ["excluded_picture_ocr_fragments"])
         self.assertEqual(warnings[0]["refs"], ["#/texts/4"])
 
