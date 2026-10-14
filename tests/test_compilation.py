@@ -78,6 +78,7 @@ class CompilationTests(unittest.TestCase):
             self.assertTrue((output / "topics" / "beneficial-ownership.md").is_file())
             self.assertTrue((output / "build-manifest.json").is_file())
             self.assertTrue((generated / "claim-candidates.jsonl").is_file())
+            self.assertTrue((generated / "report.json").is_file())
             self.assertEqual([event["phase"] for event in generation_events],
                              ["generation", "generation", "export", "complete"])
             self.assertEqual([event["phase"] for event in classification_events],

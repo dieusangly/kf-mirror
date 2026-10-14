@@ -696,7 +696,7 @@ class ParsingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not configured"):
                 parse_collection(config_path, root / "output", ["second.md"])
 
-    def test_repeated_runs_keep_separate_reports(self):
+    def test_repeated_runs_replace_report(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             entry = _fixture(root, "good.md", "text/markdown", "# Heading\n")
@@ -706,12 +706,10 @@ class ParsingTests(unittest.TestCase):
             second = parse_collection(config, output)
 
             self.assertNotEqual(first["run_id"], second["run_id"])
-            self.assertEqual(len(list(output.glob("report-*.json"))), 2)
+            self.assertEqual(len(list(output.glob("report-*.json"))), 0)
             for report in (first, second):
                 self.assertRegex(report["run_id"], r"^\d{8}-\d{2}-\d{2}-\d{2}-[0-9a-f]{8}$")
                 self.assertIn("+00:00", report["started_at"])
-                archived = output / f"report-{report['run_id']}.json"
-                self.assertEqual(json.loads(archived.read_text()), report)
             self.assertEqual(json.loads((output / "report.json").read_text()), second)
 
     def test_cli_reports_each_document_and_continues_after_parser_error(self):
@@ -744,7 +742,7 @@ class ParsingTests(unittest.TestCase):
             self.assertIn("[2/2] good.md good.md: parsing...", progress[2])
             self.assertIn("[2/2] good.md good.md: succeeded in ", progress[3])
             self.assertIn("(2 elements)", progress[3])
-            self.assertIn(f"report-{report['run_id']}.json", progress[4])
+            self.assertIn("report.json", progress[4])
             self.assertGreaterEqual(report["outcomes"][1]["elapsed_seconds"], 0)
 
     def test_docx_nested_table_keeps_parent_and_unique_location(self):

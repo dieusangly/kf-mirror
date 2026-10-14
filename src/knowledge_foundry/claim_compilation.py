@@ -574,7 +574,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
               "compilation_scope": scope, "errors": errors, "telemetry": telemetry,
               "projected_full_generation": _project_generation(scope, usage, config),
               "status": "partial" if errors else "complete"}
-    _write_json(output_dir / "generation-report.json", report)
+    _write_json(output_dir / "report.json", report)
     files = sorted(path for path in output_dir.rglob("*") if path.is_file() and checkpoint_dir not in path.parents and
                    path != checkpoint_path)
     manifest = {"manifest_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
@@ -681,7 +681,7 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
                          f"{claim['grounding_review_status']}; classification: {claim['classification_review_status']})")
         (topic_dir / f"{slug}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     telemetry = _telemetry(provider, config)
-    generation_report = _read_json(candidate_dir / "generation-report.json")
+    generation_report = _read_json(candidate_dir / "report.json")
     projected = None
     scope = generation_report["compilation_scope"]
     if scope["mode"] == "subset" and candidates:

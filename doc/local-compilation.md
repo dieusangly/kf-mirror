@@ -111,7 +111,7 @@ The generation directory contains:
 - `artifact-bundle.json`: source, document, element, and chunk context plus a
   generation build record; it has no classified claims or topics.
 - `claim-candidates.jsonl`: durable atomic candidate records with exact evidence.
-- `generation-report.json` and `build-manifest.json`: source lineage, hashes,
+- `report.json` and `build-manifest.json`: source lineage, hashes,
   usage, cost, failures, and subset scope.
 
 The classification directory contains:

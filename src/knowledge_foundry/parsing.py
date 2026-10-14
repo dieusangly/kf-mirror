@@ -382,9 +382,6 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
         if on_progress:
             on_progress({"index": index, "total": total, **result})
     report["completed_at"] = datetime.now(timezone.utc).isoformat()
-    archived_report = output_dir / f"report-{run_id}.json"
-    with archived_report.open("x", encoding="utf-8") as stream:
-        stream.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     _write_json(output_dir / "report.json", report)
     return report
 
@@ -414,8 +411,8 @@ def main(argv=None):
         report = parse_collection(args.config, args.output_dir, args.source, on_progress=_print_progress)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"parsing setup error: {exc}\n")
-    archived_report = Path(args.output_dir).resolve() / f"report-{report['run_id']}.json"
-    print(f"Report saved: {archived_report}", file=sys.stderr, flush=True)
+    report_path = Path(args.output_dir).resolve() / "report.json"
+    print(f"Report saved: {report_path}", file=sys.stderr, flush=True)
     sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     return 1 if any(item["status"] != "parsed" for item in report["outcomes"]) else 0
 

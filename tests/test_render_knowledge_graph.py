@@ -32,6 +32,24 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
         self.assertIn("\\u003c/script", rendered)
         self.assertIn('id="topic-filter"', rendered)
 
+    def test_viewer_is_deterministic_and_defaults_to_paged_topic_claim_view(self):
+        graph = build_graph(self.bundle)
+        first = render_html(graph, "KPG <review>")
+        second = render_html(graph, "KPG <review>")
+        self.assertEqual(first, second)
+        self.assertIn("Topics and claims", first)
+        self.assertIn('value="topic"', first)
+        self.assertIn("pageSize = 24", first)
+        self.assertIn('id="document-filter"', first)
+        self.assertIn('id="build-filter"', first)
+        self.assertIn('id="review-filter"', first)
+        self.assertIn('id="type-filter"', first)
+        self.assertIn("Explore provenance", first)
+        self.assertIn("Explore local graph", first)
+        self.assertIn("Document-derived knowledge", first)
+        self.assertIn("Full graph / debug", first)
+        self.assertIn("&lt;review&gt;", first)
+
     def test_cli_writes_new_html(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "graph.html"

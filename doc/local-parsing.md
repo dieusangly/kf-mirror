@@ -43,7 +43,7 @@ Set `parsing` in [config/pipeline.json](../config/pipeline.json). Defaults are:
 
 ## Read the output
 
-`report.json` is the latest report; UTC `report-YYYYMMDD-HH-MM-SS-<id>.json` files retain earlier runs. Reports include settings, outcomes, counts, times, and peak memory.
+`report.json` includes settings, outcomes, counts, times, and peak memory.
 
 `parsed` means canonical evidence was located, though documented graphical/OCR or furniture warnings may remain. `partial` means completeness is uncertain, for example unresolved document-flow text or a missing figure asset. Both retain warnings. Picture text assembled from Docling fragments retains ordered refs and provenance in `parse.json` (`docling_refs`, `source_parts`).
 
