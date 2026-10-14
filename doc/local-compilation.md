@@ -32,49 +32,64 @@ draft views. Stable topic IDs and JSON field names remain unchanged. Claims must
 preserve the source's terminology and qualifications; a translation or
 paraphrase must never be presented as a verbatim citation.
 
-## Run
+## Generate candidate claims
 
-Choose a fresh output directory:
-
-```sh
-.venv/bin/python scripts/compile_topics.py \
-  --chunked-dir artifacts/chunked-20261013-114244 \
-  --output-dir artifacts/compiled-20261013-114244
-```
-
-To inspect real claims and topic views before compiling all chunks, run a
-length-stratified sample in a different fresh directory:
+Generate durable candidate claims in a fresh directory. This stage makes only
+claim-generation calls; it does not need the topic taxonomy.
 
 ```sh
-.venv/bin/python scripts/compile_topics.py \
+.venv/bin/python scripts/generate_claims.py \
   --chunked-dir artifacts/chunked-20261013-114244 \
-  --output-dir artifacts/compiled-sample-20261013-114244 \
-  --sample-batches 10
+  --output-dir artifacts/generated-claims-20261013-114244
 ```
 
-The sample selects ten original generation batches (up to forty chunks), spread
+To generate claims from a length-stratified subset of the original batches, add
+`--subset-batches` to the same command shape:
+
+```sh
+.venv/bin/python scripts/generate_claims.py \
+  --chunked-dir artifacts/chunked-20261013-114244 \
+  --output-dir artifacts/generated-claims-20261013-114244 \
+  --subset-batches 10
+```
+
+The subset run selects ten original generation batches (up to forty chunks), spread
 across the cumulative character volume of the exact serialized generation
-requests. It makes real model calls and produces normal draft views, while
-retaining all input chunk records for lineage. Only its claims and topics come
-from the selected chunks. Its manifest and report identify it as a sample and
-its build ID differs from a full compilation.
+requests. It makes real model calls and preserves all input chunk records for
+lineage. Its manifest and report identify it as a subset run and its generation
+build ID differs from a full generation run.
 
-The compiler batches saved chunks, asks the model for atomic candidates, then
-classifies each candidate separately. A candidate can cite several chunks, but
-each citation must select an existing chunk evidence reference with an exact
-element span. Bounded retries apply to each model request. The output reports
-failed batches and unclassified candidates without assigning them to a topic.
+The generated directory contains `claim-candidates.jsonl`. Every candidate has
+resolved, exact evidence spans and generation metadata, including candidates
+that may later receive no topic. Do not alter it; it is the immutable input to
+classification.
 
-Progress is printed coarsely to stderr at the start of each phase and at roughly
-10% intervals. At completion, stderr reports the elapsed seconds and the OpenAI
-cost estimate. The JSON report remains on stdout, so it can still be redirected
-or processed by another command.
+## Classify saved candidates
 
-A sample also reports a projected whole-build cost. Generation cost is scaled
-from observed usage by the known serialized-request character volume of all
-batches; classification cost is scaled from the observed candidates and
-classification usage. It is an estimate: claim yield, output/reasoning tokens,
-and token-to-character ratios can vary. Use more sampled batches for a more
+Classify candidates in a separate fresh directory:
+
+```sh
+.venv/bin/python scripts/classify_claims.py \
+  --candidates-dir artifacts/generated-claims-20261013-114244 \
+  --output-dir artifacts/classified-claims-20261013-114244
+```
+
+This stage makes classification calls only. It reads the candidate manifest and
+hashes before use, then validates the final normalized bundle. To revise the
+curated topics, update `config/topics-v1.json` and rerun this command against
+the same candidate directory. This includes candidates previously returned as
+unclassified; it never regenerates their text or evidence.
+
+Both commands print coarse progress, elapsed seconds, and their OpenAI cost
+estimate to stderr. Their JSON reports remain on stdout. The classification
+report additionally combines a subset-generation projection with observed
+classification cost when its candidate input came from a subset run.
+
+A subset generation run reports projected full generation cost from observed
+usage and the known serialized-request character volume of all batches. After
+classification, the classification report adds its projected classification
+cost. These are estimates: claim yield, output/reasoning tokens, and
+token-to-character ratios can vary. Use more subset batches for a more
 representative estimate; do not multiply a short run's cost by the number of
 chunks.
 
@@ -84,15 +99,23 @@ use this mode; CI has no live model dependency.
 
 ## Output and review
 
-The output directory contains:
+The generation directory contains:
+
+- `artifact-bundle.json`: source, document, element, and chunk context plus a
+  generation build record; it has no classified claims or topics.
+- `claim-candidates.jsonl`: durable atomic candidate records with exact evidence.
+- `generation-report.json` and `build-manifest.json`: source lineage, hashes,
+  usage, cost, failures, and subset scope.
+
+The classification directory contains:
 
 - `artifact-bundle.json`: normalized source through topic records and separate
   upstream chunk and compilation build records.
 - `chunks.jsonl` and `claims.jsonl`: collection records suitable for streaming.
 - `topics/<topic-id>.json` and `.md`: draft inspection views.
-- `build-manifest.json`: input, taxonomy, prompt, configuration, and export
-  hashes; `report.json`: scope, applied rate card, usage, estimated cost,
-  provider failures, and unclassified candidates.
+- `build-manifest.json`: candidate input, taxonomy, prompt, configuration, and
+  export hashes; `report.json`: usage, estimated cost, provider failures, and
+  unclassified candidate IDs.
 
 All generated claims begin with both review statuses set to `draft`; topic views
 are also `draft`. A review file passed with `--review-file` may independently
@@ -114,7 +137,7 @@ the normalized bundle with:
 
 ```sh
 .venv/bin/python scripts/validate_artifact_examples.py \
-  artifacts/compiled-20261013-114244/artifact-bundle.json
+  artifacts/classified-claims-20261013-114244/artifact-bundle.json
 ```
 
 The validator checks schemas, IDs, exact evidence spans, source/document links,

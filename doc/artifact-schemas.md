@@ -1,6 +1,6 @@
 # Knowledge Foundry artifact schemas
 
-The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines seven record types. `properties` and `required` specify fields, `$defs` and `$ref` reuse definitions, `oneOf` selects a location format, and `additionalProperties: false` rejects unknown fields.
+The [JSON Schema](../schemas/artifact-schema-v1.0.0.json) defines seven normalized bundle record types. The separate [candidate artifact schema](../schemas/claim-candidate-artifact-schema-v1.0.0.json) defines durable intermediate claim candidates. `properties` and `required` specify fields, `$defs` and `$ref` reuse definitions, `oneOf` selects a location format, and `additionalProperties: false` rejects unknown fields.
 
 The bundle contains `schema_version` and seven arrays: `sources`, `documents`, `elements`, `chunks`, `claims`, `topics`, and `builds`. Nested definitions cover locations, evidence, generation, and spans.
 
@@ -20,6 +20,11 @@ The bundle and every record use `schema_version: "1.0.0"` for field layout, dist
 | Topic | A stable knowledge unit that groups related supported claims around coherent subject matter. It has a summary and revision. | `claim_ids`, `build_id`, and `revision`. |
 | Build | The inputs, settings, outputs, and status of a logical build. | Input document IDs and output chunk, claim, and topic IDs. |
 
+Candidate claims are intermediate JSONL records, not an eighth normalized bundle
+array. They retain candidate text, supporting chunks and exact evidence,
+generation metadata, and a generation-build ID. Classification consumes them
+to create normalized claims and topics without making generation calls again.
+
 `retrieved_on` is when the local file was captured, not when the text was published or legally effective. The [source manifest](../data/manifest.json) lists the pilot's saved files.
 
 A **topic** groups claims under a stable ID and content revision. Tags are optional filters. Evidence-linked draft claims still need review.
@@ -36,12 +41,13 @@ element.id  = "el:" + H(document_id + "\n" + locator_key)
 chunk.id    = "chunk:" + H(document_id + "\n" + chunker_version + "\n" + canonical_evidence + "\n" + text)
 build.id    = "build:" + H(pipeline_version + "\n" + config_sha256 + "\n" + "\n".join(sorted(input_document_ids)))
 claim.id    = "claim:" + H(build_id + "\n" + canonical_evidence + "\n" + text)
+candidate.id = "candidate:" + H(generation_build_id + "\n" + canonical_evidence + "\n" + text)
 topic.revision = H(title + "\n" + summary + "\n" + "\n".join(sorted(claim_ids)))
 ```
 
 `canonical_evidence` serializes an evidence array as compact JSON with sorted object keys, unescaped Unicode, and preserved array order (`json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`). `config_sha256` is a supplied settings digest; the schema does not define settings serialization. Build IDs sort input document IDs and exclude output IDs.
 
-An element's `revision` is `H(kind + "\n" + text)`. For the same document and locator, changed text changes the revision but not the element ID; evidence must cite the revision. Changed saved bytes change document and dependent IDs. Claim IDs exclude `topic_id`, so reassignment preserves identity. Output-changing code needs a new `pipeline_version`. The [validator](../scripts/validate_artifact_examples.py) checks these rules and record links.
+An element's `revision` is `H(kind + "\n" + text)`. For the same document and locator, changed text changes the revision but not the element ID; evidence must cite the revision. Changed saved bytes change document and dependent IDs. Claim IDs exclude `topic_id`, so reassignment does not affect identity within a classification build; a revised taxonomy creates a new classification build. Output-changing code needs a new `pipeline_version`. The [validator](../scripts/validate_artifact_examples.py) checks these rules and record links.
 
 ## How the records connect
 

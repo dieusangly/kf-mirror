@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from knowledge_foundry.compilation import ROOT, _project_full_build, _sample_batch_indices, _telemetry, compile_bundle
+from knowledge_foundry.claim_compilation import ROOT, _project_generation, _subset_batch_indices, _telemetry, \
+    classify_claims, generate_claims
 from knowledge_foundry.openai_tools import DEFAULT_MODEL
 from scripts.validate_artifact_examples import check
 
@@ -37,7 +38,7 @@ class CompilationTests(unittest.TestCase):
         taxonomy_path.write_text(json.dumps(taxonomy), encoding="utf-8")
         return config_path, taxonomy_path
 
-    def test_fixture_compilation_exports_cross_build_lineage_and_draft_views(self):
+    def test_fixture_generation_then_classification_exports_draft_views(self):
         with tempfile.TemporaryDirectory() as value:
             root = Path(value)
             chunked = root / "chunked"
@@ -53,10 +54,13 @@ class CompilationTests(unittest.TestCase):
             fixture_path = root / "fixture.json"
             fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
-            output = root / "compiled"
-            events = []
-            report = compile_bundle(chunked, output, config_path, taxonomy_path, fixture_path,
-                                    on_progress=events.append)
+            generated, output = root / "generated", root / "compiled"
+            generation_events, classification_events = [], []
+            generation_report = generate_claims(chunked, generated, config_path, fixture_path,
+                                                on_progress=generation_events.append)
+            report = classify_claims(generated, output, config_path, taxonomy_path, fixture_path,
+                                     on_progress=classification_events.append)
+            self.assertEqual((generation_report["status"], generation_report["candidates"]), ("complete", 1))
             self.assertEqual((report["status"], report["claims"], report["topics"]), ("complete", 1, 1))
             result = json.loads((output / "artifact-bundle.json").read_text(encoding="utf-8"))
             check(result)
@@ -69,10 +73,12 @@ class CompilationTests(unittest.TestCase):
             self.assertTrue((output / "topics" / "beneficial-ownership.json").is_file())
             self.assertTrue((output / "topics" / "beneficial-ownership.md").is_file())
             self.assertTrue((output / "build-manifest.json").is_file())
-            self.assertEqual([event["phase"] for event in events],
-                             ["generation", "generation", "generation", "classification", "classification",
-                              "export", "complete"])
-            self.assertEqual(events[-1]["telemetry"]["estimated_cost_usd"], 0)
+            self.assertTrue((generated / "claim-candidates.jsonl").is_file())
+            self.assertEqual([event["phase"] for event in generation_events],
+                             ["generation", "generation", "export", "complete"])
+            self.assertEqual([event["phase"] for event in classification_events],
+                             ["classification", "classification", "export", "complete"])
+            self.assertEqual(classification_events[-1]["telemetry"]["estimated_cost_usd"], 0)
 
     def test_telemetry_uses_cached_and_long_context_pricing(self):
         provider = type("Provider", (), {"model_id": DEFAULT_MODEL, "usage_records": [
@@ -94,8 +100,8 @@ class CompilationTests(unittest.TestCase):
         self.assertAlmostEqual(telemetry["estimated_cost_usd"], 1.200367)
         self.assertEqual(telemetry["rate_card"]["version"], "test")
 
-    def test_length_stratified_sampling_and_projection_are_deterministic(self):
-        self.assertEqual(_sample_batch_indices([10, 100, 10, 100], 2), [1, 3])
+    def test_length_stratified_subset_and_generation_projection_are_deterministic(self):
+        self.assertEqual(_subset_batch_indices([10, 100, 10, 100], 2), [1, 3])
         config = {"model": DEFAULT_MODEL, "pricing": {"models": {DEFAULT_MODEL: {
             "short_context_limit_tokens": 272000,
             "short_context_usd_per_million_tokens": {"input": 1, "cached_input": 0,
@@ -103,16 +109,14 @@ class CompilationTests(unittest.TestCase):
             "long_context_usd_per_million_tokens": {"input": 2, "cached_input": 0,
                                                       "cache_write": 0, "output": 2},
         }}}}
-        scope = {"mode": "sample", "total_chunks": 8, "selected_chunks": 2,
+        scope = {"mode": "subset", "total_chunks": 8, "selected_chunks": 2,
                  "generation_request_characters": {"total": 400, "selected": 100}}
         records = [{"input_tokens": 100, "cached_input_tokens": 0,
                     "cache_write_tokens": 0, "output_tokens": 10}]
-        projection = _project_full_build(scope, [{"text": "a"}, {"text": "b"}], records, records, config)
-        self.assertAlmostEqual(projection["generation_estimated_cost_usd"], 0.00044)
-        self.assertAlmostEqual(projection["classification_estimated_cost_usd"], 0.00044)
-        self.assertAlmostEqual(projection["estimated_cost_usd"], 0.00088)
+        projection = _project_generation(scope, records, config)
+        self.assertAlmostEqual(projection["estimated_cost_usd"], 0.00044)
 
-    def test_sample_build_records_selection_and_has_distinct_lineage(self):
+    def test_subset_build_records_selection_and_has_distinct_lineage(self):
         with tempfile.TemporaryDirectory() as value:
             root = Path(value)
             chunked = root / "chunked"
@@ -124,12 +128,53 @@ class CompilationTests(unittest.TestCase):
             fixture_path.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
                                                 "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
-            full = compile_bundle(chunked, root / "full", config_path, taxonomy_path, fixture_path)
-            sample = compile_bundle(chunked, root / "sample", config_path, taxonomy_path, fixture_path,
-                                    sample_batches=1)
-            self.assertNotEqual(full["build_id"], sample["build_id"])
-            self.assertEqual(sample["compilation_scope"]["mode"], "sample")
-            self.assertEqual(sample["compilation_scope"]["selected_chunk_ids"], [chunk["id"]])
+            full = generate_claims(chunked, root / "full", config_path, fixture_path)
+            subset = generate_claims(chunked, root / "subset", config_path, fixture_path, subset_batches=1)
+            self.assertNotEqual(full["generation_build_id"], subset["generation_build_id"])
+            self.assertEqual(subset["compilation_scope"]["mode"], "subset")
+            self.assertEqual(subset["compilation_scope"]["selected_chunk_ids"], [chunk["id"]])
+
+    def test_saved_candidates_can_be_reclassified_without_generation(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            chunk = bundle["chunks"][0]
+            text = "Les lignes directrices sauvegardées identifient l'autorité de contrôle compétente."
+            generation_fixture = root / "generation.json"
+            generation_fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+                "text": text, "evidence": [{"chunk_id": chunk["id"], "evidence_index": 0}]}]}},
+                "classifications": {}}), encoding="utf-8")
+            null_fixture, topic_fixture = root / "null.json", root / "topic.json"
+            null_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {text: None}}), encoding="utf-8")
+            topic_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {
+                text: "topic:beneficial-ownership"}}), encoding="utf-8")
+            config_path, taxonomy_path = self._write_settings(root)
+            generated = root / "generated"
+            generate_claims(chunked, generated, config_path, generation_fixture)
+            unclassified = classify_claims(generated, root / "unclassified", config_path, taxonomy_path, null_fixture)
+            reclassified = classify_claims(generated, root / "reclassified", config_path, taxonomy_path, topic_fixture)
+            self.assertEqual(len(unclassified["unclassified_candidate_ids"]), 1)
+            self.assertEqual((reclassified["claims"], reclassified["topics"]), (1, 1))
+            self.assertEqual(unclassified["upstream_generation_build_id"], reclassified["upstream_generation_build_id"])
+
+    def test_classification_rejects_a_tampered_candidate_artifact(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            fixture_path = root / "fixture.json"
+            fixture_path.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            config_path, taxonomy_path = self._write_settings(root)
+            generated = root / "generated"
+            generate_claims(chunked, generated, config_path, fixture_path)
+            (generated / "claim-candidates.jsonl").write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "candidate artifact manifest is invalid"):
+                classify_claims(generated, root / "compiled", config_path, taxonomy_path, fixture_path)
 
     def test_compiled_claim_requires_exact_span(self):
         bundle = self._input_bundle()

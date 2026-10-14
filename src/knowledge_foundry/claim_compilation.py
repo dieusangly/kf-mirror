@@ -1,4 +1,4 @@
-"""Compile immutable chunk bundles into evidence-linked draft topic records."""
+"""Generate grounded claim candidates and classify them into draft topics."""
 
 import copy
 import hashlib
@@ -13,6 +13,12 @@ from knowledge_foundry.openai_tools import DEFAULT_MODEL, REASONING_EFFORTS, Ope
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
+ARTIFACT_SCHEMA = json.loads((ROOT / "schemas" / "artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
+CANDIDATE_ARTIFACT_SCHEMA = json.loads(
+    (ROOT / "schemas" / "claim-candidate-artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
+CANDIDATE_VALIDATION_SCHEMA = json.loads(json.dumps(CANDIDATE_ARTIFACT_SCHEMA).replace(
+    "artifact-schema-v1.0.0.json#/$defs/", "#/$defs/"))
+CANDIDATE_VALIDATION_SCHEMA["$defs"] = ARTIFACT_SCHEMA["$defs"]
 CANDIDATE_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["claims"],
     "properties": {"claims": {"type": "array", "items": {
@@ -218,14 +224,14 @@ def _telemetry(provider, config):
                           "model": config["model"], "rates": copy.deepcopy(rate_card)}}
 
 
-def _sample_batch_indices(characters, sample_batches):
+def _subset_batch_indices(characters, subset_batches):
     """Choose unique batch indices distributed by cumulative request characters."""
     count = len(characters)
-    if sample_batches is None:
+    if subset_batches is None:
         return list(range(count))
-    if not isinstance(sample_batches, int) or isinstance(sample_batches, bool) or not 1 <= sample_batches <= count:
-        raise ValueError(f"sample_batches must be between 1 and {count}")
-    if sample_batches == count:
+    if not isinstance(subset_batches, int) or isinstance(subset_batches, bool) or not 1 <= subset_batches <= count:
+        raise ValueError(f"subset_batches must be between 1 and {count}")
+    if subset_batches == count:
         return list(range(count))
     total = sum(characters)
     midpoints, current = [], 0
@@ -234,30 +240,12 @@ def _sample_batch_indices(characters, sample_batches):
         current += value
     available = set(range(count))
     selected = []
-    for position in range(sample_batches):
-        target = total * (position + 0.5) / sample_batches
+    for position in range(subset_batches):
+        target = total * (position + 0.5) / subset_batches
         choice = min(available, key=lambda index: (abs(midpoints[index] - target), index))
         available.remove(choice)
         selected.append(choice)
     return sorted(selected)
-
-
-def _project_full_build(scope, candidates, generation_usage, classification_usage, config):
-    if scope["mode"] != "sample" or not generation_usage:
-        return None
-    rate_card = _rate_card(config)
-    generation_scale = scope["generation_request_characters"]["total"] / \
-        scope["generation_request_characters"]["selected"]
-    generation_cost = _cost(generation_usage, rate_card) * generation_scale
-    projected_candidates = len(candidates) * scope["total_chunks"] / scope["selected_chunks"]
-    classification_cost = _cost(classification_usage, rate_card) * projected_candidates / len(candidates) \
-        if candidates else 0.0
-    return {"estimated_cost_usd": generation_cost + classification_cost,
-            "generation_estimated_cost_usd": generation_cost,
-            "classification_estimated_cost_usd": classification_cost,
-            "projected_candidates": projected_candidates,
-            "assumptions": {"generation": "observed cost scaled by exact serialized request characters",
-                            "classification": "observed cost per candidate scaled by sampled claim yield"}}
 
 
 def _reference(chunk_map, item):
@@ -274,9 +262,8 @@ def _reference(chunk_map, item):
     return copy.deepcopy(ref)
 
 
-def _claim(build_id, candidate, classification, generation, classifier, chunk_map):
+def _candidate_record(generation_build_id, candidate, generation, chunk_map):
     Draft202012Validator(CANDIDATE_SCHEMA).validate({"claims": [candidate]})
-    Draft202012Validator(CLASSIFICATION_SCHEMA).validate(classification)
     evidence = [_reference(chunk_map, value) for value in candidate["evidence"]]
     if len({canonical(item) for item in evidence}) != len(evidence):
         raise ValueError("candidate repeats evidence")
@@ -287,12 +274,23 @@ def _claim(build_id, candidate, classification, generation, classifier, chunk_ma
     text = candidate["text"].strip()
     if not text:
         raise ValueError("candidate claim text is blank")
+    result = {"schema_version": SCHEMA_VERSION,
+              "id": "candidate:" + digest(generation_build_id + "\n" + canonical(evidence) + "\n" + text),
+              "generation_build_id": generation_build_id, "chunk_ids": chunk_ids, "text": text,
+              "evidence": evidence, "grounding_review_status": "draft", "generation": generation}
+    Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(result)
+    return result
+
+
+def _claim(build_id, candidate, classification, classifier):
+    Draft202012Validator(CLASSIFICATION_SCHEMA).validate(classification)
     return {
         "schema_version": SCHEMA_VERSION,
-        "id": "claim:" + digest(build_id + "\n" + canonical(evidence) + "\n" + text),
-        "topic_id": classification["topic_id"], "build_id": build_id, "chunk_ids": chunk_ids,
-        "text": text, "evidence": evidence, "grounding_review_status": "draft",
-        "classification_review_status": "draft", "generation": generation,
+        "id": "claim:" + digest(build_id + "\n" + canonical(candidate["evidence"]) + "\n" + candidate["text"]),
+        "topic_id": classification["topic_id"], "build_id": build_id, "chunk_ids": candidate["chunk_ids"],
+        "text": candidate["text"], "evidence": candidate["evidence"],
+        "grounding_review_status": candidate["grounding_review_status"],
+        "classification_review_status": "draft", "generation": candidate["generation"],
         "classification": classifier,
     }
 
@@ -343,81 +341,186 @@ def _topic_records(claims, taxonomy, build_id):
     return result
 
 
-def compile_bundle(chunked_dir, output_dir, config_path=ROOT / "config/compilation.json",
-                   taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None, review_path=None,
-                   on_progress=None, sample_batches=None):
-    """Compile one saved chunk collection without mutating its input directory."""
+def _provider(config, fixture_path):
+    if config["provider"] == "fixture":
+        if fixture_path is None:
+            raise ValueError("fixture provider requires --fixture")
+        return FixtureProvider(_read_json(fixture_path))
+    return OpenAIProvider(config["model"] or DEFAULT_MODEL, config["reasoning_effort"])
+
+
+def _write_jsonl(path, records):
+    Path(path).write_text("".join(canonical(item) + "\n" for item in records), encoding="utf-8")
+
+
+def _read_jsonl(path):
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line]
+
+
+def _build_id(pipeline_version, config_digest, document_ids):
+    return "build:" + digest(pipeline_version + "\n" + config_digest + "\n" + "\n".join(sorted(document_ids)))
+
+
+def _project_generation(scope, usage, config):
+    if scope["mode"] != "subset" or not usage:
+        return None
+    estimated_cost = _cost(usage, _rate_card(config)) * scope["generation_request_characters"]["total"] / \
+        scope["generation_request_characters"]["selected"]
+    return {"estimated_cost_usd": estimated_cost,
+            "assumption": "observed cost scaled by exact serialized generation-request characters"}
+
+
+def _candidate_manifest(candidate_dir):
+    candidate_dir = Path(candidate_dir)
+    manifest_path = candidate_dir / "build-manifest.json"
+    manifest = _read_json(manifest_path)
+    candidate_path = candidate_dir / "claim-candidates.jsonl"
+    output_hashes = {item.get("path"): item.get("sha256") for item in manifest.get("outputs", [])}
+    if manifest.get("stage") != "claim-generation" or \
+            manifest.get("candidate_sha256") != file_digest(candidate_path) or \
+            output_hashes.get("artifact-bundle.json") != file_digest(candidate_dir / "artifact-bundle.json") or \
+            output_hashes.get("claim-candidates.jsonl") != file_digest(candidate_path):
+        raise ValueError("candidate artifact manifest is invalid")
+    return manifest, candidate_path, manifest_path
+
+
+def _validate_candidate(candidate, generation_build_id, chunk_map):
+    Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(candidate)
+    if candidate["generation_build_id"] != generation_build_id:
+        raise ValueError("candidate generation build mismatch")
+    chunks = [chunk_map.get(chunk_id) for chunk_id in candidate["chunk_ids"]]
+    if not all(chunks):
+        raise ValueError("candidate chunk missing")
+    supporting = {canonical([item]) for chunk in chunks for item in chunk["evidence"]}
+    for evidence in candidate["evidence"]:
+        if "span" not in evidence or canonical([evidence]) not in supporting:
+            raise ValueError("candidate evidence is not supported by its chunks")
+    expected = "candidate:" + digest(generation_build_id + "\n" + canonical(candidate["evidence"]) +
+                                      "\n" + candidate["text"])
+    if candidate["id"] != expected:
+        raise ValueError("candidate ID mismatch")
+
+
+def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilation.json", fixture_path=None,
+                    on_progress=None, subset_batches=None):
+    """Generate durable, grounded candidate claims from one immutable chunk bundle."""
     chunked_dir, output_dir = Path(chunked_dir), Path(output_dir)
     input_path = chunked_dir / "artifact-bundle.json"
     bundle = _read_json(input_path)
     if not bundle["chunks"] or bundle["claims"] or bundle["topics"] or len(bundle["builds"]) != 1:
         raise ValueError("input must be a chunk bundle with no claims or topics")
-    upstream = bundle["builds"][0]
-    config, taxonomy = _config(config_path), _taxonomy(taxonomy_path)
+    config = _config(config_path)
     generation_prompt, generation_hash = _prompt("claim_generation_v1.txt")
-    classification_prompt, classification_hash = _prompt("topic_classification_v1.txt")
-    if config["provider"] == "fixture":
-        if fixture_path is None:
-            raise ValueError("fixture provider requires --fixture")
-        provider = FixtureProvider(_read_json(fixture_path))
-    else:
-        provider = OpenAIProvider(config["model"] or DEFAULT_MODEL, config["reasoning_effort"])
-    chunks = bundle["chunks"]
+    provider = _provider(config, fixture_path)
+    chunks, document_ids = bundle["chunks"], [item["id"] for item in bundle["documents"]]
     batch_size = config["batch_size_chunks"]
     all_batches = [chunks[start:start + batch_size] for start in range(0, len(chunks), batch_size)]
-    if isinstance(provider, OpenAIProvider):
-        request_characters = [provider.candidate_request_characters(batch, generation_prompt, CANDIDATE_SCHEMA)
-                              for batch in all_batches]
-    else:
-        request_characters = [len(_candidate_input(batch)) for batch in all_batches]
-    selected_indices = _sample_batch_indices(request_characters, sample_batches)
+    request_characters = [provider.candidate_request_characters(batch, generation_prompt, CANDIDATE_SCHEMA)
+                          for batch in all_batches] if isinstance(provider, OpenAIProvider) else \
+        [len(_candidate_input(batch)) for batch in all_batches]
+    selected_indices = _subset_batch_indices(request_characters, subset_batches)
     selected_batches = [all_batches[index] for index in selected_indices]
     selected_chunks = [chunk for batch in selected_batches for chunk in batch]
-    scope = {"mode": "sample" if sample_batches is not None else "full",
-             "total_chunks": len(chunks), "selected_chunks": len(selected_chunks),
-             "total_batches": len(all_batches), "selected_batch_numbers": [index + 1 for index in selected_indices],
+    scope = {"mode": "subset" if subset_batches is not None else "full", "total_chunks": len(chunks),
+             "selected_chunks": len(selected_chunks), "total_batches": len(all_batches),
+             "selected_batch_numbers": [index + 1 for index in selected_indices],
              "selected_chunk_ids": [chunk["id"] for chunk in selected_chunks],
              "generation_request_characters": {"total": sum(request_characters),
                                                "selected": sum(request_characters[index] for index in selected_indices)}}
-    config_digest = digest(canonical({"config": config, "taxonomy_sha256": file_digest(taxonomy_path),
-                                      "input_bundle_sha256": file_digest(input_path),
-                                      "generation_prompt_sha256": generation_hash,
-                                      "classification_prompt_sha256": classification_hash, "scope": scope}))
-    document_ids = [item["id"] for item in bundle["documents"]]
-    build_id = "build:" + digest(config["pipeline_version"] + "\n" + config_digest + "\n" +
-                                  "\n".join(sorted(document_ids)))
+    config_digest = digest(canonical({"config": config, "input_bundle_sha256": file_digest(input_path),
+                                      "generation_prompt_sha256": generation_hash, "scope": scope}))
+    pipeline_version = config["pipeline_version"] + "-generation"
+    build_id = _build_id(pipeline_version, config_digest, document_ids)
     generation = {"method": "model", "version": config["generation_version"],
                   "model_id": provider.model_id, "prompt_sha256": generation_hash}
-    classifier = {"method": "model", "version": config["classification_version"],
-                  "model_id": provider.model_id, "prompt_sha256": classification_hash}
+    candidates, errors, usage = [], [], []
     chunk_map = {item["id"]: item for item in selected_chunks}
-    candidates, errors, generation_usage, classification_usage = [], [], [], []
-    batches = len(selected_batches)
     if on_progress:
         on_progress({"phase": "generation", "state": "started", "chunks": len(selected_chunks),
-                     "source_chunks": len(chunks), "total": batches, "source_total": len(all_batches),
-                     "sample": scope["mode"] == "sample"})
+                     "source_chunks": len(chunks), "total": len(selected_batches),
+                     "source_total": len(all_batches), "subset": scope["mode"] == "subset"})
     for completed, batch in enumerate(selected_batches, start=1):
-        ids = [item["id"] for item in batch]
-        usage_start = len(provider.usage_records)
+        ids, usage_start = [item["id"] for item in batch], len(provider.usage_records)
         try:
             response = _call(lambda: provider.candidates(ids if isinstance(provider, FixtureProvider) else batch,
                                                           generation_prompt, CANDIDATE_SCHEMA), config["retries"],
                              lambda attempt, total: on_progress and on_progress(
                                  {"phase": "generation", "state": "retry", "completed": completed,
-                                  "total": batches, "attempt": attempt, "attempts": total}))
+                                  "total": len(selected_batches), "attempt": attempt, "attempts": total}))
             Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
-            candidates.extend(response["claims"])
+            candidates.extend(_candidate_record(build_id, item, generation, chunk_map) for item in response["claims"])
         except Exception as exc:
             errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
         finally:
-            generation_usage.extend(provider.usage_records[usage_start:])
-        if on_progress and _checkpoint(completed, batches):
+            usage.extend(provider.usage_records[usage_start:])
+        if on_progress and _checkpoint(completed, len(selected_batches)):
             on_progress({"phase": "generation", "state": "progress", "completed": completed,
-                         "total": batches, "candidates": len(candidates)})
+                         "total": len(selected_batches), "candidates": len(candidates)})
+    if len({item["id"] for item in candidates}) != len(candidates):
+        raise ValueError("generation produced duplicate candidate IDs")
+    candidates.sort(key=lambda item: item["id"])
+    result = copy.deepcopy(bundle)
+    result["builds"].append({"schema_version": SCHEMA_VERSION, "id": build_id, "pipeline_version": pipeline_version,
+                               "config_sha256": config_digest, "input_document_ids": document_ids,
+                               "output_chunk_ids": [], "output_claim_ids": [], "output_topic_ids": [],
+                               "status": "partial" if errors else "complete"})
+    from scripts.validate_artifact_examples import check
+    check(result)
+    if output_dir.exists():
+        raise ValueError(f"output directory already exists: {output_dir}")
+    output_dir.mkdir(parents=True)
     if on_progress:
-        on_progress({"phase": "generation", "state": "complete", "candidates": len(candidates)})
-    claims, unclassified = [], []
+        on_progress({"phase": "export", "state": "started"})
+    _write_json(output_dir / "artifact-bundle.json", result)
+    _write_jsonl(output_dir / "claim-candidates.jsonl", candidates)
+    telemetry = _telemetry(provider, config)
+    report = {"generation_build_id": build_id, "upstream_chunk_build_id": bundle["builds"][0]["id"],
+              "documents": len(document_ids), "chunks": len(chunks), "candidates": len(candidates),
+              "compilation_scope": scope, "errors": errors, "telemetry": telemetry,
+              "projected_full_generation": _project_generation(scope, usage, config),
+              "status": "partial" if errors else "complete"}
+    _write_json(output_dir / "generation-report.json", report)
+    files = sorted(path for path in output_dir.rglob("*") if path.is_file())
+    manifest = {"manifest_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
+                "upstream_chunk_build_id": bundle["builds"][0]["id"], "input_bundle_sha256": file_digest(input_path),
+                "config_sha256": config_digest, "generation_prompt_sha256": generation_hash,
+                "compilation_scope": scope, "candidate_sha256": file_digest(output_dir / "claim-candidates.jsonl"),
+                "outputs": [{"path": str(path.relative_to(output_dir)), "sha256": file_digest(path)} for path in files]}
+    _write_json(output_dir / "build-manifest.json", manifest)
+    if on_progress:
+        on_progress({"phase": "complete", "state": report["status"], "telemetry": telemetry,
+                     "projection": report["projected_full_generation"]})
+    return report
+
+
+def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compilation.json",
+                    taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None, review_path=None,
+                    on_progress=None):
+    """Classify a durable candidate artifact without regenerating its claims."""
+    candidate_dir, output_dir = Path(candidate_dir), Path(output_dir)
+    manifest, candidate_path, manifest_path = _candidate_manifest(candidate_dir)
+    bundle = _read_json(candidate_dir / "artifact-bundle.json")
+    if bundle["claims"] or bundle["topics"]:
+        raise ValueError("candidate artifact bundle must not contain classified claims or topics")
+    candidates = _read_jsonl(candidate_path)
+    chunk_map = {item["id"]: item for item in bundle["chunks"]}
+    for candidate in candidates:
+        _validate_candidate(candidate, manifest["generation_build_id"], chunk_map)
+    if len({item["id"] for item in candidates}) != len(candidates):
+        raise ValueError("candidate artifact has duplicate IDs")
+    config, taxonomy = _config(config_path), _taxonomy(taxonomy_path)
+    classification_prompt, classification_hash = _prompt("topic_classification_v1.txt")
+    provider = _provider(config, fixture_path)
+    document_ids = [item["id"] for item in bundle["documents"]]
+    config_digest = digest(canonical({"config": config, "candidate_manifest_sha256": file_digest(manifest_path),
+                                      "candidate_sha256": file_digest(candidate_path),
+                                      "taxonomy_sha256": file_digest(taxonomy_path),
+                                      "classification_prompt_sha256": classification_hash}))
+    pipeline_version = config["pipeline_version"] + "-classification"
+    build_id = _build_id(pipeline_version, config_digest, document_ids)
+    classifier = {"method": "model", "version": config["classification_version"],
+                  "model_id": provider.model_id, "prompt_sha256": classification_hash}
+    claims, errors, unclassified, usage = [], [], [], []
     valid_topics = {item["id"] for item in taxonomy["topics"]}
     if on_progress:
         on_progress({"phase": "classification", "state": "started", "total": len(candidates)})
@@ -430,30 +533,28 @@ def compile_bundle(chunked_dir, output_dir, config_path=ROOT / "config/compilati
                                        {"phase": "classification", "state": "retry", "completed": index,
                                         "total": len(candidates), "attempt": attempt, "attempts": total}))
             if classification.get("topic_id") is None:
-                unclassified.append(candidate["text"])
-                continue
-            if classification.get("topic_id") not in valid_topics:
+                unclassified.append(candidate["id"])
+            elif classification["topic_id"] not in valid_topics:
                 raise ValueError("classifier returned an uncurated topic ID")
-            claims.append(_claim(build_id, candidate, classification, generation, classifier, chunk_map))
+            else:
+                claims.append(_claim(build_id, candidate, classification, classifier))
         except Exception as exc:
-            errors.append({"stage": "classification", "claim": candidate.get("text"), "error": str(exc)})
+            errors.append({"stage": "classification", "candidate_id": candidate["id"], "error": str(exc)})
         finally:
-            classification_usage.extend(provider.usage_records[usage_start:])
+            usage.extend(provider.usage_records[usage_start:])
         if on_progress and _checkpoint(index, len(candidates)):
             on_progress({"phase": "classification", "state": "progress", "completed": index,
                          "total": len(candidates), "claims": len(claims)})
     claims.sort(key=lambda item: item["id"])
     if len({item["id"] for item in claims}) != len(claims):
-        raise ValueError("compilation produced duplicate claims")
+        raise ValueError("classification produced duplicate claim IDs")
     topics = _topic_records(claims, taxonomy, build_id)
     review = _apply_review(claims, topics, review_path, build_id)
     result = copy.deepcopy(bundle)
-    result["claims"] = claims
-    result["topics"] = topics
-    result["builds"].append({"schema_version": SCHEMA_VERSION, "id": build_id,
-                               "pipeline_version": config["pipeline_version"], "config_sha256": config_digest,
-                               "input_document_ids": document_ids, "output_chunk_ids": [],
-                               "output_claim_ids": [item["id"] for item in claims],
+    result["claims"], result["topics"] = claims, topics
+    result["builds"].append({"schema_version": SCHEMA_VERSION, "id": build_id, "pipeline_version": pipeline_version,
+                               "config_sha256": config_digest, "input_document_ids": document_ids,
+                               "output_chunk_ids": [], "output_claim_ids": [item["id"] for item in claims],
                                "output_topic_ids": [item["id"] for item in topics],
                                "status": "partial" if errors else "complete"})
     from scripts.validate_artifact_examples import check
@@ -464,8 +565,8 @@ def compile_bundle(chunked_dir, output_dir, config_path=ROOT / "config/compilati
     if on_progress:
         on_progress({"phase": "export", "state": "started"})
     _write_json(output_dir / "artifact-bundle.json", result)
-    for name, records in (("chunks.jsonl", result["chunks"]), ("claims.jsonl", claims)):
-        (output_dir / name).write_text("".join(canonical(item) + "\n" for item in records), encoding="utf-8")
+    _write_jsonl(output_dir / "chunks.jsonl", result["chunks"])
+    _write_jsonl(output_dir / "claims.jsonl", claims)
     topic_dir = output_dir / "topics"
     topic_dir.mkdir()
     by_claim = {item["id"]: item for item in claims}
@@ -476,27 +577,38 @@ def compile_bundle(chunked_dir, output_dir, config_path=ROOT / "config/compilati
         _write_json(topic_dir / f"{slug}.json", view)
         lines = [f"# {topic['title']}", "", f"Status: `{topic['review_status']}`", "", topic["summary"], "", "## Claims", ""]
         for claim in view["claims"]:
-            lines.extend([f"- `{claim['id']}` — {claim['text']} "
-                          f"(grounding: {claim['grounding_review_status']}; classification: {claim['classification_review_status']})"])
+            lines.append(f"- `{claim['id']}` — {claim['text']} (grounding: "
+                         f"{claim['grounding_review_status']}; classification: {claim['classification_review_status']})")
         (topic_dir / f"{slug}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     telemetry = _telemetry(provider, config)
-    report = {"build_id": build_id, "upstream_chunk_build_id": upstream["id"], "documents": len(document_ids),
-              "chunks": len(chunks), "compilation_scope": scope, "claims": len(claims), "topics": len(topics),
-              "errors": errors, "telemetry": telemetry,
-              "projected_full_build": _project_full_build(scope, candidates, generation_usage,
-                                                           classification_usage, config),
-              "unclassified_candidates": unclassified,
-              "review": review, "status": "partial" if errors else "complete"}
+    generation_report = _read_json(candidate_dir / "generation-report.json")
+    projected = None
+    scope = generation_report["compilation_scope"]
+    if scope["mode"] == "subset" and candidates:
+        classification_cost = _cost(usage, _rate_card(config)) * scope["total_chunks"] / scope["selected_chunks"]
+        generation_projection = generation_report.get("projected_full_generation")
+        if generation_projection:
+            projected = {"estimated_cost_usd": generation_projection["estimated_cost_usd"] + classification_cost,
+                         "generation_estimated_cost_usd": generation_projection["estimated_cost_usd"],
+                         "classification_estimated_cost_usd": classification_cost,
+                         "projected_candidates": len(candidates) * scope["total_chunks"] / scope["selected_chunks"],
+                         "assumptions": {"generation": generation_projection["assumption"],
+                                         "classification": "observed cost per candidate scaled by subset claim yield"}}
+    report = {"build_id": build_id, "upstream_generation_build_id": manifest["generation_build_id"],
+              "candidate_manifest_sha256": file_digest(manifest_path), "candidates": len(candidates),
+              "claims": len(claims), "topics": len(topics), "errors": errors,
+              "unclassified_candidate_ids": unclassified, "telemetry": telemetry,
+              "projected_full_build": projected, "review": review,
+              "status": "partial" if errors else "complete"}
     _write_json(output_dir / "report.json", report)
     files = sorted(path for path in output_dir.rglob("*") if path.is_file())
-    manifest = {"manifest_version": 1, "compilation_build_id": build_id,
-                "upstream_chunk_build_id": upstream["id"], "input_bundle_sha256": file_digest(input_path),
-                "config_sha256": config_digest, "taxonomy_sha256": file_digest(taxonomy_path),
-                "generation_prompt_sha256": generation_hash, "classification_prompt_sha256": classification_hash,
-                "compilation_scope": scope,
-                "outputs": [{"path": str(path.relative_to(output_dir)), "sha256": file_digest(path)} for path in files]}
-    _write_json(output_dir / "build-manifest.json", manifest)
+    output_manifest = {"manifest_version": 1, "stage": "topic-classification", "compilation_build_id": build_id,
+                       "upstream_generation_build_id": manifest["generation_build_id"],
+                       "candidate_manifest_sha256": file_digest(manifest_path), "config_sha256": config_digest,
+                       "taxonomy_sha256": file_digest(taxonomy_path), "classification_prompt_sha256": classification_hash,
+                       "outputs": [{"path": str(path.relative_to(output_dir)), "sha256": file_digest(path)} for path in files]}
+    _write_json(output_dir / "build-manifest.json", output_manifest)
     if on_progress:
-        on_progress({"phase": "complete", "state": report["status"],
-                     "telemetry": telemetry, "projection": report["projected_full_build"]})
+        on_progress({"phase": "complete", "state": report["status"], "telemetry": telemetry,
+                     "projection": projected})
     return report
