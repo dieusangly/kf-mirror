@@ -39,6 +39,23 @@ can be shared with the matching artifact bundle. The command refuses to
 overwrite an existing output; pass `--force` only when replacing that file is
 intentional. Use `--title` to set the browser-page title.
 
+## Render generated claim candidates
+
+Generation-stage bundles contain chunks but no normalized claims or topics.
+Pass the adjacent `claim-candidates.jsonl` using `--claim-candidates` to add
+unclassified candidate-claim nodes and their links to chunks and evidence:
+
+```sh
+.venv/bin/python scripts/render_knowledge_graph.py \
+  --bundle artifacts/generated-claims-20261013-114244/artifact-bundle.json \
+  --claim-candidates artifacts/generated-claims-20261013-114244/claim-candidates.jsonl \
+  --output artifacts/generated-claims-20261013-114244/knowledge-graph.html
+```
+
+Candidate claims are distinct from classified claims and have no topic edge.
+They remain unclassified candidates even when their grounding review status is
+shown as verified.
+
 The graph displays the record links available in the bundle. It does not infer
 entity relationships, legal conclusions, or unrecorded evidence. A future
 domain knowledge-graph export may add typed entity and relation edges, but it

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.render_knowledge_graph import build_graph, main, render_html
+from scripts.render_knowledge_graph import build_graph, load_claim_candidates, main, render_html
 
 
 class RenderKnowledgeGraphTests(unittest.TestCase):
@@ -39,4 +39,29 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
             rendered = output.read_text(encoding="utf-8")
         self.assertIn("Knowledge provenance graph", rendered)
         self.assertIn("topic:guidelines-status", rendered)
+
+    def test_claim_candidates_are_linked_to_chunks_and_evidence(self):
+        chunk = self.bundle["chunks"][0]
+        candidate = {
+            "id": "candidate:inspection-example", "generation_build_id": "build:generation-example",
+            "chunk_ids": [chunk["id"]], "text": "A generated claim awaiting classification.",
+            "evidence": chunk["evidence"], "grounding_review_status": "draft",
+            "generation": {"method": "manual", "version": "test-v1"},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate_path = Path(temporary) / "claim-candidates.jsonl"
+            candidate_path.write_text(json.dumps(candidate) + "\n", encoding="utf-8")
+            candidates = load_claim_candidates(candidate_path)
+            output = Path(temporary) / "graph.html"
+            self.assertEqual(main(["--bundle", "examples/artifact-bundle-pdf.json", "--claim-candidates",
+                                   str(candidate_path), "--output", str(output)]), 0)
+            rendered = output.read_text(encoding="utf-8")
+        graph = build_graph(self.bundle, candidates)
+        candidate_node = next(node for node in graph["nodes"] if node["id"] == candidate["id"])
+        self.assertEqual(candidate_node["group"], "candidate")
+        self.assertEqual(candidate_node["meta"], "unclassified candidate · draft")
+        edges = {(edge["source"], edge["target"], edge["evidence"]) for edge in graph["edges"]}
+        self.assertIn((candidate["id"], chunk["id"], False), edges)
+        self.assertIn((candidate["id"], chunk["evidence"][0]["element_id"], True), edges)
+        self.assertIn("Candidates", rendered)
 
