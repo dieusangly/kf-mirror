@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from knowledge_foundry.claim_compilation import classify_claims  # noqa: E402
@@ -46,7 +47,7 @@ def main(argv=None):
     try:
         report = classify_claims(args.candidates_dir, args.output_dir, args.config, args.taxonomy, args.fixture,
                                  args.review_file, on_progress=progress)
-    except (OSError, ValueError) as exc:
+    except Exception as exc:
         parser.exit(2, f"claim classification failed: {exc}\n")
     print(f"[classify] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "
           f"OpenAI estimated cost: ${telemetry['estimated_cost_usd']:.6f} "

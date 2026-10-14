@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
-from scripts.generate_claims import main
+from scripts.generate_claims import _print_progress, main
 
 
 class GenerateClaimsCliTests(unittest.TestCase):
@@ -34,4 +34,12 @@ class GenerateClaimsCliTests(unittest.TestCase):
         self.assertIn("Writing validated candidate artifacts", stderr.getvalue())
         self.assertIn("OpenAI estimated cost: $0.012345 (2 API requests)", stderr.getvalue())
         self.assertEqual(captured["subset_batches"], 1)
+        self.assertFalse(captured["resume"])
+
+    def test_full_generation_progress_includes_chunk_total(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            _print_progress({"phase": "generation", "state": "started", "chunks": 806,
+                             "source_chunks": 806, "total": 202, "source_total": 202, "subset": False})
+        self.assertIn("Full: 806/806 chunks; generating candidates in 202/202 batches", stderr.getvalue())
 

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from knowledge_foundry.claim_compilation import generate_claims  # noqa: E402
@@ -14,7 +15,8 @@ from knowledge_foundry.claim_compilation import generate_claims  # noqa: E402
 
 def _print_progress(event):
     if event["phase"] == "generation" and event["state"] == "started":
-        prefix = f"Subset: {event['chunks']}/{event['source_chunks']} chunks; " if event["subset"] else "Input: "
+        scope = "Subset" if event["subset"] else "Full"
+        prefix = f"{scope}: {event['chunks']}/{event['source_chunks']} chunks; "
         print(f"[generate] {prefix}generating candidates in {event['total']}/{event['source_total']} batches",
               file=sys.stderr, flush=True)
     elif event["state"] == "progress":
@@ -35,6 +37,8 @@ def main(argv=None):
     parser.add_argument("--fixture", type=Path, help="deterministic fixture required by provider fixture")
     parser.add_argument("--subset-batches", type=int,
                         help="generate this many length-stratified claim-generation batches")
+    parser.add_argument("--resume", action="store_true",
+                        help="resume an incomplete matching generation run in --output-dir")
     args = parser.parse_args(argv)
     telemetry = None
 
@@ -47,9 +51,9 @@ def main(argv=None):
     started = time.monotonic()
     try:
         report = generate_claims(args.chunked_dir, args.output_dir, args.config, args.fixture,
-                                 on_progress=progress, subset_batches=args.subset_batches)
-    except (OSError, ValueError) as exc:
-        parser.exit(2, f"claim generation failed: {exc}\n")
+                                 on_progress=progress, subset_batches=args.subset_batches, resume=args.resume)
+    except Exception as exc:
+        parser.exit(2, f"claim generation failed; completed batches remain resumable with --resume: {exc}\n")
     print(f"[generate] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "
           f"OpenAI estimated cost: ${telemetry['estimated_cost_usd']:.6f} "
           f"({telemetry['requests']} API requests)", file=sys.stderr, flush=True)

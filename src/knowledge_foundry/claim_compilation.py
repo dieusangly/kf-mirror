@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -54,6 +55,27 @@ def _read_json(path):
 
 def _write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_json_atomic(path, value):
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def _write_jsonl_atomic(path, records):
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(canonical(record) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
 
 
 def _prompt(name):
@@ -215,11 +237,12 @@ def _cost(records, rate_card):
     return total_cost
 
 
-def _telemetry(provider, config):
+def _telemetry(provider, config, usage_records=None):
     rate_card = _rate_card(config)
+    usage_records = provider.usage_records if usage_records is None else usage_records
     return {"provider": config["provider"], "model": provider.model_id,
-            "requests": len(provider.usage_records), "usage": _usage(provider.usage_records),
-            "estimated_cost_usd": _cost(provider.usage_records, rate_card),
+            "requests": len(usage_records), "usage": _usage(usage_records),
+            "estimated_cost_usd": _cost(usage_records, rate_card),
             "rate_card": {"version": config["pricing"]["rate_card_version"],
                           "model": config["model"], "rates": copy.deepcopy(rate_card)}}
 
@@ -373,6 +396,8 @@ def _project_generation(scope, usage, config):
 def _candidate_manifest(candidate_dir):
     candidate_dir = Path(candidate_dir)
     manifest_path = candidate_dir / "build-manifest.json"
+    if not manifest_path.is_file() and (candidate_dir / "generation-checkpoint.json").is_file():
+        raise ValueError("candidate generation is incomplete; rerun generate_claims.py with --resume")
     manifest = _read_json(manifest_path)
     candidate_path = candidate_dir / "claim-candidates.jsonl"
     output_hashes = {item.get("path"): item.get("sha256") for item in manifest.get("outputs", [])}
@@ -401,8 +426,42 @@ def _validate_candidate(candidate, generation_build_id, chunk_map):
         raise ValueError("candidate ID mismatch")
 
 
+def _generation_identity(build_id, input_path, config_digest, generation_hash, scope):
+    return {"checkpoint_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
+            "input_bundle_sha256": file_digest(input_path), "config_sha256": config_digest,
+            "generation_prompt_sha256": generation_hash, "compilation_scope": scope}
+
+
+def _load_generation_checkpoints(output_dir, identity, selected_batches, chunk_map):
+    checkpoint_path = output_dir / "generation-checkpoint.json"
+    if not checkpoint_path.is_file():
+        raise ValueError("output directory is not a resumable claim-generation run")
+    checkpoint = _read_json(checkpoint_path)
+    if any(checkpoint.get(key) != value for key, value in identity.items()):
+        raise ValueError("generation checkpoint does not match the requested input, configuration, prompt, or scope")
+    checkpoint_dir = output_dir / "generation-checkpoints"
+    batch_by_number = {number: batch for number, batch in enumerate(selected_batches, start=1)}
+    candidates, errors, usage, completed = [], [], [], set()
+    for path in sorted(checkpoint_dir.glob("batch-*.json")):
+        record = _read_json(path)
+        number = record.get("batch_number")
+        batch = batch_by_number.get(number)
+        if number in completed or batch is None or record.get("chunk_ids") != [item["id"] for item in batch]:
+            raise ValueError("generation batch checkpoint is invalid")
+        if not isinstance(record.get("candidates"), list) or not isinstance(record.get("errors"), list) or \
+                not isinstance(record.get("usage_records"), list):
+            raise ValueError("generation batch checkpoint is invalid")
+        for candidate in record["candidates"]:
+            _validate_candidate(candidate, identity["generation_build_id"], chunk_map)
+        candidates.extend(record["candidates"])
+        errors.extend(record["errors"])
+        usage.extend(record["usage_records"])
+        completed.add(number)
+    return candidates, errors, usage, completed
+
+
 def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilation.json", fixture_path=None,
-                    on_progress=None, subset_batches=None):
+                    on_progress=None, subset_batches=None, resume=False):
     """Generate durable, grounded candidate claims from one immutable chunk bundle."""
     chunked_dir, output_dir = Path(chunked_dir), Path(output_dir)
     input_path = chunked_dir / "artifact-bundle.json"
@@ -433,14 +492,37 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
     build_id = _build_id(pipeline_version, config_digest, document_ids)
     generation = {"method": "model", "version": config["generation_version"],
                   "model_id": provider.model_id, "prompt_sha256": generation_hash}
-    candidates, errors, usage = [], [], []
     chunk_map = {item["id"]: item for item in selected_chunks}
+    identity = _generation_identity(build_id, input_path, config_digest, generation_hash, scope)
+    checkpoint_path = output_dir / "generation-checkpoint.json"
+    checkpoint_dir = output_dir / "generation-checkpoints"
+    candidate_path = output_dir / "claim-candidates.jsonl"
+    if output_dir.exists():
+        if not resume:
+            raise ValueError(f"output directory already exists: {output_dir}; use --resume for an incomplete run")
+        if (output_dir / "build-manifest.json").is_file():
+            raise ValueError("claim-generation output is already complete")
+        candidates, errors, usage, completed_batches = _load_generation_checkpoints(
+            output_dir, identity, selected_batches, chunk_map)
+        _write_jsonl_atomic(candidate_path, sorted(candidates, key=lambda item: item["id"]))
+    else:
+        if resume:
+            raise ValueError("cannot resume because the claim-generation output directory does not exist")
+        output_dir.mkdir(parents=True)
+        checkpoint_dir.mkdir()
+        candidates, errors, usage, completed_batches = [], [], [], set()
+        _write_jsonl_atomic(candidate_path, candidates)
+        _write_json_atomic(checkpoint_path, {**identity, "status": "in_progress", "completed_batch_numbers": []})
     if on_progress:
         on_progress({"phase": "generation", "state": "started", "chunks": len(selected_chunks),
                      "source_chunks": len(chunks), "total": len(selected_batches),
-                     "source_total": len(all_batches), "subset": scope["mode"] == "subset"})
+                     "source_total": len(all_batches), "subset": scope["mode"] == "subset",
+                     "resumed_batches": len(completed_batches)})
     for completed, batch in enumerate(selected_batches, start=1):
+        if completed in completed_batches:
+            continue
         ids, usage_start = [item["id"] for item in batch], len(provider.usage_records)
+        batch_candidates, batch_errors = [], []
         try:
             response = _call(lambda: provider.candidates(ids if isinstance(provider, FixtureProvider) else batch,
                                                           generation_prompt, CANDIDATE_SCHEMA), config["retries"],
@@ -448,11 +530,27 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
                                  {"phase": "generation", "state": "retry", "completed": completed,
                                   "total": len(selected_batches), "attempt": attempt, "attempts": total}))
             Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
-            candidates.extend(_candidate_record(build_id, item, generation, chunk_map) for item in response["claims"])
+            batch_candidates = [_candidate_record(build_id, item, generation, chunk_map)
+                                for item in response["claims"]]
+            candidate_ids = {item["id"] for item in candidates}
+            if len({item["id"] for item in batch_candidates}) != len(batch_candidates) or \
+                    candidate_ids.intersection(item["id"] for item in batch_candidates):
+                raise ValueError("generation produced duplicate candidate IDs")
         except Exception as exc:
-            errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
+            batch_errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
         finally:
-            usage.extend(provider.usage_records[usage_start:])
+            batch_usage = provider.usage_records[usage_start:]
+        batch_record = {"batch_number": completed, "chunk_ids": ids, "candidates": batch_candidates,
+                        "errors": batch_errors, "usage_records": batch_usage}
+        _write_json_atomic(checkpoint_dir / f"batch-{completed:06d}.json", batch_record)
+        candidates.extend(batch_candidates)
+        errors.extend(batch_errors)
+        usage.extend(batch_usage)
+        completed_batches.add(completed)
+        candidates.sort(key=lambda item: item["id"])
+        _write_jsonl_atomic(candidate_path, candidates)
+        _write_json_atomic(checkpoint_path, {**identity, "status": "in_progress",
+                                              "completed_batch_numbers": sorted(completed_batches)})
         if on_progress and _checkpoint(completed, len(selected_batches)):
             on_progress({"phase": "generation", "state": "progress", "completed": completed,
                          "total": len(selected_batches), "candidates": len(candidates)})
@@ -466,27 +564,29 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
                                "status": "partial" if errors else "complete"})
     from scripts.validate_artifact_examples import check
     check(result)
-    if output_dir.exists():
-        raise ValueError(f"output directory already exists: {output_dir}")
-    output_dir.mkdir(parents=True)
     if on_progress:
         on_progress({"phase": "export", "state": "started"})
     _write_json(output_dir / "artifact-bundle.json", result)
-    _write_jsonl(output_dir / "claim-candidates.jsonl", candidates)
-    telemetry = _telemetry(provider, config)
+    _write_jsonl_atomic(candidate_path, candidates)
+    telemetry = _telemetry(provider, config, usage)
     report = {"generation_build_id": build_id, "upstream_chunk_build_id": bundle["builds"][0]["id"],
               "documents": len(document_ids), "chunks": len(chunks), "candidates": len(candidates),
               "compilation_scope": scope, "errors": errors, "telemetry": telemetry,
               "projected_full_generation": _project_generation(scope, usage, config),
               "status": "partial" if errors else "complete"}
     _write_json(output_dir / "generation-report.json", report)
-    files = sorted(path for path in output_dir.rglob("*") if path.is_file())
+    files = sorted(path for path in output_dir.rglob("*") if path.is_file() and checkpoint_dir not in path.parents and
+                   path != checkpoint_path)
     manifest = {"manifest_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
                 "upstream_chunk_build_id": bundle["builds"][0]["id"], "input_bundle_sha256": file_digest(input_path),
                 "config_sha256": config_digest, "generation_prompt_sha256": generation_hash,
-                "compilation_scope": scope, "candidate_sha256": file_digest(output_dir / "claim-candidates.jsonl"),
+                "compilation_scope": scope, "candidate_sha256": file_digest(candidate_path),
                 "outputs": [{"path": str(path.relative_to(output_dir)), "sha256": file_digest(path)} for path in files]}
     _write_json(output_dir / "build-manifest.json", manifest)
+    checkpoint_path.unlink(missing_ok=True)
+    for path in checkpoint_dir.glob("batch-*.json"):
+        path.unlink()
+    checkpoint_dir.rmdir()
     if on_progress:
         on_progress({"phase": "complete", "state": report["status"], "telemetry": telemetry,
                      "projection": report["projected_full_generation"]})

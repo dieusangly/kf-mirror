@@ -64,6 +64,13 @@ resolved, exact evidence spans and generation metadata, including candidates
 that may later receive no topic. Do not alter it; it is the immutable input to
 classification.
 
+Generation persists a checkpoint after every completed batch. If a process or
+final export stops, rerun the exact command with the same output directory and
+`--resume`; completed batches are not sent to the model again. A resumed run
+rejects different input, configuration, prompt, or subset scope. Until final
+validation writes `build-manifest.json`, the directory is incomplete and cannot
+be classified.
+
 ## Classify saved candidates
 
 Classify candidates in a separate fresh directory:

@@ -1,8 +1,12 @@
 import copy
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from knowledge_foundry.claim_compilation import ROOT, _project_generation, _subset_batch_indices, _telemetry, \
     classify_claims, generate_claims
@@ -79,6 +83,116 @@ class CompilationTests(unittest.TestCase):
             self.assertEqual([event["phase"] for event in classification_events],
                              ["classification", "classification", "export", "complete"])
             self.assertEqual(classification_events[-1]["telemetry"]["estimated_cost_usd"], 0)
+
+    def test_resume_finalizes_saved_batch_without_repeating_generation(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            chunk = bundle["chunks"][0]
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+                "text": "Assertion persistée.",
+                "evidence": [{"chunk_id": chunk["id"], "evidence_index": 0}],
+            }]}}, "classifications": {}}), encoding="utf-8")
+            config_path, taxonomy_path = self._write_settings(root)
+            generated = root / "generated"
+            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+                with self.assertRaisesRegex(RuntimeError, "export failure"):
+                    generate_claims(chunked, generated, config_path, fixture)
+            self.assertTrue((generated / "generation-checkpoint.json").is_file())
+            self.assertTrue((generated / "claim-candidates.jsonl").is_file())
+            empty_fixture = root / "empty-fixture.json"
+            empty_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {
+                "Assertion persistée.": None}}), encoding="utf-8")
+            report = generate_claims(chunked, generated, config_path, empty_fixture, resume=True)
+            self.assertEqual((report["status"], report["candidates"]), ("complete", 1))
+            self.assertFalse((generated / "generation-checkpoint.json").exists())
+            self.assertTrue((generated / "build-manifest.json").is_file())
+            classified = classify_claims(generated, root / "classified", config_path, taxonomy_path, empty_fixture)
+            self.assertEqual(classified["status"], "complete")
+
+    def test_resume_rejects_a_different_generation_scope(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            config_path, _ = self._write_settings(root)
+            generated = root / "generated"
+            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+                with self.assertRaisesRegex(RuntimeError, "export failure"):
+                    generate_claims(chunked, generated, config_path, fixture)
+            with self.assertRaisesRegex(ValueError, "checkpoint does not match"):
+                generate_claims(chunked, generated, config_path, fixture, subset_batches=1, resume=True)
+
+    def test_classification_rejects_an_incomplete_generation_directory(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            config_path, taxonomy_path = self._write_settings(root)
+            generated = root / "generated"
+            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+                with self.assertRaisesRegex(RuntimeError, "export failure"):
+                    generate_claims(chunked, generated, config_path, fixture)
+            with self.assertRaisesRegex(ValueError, "generation is incomplete"):
+                classify_claims(generated, root / "classified", config_path, taxonomy_path, fixture)
+
+    def test_direct_generation_cli_can_import_the_validator(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            chunk = bundle["chunks"][0]
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
+                                           "classifications": {}}), encoding="utf-8")
+            config_path, _ = self._write_settings(root)
+            environment = dict(os.environ)
+            environment.pop("PYTHONPATH", None)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "generate_claims.py"),
+                 "--chunked-dir", str(chunked), "--output-dir", str(root / "generated"),
+                 "--config", str(config_path), "--fixture", str(fixture)],
+                cwd=root, env=environment, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((root / "generated" / "build-manifest.json").is_file())
+
+    def test_direct_classification_cli_can_import_the_validator(self):
+        with tempfile.TemporaryDirectory() as value:
+            root = Path(value)
+            chunked = root / "chunked"
+            chunked.mkdir()
+            bundle = self._input_bundle()
+            (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            chunk = bundle["chunks"][0]
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
+                                           "classifications": {}}), encoding="utf-8")
+            config_path, taxonomy_path = self._write_settings(root)
+            generated = root / "generated"
+            generate_claims(chunked, generated, config_path, fixture)
+            environment = dict(os.environ)
+            environment.pop("PYTHONPATH", None)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "classify_claims.py"),
+                 "--candidates-dir", str(generated), "--output-dir", str(root / "classified"),
+                 "--config", str(config_path), "--taxonomy", str(taxonomy_path), "--fixture", str(fixture)],
+                cwd=root, env=environment, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((root / "classified" / "build-manifest.json").is_file())
 
     def test_telemetry_uses_cached_and_long_context_pricing(self):
         provider = type("Provider", (), {"model_id": DEFAULT_MODEL, "usage_records": [
