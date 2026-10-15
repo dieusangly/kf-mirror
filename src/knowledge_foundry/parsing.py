@@ -1,4 +1,4 @@
-"""Parse verified local sources into v1 artifacts and a loss-aware sidecar."""
+"""Parse verified saved sources into v1 artifacts and a loss-aware sidecar."""
 
 import argparse
 import hashlib
@@ -400,7 +400,7 @@ def _print_progress(event):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Parse verified local documents into source-linked artifacts")
+    parser = argparse.ArgumentParser(description="Parse verified saved documents into source-linked artifacts")
     parser.add_argument("--config", required=True, type=Path, help="pipeline JSON configuration file")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/parsed"),
                         help="output directory (default: artifacts/parsed)")

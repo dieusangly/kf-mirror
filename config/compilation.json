@@ -1,5 +1,5 @@
 {
-  "pipeline_version": "compilation-v6",
+  "pipeline_version": "compilation-v9",
   "batch_size_chunks": 4,
   "retries": 2,
   "provider": "openai",
@@ -40,6 +40,6 @@
       }
     }
   },
-  "generation_version": "claim-generation-v5",
-  "classification_version": "topic-classification-v8"
+  "generation_version": "claim-generation-v8",
+  "classification_version": "topic-classification-v11"
 }

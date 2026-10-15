@@ -1,4 +1,4 @@
-"""Run local ingestion directly from a repository checkout."""
+"""Run ingestion directly from a repository checkout."""
 
 import sys
 from pathlib import Path

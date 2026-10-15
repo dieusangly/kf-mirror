@@ -1,4 +1,4 @@
-"""Inventory saved local sources without parsing or exporting their contents."""
+"""Inventory saved sources without parsing or exporting their contents."""
 
 import argparse
 import hashlib
@@ -171,7 +171,7 @@ def ingest(config_path):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Inventory local source files and verify their manifest metadata")
+    parser = argparse.ArgumentParser(description="Inventory saved source files and verify their manifest metadata")
     parser.add_argument("--config", required=True, type=Path, help="pipeline JSON configuration file")
     parser.add_argument("--output", type=Path, help="write the JSON report to this path (stdout by default)")
     args = parser.parse_args(argv)

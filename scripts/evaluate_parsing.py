@@ -11,17 +11,17 @@ from pathlib import Path
 
 from lxml import html
 from jsonschema import ValidationError
-from validate_artifact_examples import check as validate_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
+from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 from knowledge_foundry.parsers import (  # noqa: E402
     _pdf_text,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
 )
 
-REFERENCE = ROOT / "tests/fixtures/pilot_parsing_reference.json"
 SUBSTANTIVE_TOKENS = 5
 SUBSTANTIVE_CHARS = 30
 SEMANTIC_KINDS = {"paragraph", "heading", "list_item", "table"}
@@ -554,8 +554,9 @@ def select_outcomes(input_dir, additional_input_dirs=()):
     return list(selected.values())
 
 
-def evaluate(input_dir, reference_path=REFERENCE, additional_input_dirs=()):
-    reference = json.loads(reference_path.read_text(encoding="utf-8"))
+def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_root=ROOT):
+    reference = (json.loads(Path(reference_path).read_text(encoding="utf-8")) if reference_path else
+                 {"status": "not_supplied", "passages": [], "structure": [], "reading_order": []})
     outcomes = select_outcomes(input_dir, additional_input_dirs)
     corpus = {}
     documents = []
@@ -599,7 +600,7 @@ def evaluate(input_dir, reference_path=REFERENCE, additional_input_dirs=()):
                             0 <= top <= bottom <= page["size"]["height"] + 1):
                         invalid.append(element["id"])
         else:
-            document = html.parse(str(ROOT / outcome["local_path"])).getroot()
+            document = html.parse(str(Path(source_root) / outcome["local_path"])).getroot()
             for element in elements:
                 selected = document.cssselect(element["location"]["selector"])
                 if len(selected) != 1:
@@ -740,11 +741,13 @@ def main(argv=None):
     parser.add_argument("--input-dir", type=Path, default=Path("artifacts/parsed"))
     parser.add_argument("--additional-input-dir", type=Path, action="append", default=[],
                         help="also select newer parse outcomes from this directory (repeatable)")
-    parser.add_argument("--reference", type=Path, default=REFERENCE,
-                        help="source-checked landmark JSON (pilot fixture by default)")
+    parser.add_argument("--reference", type=Path,
+                        help="optional source-checked landmark JSON for this corpus")
+    parser.add_argument("--source-root", type=Path, default=ROOT,
+                        help="root for saved source paths (repository root by default)")
     parser.add_argument("--output", type=Path, help="write measurements here (stdout by default)")
     args = parser.parse_args(argv)
-    result = evaluate(args.input_dir, args.reference, args.additional_input_dir)
+    result = evaluate(args.input_dir, args.reference, args.additional_input_dir, args.source_root)
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

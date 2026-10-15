@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "aml-cft-pilot-v4",
+  "taxonomy_version": "aml-cft-pilot-v5",
   "topics": [
     {
       "id": "topic:beneficial-ownership",
@@ -14,7 +14,7 @@
     {
       "id": "topic:customer-due-diligence",
       "title": "Identification et connaissance du client",
-      "scope": "Identification et vérification du client et de ses représentants, connaissance initiale, entrée en relation, distinction relation d'affaires/client occasionnel et diligences simplifiées ou exemptions. Exclut la détermination du bénéficiaire effectif, l'actualisation dans la durée et les mesures renforcées spécifiques."
+      "scope": "Identification et vérification du client et de ses représentants, connaissance initiale, entrée en relation, distinction relation d'affaires/client occasionnel et diligences simplifiées ou exemptions. Exclut la détermination du bénéficiaire effectif, l'actualisation dans la durée et les mesures renforcées spécifiques. Inclut la détermination de l'entité qui est le client selon le service fourni : notamment société de gestion ou placement collectif. La détermination de ce client précède l'identification de ses bénéficiaires effectifs."
     },
     {
       "id": "topic:risk-assessment",
@@ -24,12 +24,12 @@
     {
       "id": "topic:enhanced-vigilance",
       "title": "Vigilance renforcée",
-      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, PPE et pays tiers à haut risque ; documentation de ces examens. Exclut le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » dans les bonnes pratiques d'un cas ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique."
+      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, PPE et pays tiers à haut risque ; documentation de ces examens. Exclut le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » dans les bonnes pratiques d'un cas ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique. La consignation et conservation des seuls résultats d'un examen renforcé relèvent ici ; les règles transversales de conservation des dossiers et opérations relèvent de l'organisation."
     },
     {
       "id": "topic:suspicious-transaction-reporting",
       "title": "Déclarations de soupçon",
-      "scope": "Obligation, déclencheurs, soupçon de fraude fiscale, délais, contenu, transmission, recevabilité et confidentialité des DS ; déclarants, correspondants, utilisation d'ERMES pour les DS et droits de Tracfin liés à leur traitement. Inclut l'articulation entre DS et dépôt de plainte : indépendance, absence de substitution et absence d'obstacle. Les informations de bénéficiaire effectif exigées dans une DS relèvent ici. Exclut les COSI, la simple détection d'alertes et les récits d'opérations sans proposition relative à une DS. La décision d'envoyer une DS et ses informations justificatives relèvent ici même sous une rubrique de vigilance renforcée. Exclut la réévaluation du profil du client et l'adaptation de sa vigilance lorsqu'elles constituent l'objet de l'assertion, même après une DS ou une plainte."
+      "scope": "Obligation, déclencheurs, soupçon de fraude fiscale, décision, délais, contenu, transmission, recevabilité et confidentialité des DS ; déclarants, correspondants et accès ERMES, y compris authentification simple ou forte. Inclut les droits de communication et d'opposition de Tracfin : demandes et réponses, formats selon le type de document, notification, suspension et computation des délais, même sans mention explicite d'une DS. Inclut la conservation des pièces propres aux DS et l'articulation DS/dépôt de plainte : indépendance, absence de substitution ou d'obstacle. Les informations de bénéficiaire effectif exigées dans une DS et la décision d'envoyer une DS relèvent ici, même sous une rubrique d'examen renforcé. Exclut les COSI, la simple détection d'alertes, les récits sans règle opérationnelle, les signalements de prestataires défaillants à l'ACPR et la conservation transversale des dossiers et opérations. La réévaluation du profil du client et l'adaptation de sa vigilance restent en vigilance constante, même après une DS ou une plainte."
     },
     {
       "id": "topic:systematic-reporting",
@@ -44,7 +44,7 @@
     {
       "id": "topic:organisation-delegation",
       "title": "Organisation et délégation",
-      "scope": "Organisation du dispositif LCB-FT, contrôle interne, moyens, formation, tierce introduction, externalisation et partage des responsabilités. Exclut les rôles et procédures propres aux DS ou COSI, le paramétrage de surveillance et la documentation propre à une diligence particulière. Inclut les propositions indiquant quelles personnes sont chargées de détecter les opérations atypiques, sous quelle responsabilité, et avec quelles instructions ou contrôles. Distinguer ces rôles des indicateurs opérationnels à détecter."
+      "scope": "Organisation du dispositif LCB-FT, contrôle interne, moyens, formation, tierce introduction, externalisation et partage des responsabilités. Inclut l'attribution des missions de détection, la responsabilité, les instructions et le contrôle des personnes ; distinguer ces rôles des indicateurs opérationnels à détecter. Inclut les obligations transversales d'archivage et de conservation : identité, dossiers de vigilance, opérations, durées, points de départ, procédures internes et accès de l'autorité de contrôle. Une règle transversale reste ici si elle inclut aussi des documents d'examen renforcé. Exclut les rôles et procédures propres aux DS ou COSI, le paramétrage de surveillance et la documentation d'une diligence particulière. La conservation propre aux DS relève des DS ; la consignation ou conservation des seuls résultats d'un examen renforcé relève de la vigilance renforcée."
     },
     {
       "id": "topic:guidance-status",

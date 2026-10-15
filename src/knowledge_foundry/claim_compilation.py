@@ -4,14 +4,13 @@ import copy
 import hashlib
 import json
 import os
-import re
 import time
-import unicodedata
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
 
 from knowledge_foundry.evidence import claim_evidence_references
+from knowledge_foundry.generation_context import footnote_links, generation_batches
 from knowledge_foundry.openai_tools import DEFAULT_MODEL, REASONING_EFFORTS, OpenAIResponsesTool
 
 
@@ -201,6 +200,14 @@ def _evidence_choices(chunks, element_map):
             if "span" in ref:
                 choices[f"E{len(choices) + 1}"] = {
                     "chunk_id": chunk["id"], "reference": ref, **_passage(ref, element_map)}
+    labels = {}
+    for label, item in choices.items():
+        labels.setdefault(canonical(item["reference"]), []).append(label)
+    for parent, note in footnote_links(chunks, element_map):
+        for parent_label in labels[canonical(parent)]:
+            for note_label in labels[canonical(note)]:
+                choices[parent_label].setdefault("footnote_evidence", []).append(note_label)
+                choices[note_label].setdefault("parent_evidence", []).append(parent_label)
     return choices
 
 
@@ -319,81 +326,12 @@ def _candidate_record(generation_build_id, candidate, generation, choices):
     text = candidate["text"].strip()
     if not text:
         raise ValueError("candidate claim text is blank")
-    if re.search(r"(?:^|[.!?;]\s+)(?:pour ce service\s*(?=,|$)|il en va de même\b|"
-                 r"pour le reste de ce schéma\b)", text, re.IGNORECASE):
-        raise ValueError(f"candidate has an unresolved contextual reference; name its subject and rule: {text}")
-    # Look at the available passages of the cited chunks too: selecting only a
-    # heading must not hide prerequisites in the accompanying paragraph.
-    _check_fallback_conditions(text, " ".join(item["text"] for item in choices.values()
-                                             if item["chunk_id"] in chunk_ids))
     result = {"schema_version": SCHEMA_VERSION,
               "id": "candidate:" + digest(generation_build_id + "\n" + canonical(evidence) + "\n" + text),
               "generation_build_id": generation_build_id, "chunk_ids": chunk_ids, "text": text,
               "evidence": evidence, "grounding_review_status": "draft", "generation": generation}
     Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(result)
     return result
-
-
-def _plain_text(text):
-    text = text.lower().replace("’", "'").replace("œ", "oe")
-    return " ".join("".join(c for c in unicodedata.normalize("NFD", text)
-                            if not unicodedata.combining(c)).split())
-
-
-def _check_fallback_conditions(text, evidence_text):
-    """Check paired beneficial-owner fallback prerequisites; not general grounding."""
-    claim, evidence = _plain_text(text), _plain_text(evidence_text)
-    if "beneficiaire" not in claim or "dernier ressort" not in claim:
-        return
-    failed_identification = r"aucune personne physique.{0,100}identifi|recherches?\s+infructueuses?"
-    no_suspicion = r"n'a pas de soupcon|absence de soupcon|sans soupcon"
-    if re.search(failed_identification, evidence) and re.search(no_suspicion, evidence):
-        if not re.search(failed_identification, claim) or not re.search(no_suspicion, claim):
-            raise ValueError("fallback claim omits explicit prerequisites from its evidence: "
-                             "state unsuccessful identification and absence of suspicion in this same claim, "
-                             "with the relevant source context; another claim or 'conditions réunies' "
-                             "does not supply them: " + text)
-
-
-def _check_substantive_footnotes(records, choices):
-    """Check the specific 'tient compte de ce que' footnote pattern."""
-    cited = {canonical(ref) for record in records for ref in record["evidence"]}
-    for label, passage in choices.items():
-        if passage["kind"] == "footnote" and "tient compte de ce que" in _plain_text(passage["text"]) \
-                and canonical(passage["reference"]) not in cited:
-            raise ValueError(f"substantive footnote {label} was omitted; extract its qualified statement "
-                             "with its scope and exact evidence: " + passage["text"])
-
-
-def _check_reporting_assignment(response, context, valid_topics):
-    """Catch known DS procedure assignments when that curated topic is available."""
-    topic = "topic:suspicious-transaction-reporting"
-    if topic not in valid_topics:
-        return
-
-    def procedural_relationship(text):
-        text = _plain_text(text)
-        return ("plainte" in text and
-                ("declaration de soupcon" in text or re.search(r"\bds\b", text)) and
-                re.search(r"independan|substitu|obstacle", text))
-
-    if procedural_relationship(context["claim"]) and any(
-            procedural_relationship(item["text"]) for item in context["evidence"]) and \
-            response["topic_id"] != topic:
-        raise ValueError("explicit DS/complaint procedural relationship belongs to " + topic +
-                         "; reconsider the assignment using the cited passage and curated scope")
-
-    def ermes_authentication(text):
-        text = _plain_text(text)
-        return (re.search(r"\bermes\b", text) and "authentification" in text and
-                re.search(r"\bsimple\b|\bforte\b|certificat|identifiant|mot de passe", text))
-
-    if ermes_authentication(context["claim"]) and any(
-            ermes_authentication(item["text"]) for item in context["evidence"]) and \
-            response["topic_id"] != topic:
-        raise ValueError("ERMES authentication procedure belongs to " + topic +
-                         "; both simple and strong authentication are within its ERMES scope; "
-                         "reconsider the assignment using the cited passage")
 
 
 def _claim(build_id, candidate, classification, classifier):
@@ -407,37 +345,6 @@ def _claim(build_id, candidate, classification, classifier):
         "classification_review_status": "draft", "generation": candidate["generation"],
         "classification": classifier,
     }
-
-
-def _apply_review(claims, topics, review_path, build_id):
-    if review_path is None:
-        return {"applied": False, "rejection_reasons": {}}
-    review = _read_json(review_path)
-    if review.get("build_id") != build_id or not isinstance(review.get("claims"), list):
-        raise ValueError("review file must name this build and contain claims")
-    by_claim = {item["id"]: item for item in claims}
-    reasons = {}
-    for item in review["claims"]:
-        claim = by_claim.get(item.get("id"))
-        if not claim or item.get("grounding_review_status") not in {"draft", "verified", "rejected"} or \
-                item.get("classification_review_status") not in {"draft", "verified", "rejected"}:
-            raise ValueError("review contains an invalid claim status")
-        claim["grounding_review_status"] = item["grounding_review_status"]
-        claim["classification_review_status"] = item["classification_review_status"]
-        if item.get("reason"):
-            reasons[claim["id"]] = str(item["reason"])
-    by_topic = {item["id"]: item for item in topics}
-    for item in review.get("topics", []):
-        topic = by_topic.get(item.get("id"))
-        if not topic or item.get("review_status") not in {"draft", "verified", "rejected"}:
-            raise ValueError("review contains an invalid topic status")
-        if item["review_status"] == "verified":
-            assigned = [claim for claim in claims if claim["topic_id"] == topic["id"]]
-            if not all(claim["grounding_review_status"] == claim["classification_review_status"] == "verified"
-                       for claim in assigned):
-                raise ValueError("a verified topic requires fully verified claims")
-        topic["review_status"] = item["review_status"]
-    return {"applied": True, "rejection_reasons": reasons}
 
 
 def _topic_records(claims, taxonomy, build_id):
@@ -627,8 +534,8 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
     provider = _provider(config, fixture_path)
     chunks, document_ids = bundle["chunks"], [item["id"] for item in bundle["documents"]]
     batch_size = config["batch_size_chunks"]
-    all_batches = [chunks[start:start + batch_size] for start in range(0, len(chunks), batch_size)]
     element_map = {item["id"]: item for item in bundle["elements"]}
+    all_batches = generation_batches(chunks, element_map, batch_size)
     batch_inputs = [_candidate_input(batch, element_map) for batch in all_batches]
     request_characters = [provider.candidate_request_characters(value, generation_prompt, CANDIDATE_SCHEMA)
                           for value in batch_inputs] if isinstance(provider, OpenAIProvider) else \
@@ -642,6 +549,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
              "total_chunks": len(chunks),
              "selected_chunks": len(selected_chunks), "total_batches": len(all_batches),
              "selected_batch_numbers": [index + 1 for index in selected_indices],
+             "selected_batch_chunk_counts": [len(all_batches[index]) for index in selected_indices],
              "selected_chunk_ids": [chunk["id"] for chunk in selected_chunks],
              "generation_request_characters": {"total": sum(request_characters),
                                                "selected": sum(request_characters[index] for index in selected_indices)}}
@@ -693,7 +601,6 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
             try:
                 Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
                 records = [_candidate_record(build_id, item, generation, choices) for item in response["claims"]]
-                _check_substantive_footnotes(records, choices)
                 candidate_ids = {item["id"] for item in candidates}
                 if len({item["id"] for item in records}) != len(records) or \
                         candidate_ids.intersection(item["id"] for item in records):
@@ -769,7 +676,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
 
 
 def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compilation.json",
-                    taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None, review_path=None,
+                    taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None,
                     on_progress=None):
     """Classify a durable candidate artifact without regenerating its claims."""
     started = time.monotonic()
@@ -816,7 +723,6 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
                 Draft202012Validator(CLASSIFICATION_SCHEMA).validate(response)
                 if response["topic_id"] is not None and response["topic_id"] not in valid_topics:
                     raise ValueError("classifier returned an uncurated topic ID")
-                _check_reporting_assignment(response, context, valid_topics)
             except (ValueError, ValidationError) as exc:
                 retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
                                   "\nRéexaminez les preuves et le périmètre organisé ; retournez le JSON corrigé.")
@@ -843,7 +749,6 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
     if len({item["id"] for item in claims}) != len(claims):
         raise ValueError("classification produced duplicate claim IDs")
     topics = _topic_records(claims, taxonomy, build_id)
-    review = _apply_review(claims, topics, review_path, build_id)
     result = copy.deepcopy(bundle)
     result["claims"], result["topics"] = claims, topics
     result["builds"].append({"schema_version": SCHEMA_VERSION, "id": build_id, "pipeline_version": pipeline_version,
@@ -892,7 +797,7 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
               "candidate_manifest_sha256": file_digest(manifest_path), "candidates": len(candidates),
               "claims": len(claims), "topics": len(topics), "errors": errors,
               "unclassified_candidate_ids": unclassified, "telemetry": telemetry,
-              "projected_full_build": projected, "review": review,
+              "projected_full_build": projected,
               "duration_seconds": round(time.monotonic() - started, 3),
               "status": "partial" if errors else "complete"}
     _write_json(output_dir / "report.json", report)

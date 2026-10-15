@@ -33,7 +33,6 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=ROOT / "config" / "compilation.json")
     parser.add_argument("--taxonomy", type=Path, default=ROOT / "config" / "topics-v1.json")
     parser.add_argument("--fixture", type=Path, help="deterministic fixture required by provider fixture")
-    parser.add_argument("--review-file", type=Path)
     args = parser.parse_args(argv)
     telemetry = None
 
@@ -46,7 +45,7 @@ def main(argv=None):
     started = time.monotonic()
     try:
         report = classify_claims(args.candidates_dir, args.output_dir, args.config, args.taxonomy, args.fixture,
-                                 args.review_file, on_progress=progress)
+                                 on_progress=progress)
     except Exception as exc:
         parser.exit(2, f"claim classification failed: {exc}\n")
     print(f"[classify] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "

@@ -15,12 +15,15 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from knowledge_foundry.chunking import TOKEN, clean, token_count  # noqa: E402
+from knowledge_foundry.review import (  # noqa: E402
+    apply_reviews as _apply_reviews,
+    read_review_policy as _read_review_policy,
+    select_samples,
+)
 from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 
 EVALUATION_VERSION = "chunk-eval-v1"
 EXAMPLE_LIMIT = 5
-REVIEW_STATUSES = {"pending", "pass", "fail"}
-REVIEW_SEVERITIES = {"critical", "major", "minor"}
 DEFAULT_REVIEW_POLICY = ROOT / "config/chunking-review-policy.json"
 DEFAULT_PIPELINE_CONFIG = ROOT / "config/pipeline.json"
 
@@ -32,6 +35,29 @@ def _read_sample_per_document(config_path=DEFAULT_PIPELINE_CONFIG):
     if isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 1:
         raise ValueError("evaluation.chunking.sample_per_document must be an integer >= 1")
     return sample_count
+
+
+def _reviewer(review):
+    """Validate reviewer identity while retaining unknown legacy identities."""
+    if review is None:
+        return None
+    unknown = {"kind": None, "name": None, "model": None}
+    if "reviewer" not in review:
+        return unknown
+    value = review["reviewer"]
+    if not isinstance(value, dict):
+        raise ValueError("reviewer must be an object")
+    reviewer = {key: value.get(key) for key in unknown}
+    if reviewer["kind"] not in (None, "human", "agent"):
+        raise ValueError("reviewer kind must be human, agent or null")
+    for field in ("name", "model"):
+        value = reviewer[field]
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"reviewer {field} must be a nonempty string or null")
+    if any(row.get("status") in {"pass", "fail"} for row in review["reviews"]):
+        if reviewer["kind"] is None or reviewer["name"] is None:
+            raise ValueError("reviewer needs kind human/agent and a name for assessed samples")
+    return reviewer
 
 
 def _finding(findings, code, severity, example):
@@ -89,27 +115,11 @@ def _sample(chunks, elements, sidecar, source, maximum, count, body_chunks):
             reasons.append("picture_flow")
         for reason in reasons:
             candidates[reason].append(chunk["id"])
-    selected = []
-    for reason in ("picture_flow", "table", "split_element", "short", "near_limit", "list_item", "footnote"):
-        for chunk_id in candidates[reason]:
-            if chunk_id not in selected:
-                selected.append(chunk_id)
-                break
-        if len(selected) >= count:
-            break
-    if len(selected) < count and chunks:
-        # Evenly spaced positions cover sections not represented by exceptions.
-        positions = ([0] if count == 1 else
-                     [round(i * (len(chunks) - 1) / (count - 1)) for i in range(count)])
-        for position in positions:
-            chunk_id = chunks[position]["id"]
-            if chunk_id not in selected:
-                selected.append(chunk_id)
-            if len(selected) >= count:
-                break
-    if len(selected) < count:
-        selected.extend(chunk["id"] for chunk in chunks if chunk["id"] not in selected)
-    chosen = set(selected[:count])
+    choices = [{"chunk_id": chunk["id"],
+                "reasons": [reason for reason, ids in candidates.items() if chunk["id"] in ids]}
+               for chunk in chunks]
+    risk_order = ("picture_flow", "table", "split_element", "short", "near_limit", "list_item", "footnote")
+    chosen = {item["chunk_id"] for item in select_samples(choices, count, risk_order)}
     result = []
     for chunk in chunks:
         if chunk["id"] not in chosen:
@@ -333,89 +343,6 @@ def _audit_references(reference, manifest, docs, chunks, elements):
     return results, list(findings.values())
 
 
-def _read_review_policy(path):
-    """Load and validate the policy that turns reviewed samples into a gate."""
-    policy = json.loads(Path(path).read_text(encoding="utf-8"))
-    required = {
-        "policy_version", "minimum_review_pass_rate", "minimum_weighted_score",
-        "maximum_critical_failures", "review_points",
-    }
-    if set(policy) != required or not isinstance(policy["policy_version"], str):
-        raise ValueError("review policy has an invalid shape")
-    pass_rate = policy["minimum_review_pass_rate"]
-    if isinstance(pass_rate, bool) or not isinstance(pass_rate, (int, float)) or not 0 <= pass_rate <= 1:
-        raise ValueError("review policy minimum_review_pass_rate must be a number from 0 to 1")
-    minimum_score = policy["minimum_weighted_score"]
-    if (isinstance(minimum_score, bool) or not isinstance(minimum_score, (int, float)) or
-            not 0 <= minimum_score <= 100):
-        raise ValueError("review policy minimum_weighted_score must be a number from 0 to 100")
-    critical_limit = policy["maximum_critical_failures"]
-    if isinstance(critical_limit, bool) or not isinstance(critical_limit, int) or critical_limit < 0:
-        raise ValueError("review policy maximum_critical_failures must be a non-negative integer")
-    points = policy["review_points"]
-    if (not isinstance(points, dict) or set(points) != REVIEW_SEVERITIES | {"pass"} or
-            any(isinstance(value, bool) or not isinstance(value, (int, float))
-                for value in points.values()) or
-            not 0 <= points["critical"] < points["major"] < points["minor"] < points["pass"]):
-        raise ValueError("review policy review_points must satisfy 0 <= critical < major < minor < pass")
-    return policy
-
-
-def _apply_reviews(review, build_id, samples, policy):
-    to_review = len(samples)
-    empty = {"status": "pending", "reviewed": 0, "to_review": to_review,
-             "passed": 0, "failed": 0, "pending": to_review,
-             "review_coverage": 0.0, "review_pass_rate": None, "weighted_score": None,
-             "severity_counts": {severity: 0 for severity in sorted(REVIEW_SEVERITIES)},
-             "allowed_failures": {"critical": policy["maximum_critical_failures"]}}
-    if review is None:
-        return empty, []
-    if review.get("build_id") != build_id or not isinstance(review.get("reviews"), list):
-        raise ValueError("review file must name the current build_id and a reviews array")
-    sample_ids = {item["chunk_id"] for item in samples}
-    seen = {}
-    for item in review["reviews"]:
-        status = item.get("status")
-        notes = str(item.get("notes", "")).strip()
-        if item.get("chunk_id") not in sample_ids or item["chunk_id"] in seen or status not in REVIEW_STATUSES:
-            raise ValueError("reviews need unique sampled chunk IDs and pending/pass/fail status")
-        if status in {"pending", "fail"} and not notes:
-            raise ValueError("pending and failed reviews need notes")
-        if status == "fail" and item.get("severity") not in REVIEW_SEVERITIES:
-            raise ValueError("failed reviews need critical, major, or minor severity")
-        seen[item["chunk_id"]] = item
-    passed = sum(item["status"] == "pass" for item in seen.values())
-    failed = [item for item in seen.values() if item["status"] == "fail"]
-    reviewed = passed + len(failed)
-    pending = to_review - reviewed
-    severity_counts = {severity: sum(item.get("severity") == severity for item in failed)
-                       for severity in sorted(REVIEW_SEVERITIES)}
-    allowed = {"critical": policy["maximum_critical_failures"]}
-    coverage = reviewed / to_review if to_review else 1.0
-    pass_rate = passed / reviewed if reviewed else None
-    points = policy["review_points"]
-    score = None if not reviewed else 100 * (
-        passed * points["pass"] + sum(
-            severity_counts[severity] * points[severity] for severity in REVIEW_SEVERITIES)
-    ) / (reviewed * points["pass"])
-    if pending:
-        status = "pending"
-    elif (pass_rate < policy["minimum_review_pass_rate"] or
-          score < policy["minimum_weighted_score"] or
-          severity_counts["critical"] > allowed["critical"]):
-        status = "fail"
-    else:
-        status = "pass"
-    findings = [{"code": "MANUAL_REVIEW_POLICY_FAILED", "severity": "error", "count": len(failed),
-                 "examples": [{"chunk_id": item["chunk_id"], "severity": item["severity"],
-                               "notes": item["notes"]} for item in failed[:EXAMPLE_LIMIT]]}] if status == "fail" else []
-    return {"status": status, "reviewed": reviewed, "to_review": to_review,
-            "passed": passed, "failed": len(failed), "pending": pending,
-            "review_coverage": coverage, "review_pass_rate": pass_rate,
-            "weighted_score": score, "severity_counts": severity_counts,
-            "allowed_failures": allowed}, findings
-
-
 def _audit_document_views(chunked_dir, bundle, build_report, links, chunks_by_doc):
     """Check that each inspection view exactly mirrors the collection output."""
     findings = {}
@@ -469,11 +396,13 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
     except (ValidationError, ValueError, KeyError) as exc:
         _finding(findings, "BUNDLE_INVALID", "error", {"reason": str(exc)[:400]})
         return {"evaluation_version": EVALUATION_VERSION, "automatic_gate": "fail",
-                "review_gate": "pending", "gate": "fail", "findings": list(findings.values()), "documents": []}
+                "review_gate": "pending", "gate": "fail", "reviewer": None,
+                "findings": list(findings.values()), "documents": []}
     if len(bundle["builds"]) != 1:
         _finding(findings, "BUILD_RECORD_COUNT", "error", {"count": len(bundle["builds"])})
         return {"evaluation_version": EVALUATION_VERSION, "automatic_gate": "fail",
-                "review_gate": "pending", "gate": "fail", "findings": list(findings.values()), "documents": []}
+                "review_gate": "pending", "gate": "fail", "reviewer": None,
+                "findings": list(findings.values()), "documents": []}
     if build_report.get("build_id") != bundle["builds"][0]["id"]:
         _finding(findings, "BUILD_REPORT_MISMATCH", "error", {})
     maximum = build_report.get("settings", {}).get("max_tokens")
@@ -527,6 +456,7 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
     samples = [sample for document in documents for sample in document["review_sample"]]
     review = json.loads(Path(review_path).read_text(encoding="utf-8")) if review_path else None
     review_summary, review_findings = _apply_reviews(review, bundle["builds"][0]["id"], samples, policy)
+    reviewer = _reviewer(review)
     for item in review_findings:
         findings[item["code"]] = item
     document_errors = any(item["severity"] == "error" for doc in documents for item in doc["findings"])
@@ -544,8 +474,9 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
             "automatic_gate": automatic_gate, "review_gate": review_summary["status"],
             "gate": gate, "max_tokens": maximum, "corpus": corpus, "documents": documents,
             "figures": {key: figure_audit[key] for key in ("expected", "linked")},
-            "references": references, "review_policy": policy, "review": review_summary,
+            "references": references, "review_policy": policy, "review": review_summary, "reviewer": reviewer,
             "review_template": {"build_id": bundle["builds"][0]["id"],
+                                "reviewer": {"kind": None, "name": None, "model": None},
                                 "reviews": [{"chunk_id": item["chunk_id"], "status": "pending",
                                              "severity": None, "notes": "source inspection pending"}
                                             for item in samples]},

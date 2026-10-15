@@ -1,0 +1,41 @@
+Act as an independent reviewer of a saved compilation in this repository. Review against the **saved original sources**, not just candidate text, parsed elements or the automatic evaluator. Do not generate or classify claims, run parsing/chunking, make live model calls, implement fixes, or change code, taxonomy, manifests, source files or compilation artifacts. Update only the pre-created `compilation-review.json` and final evaluation report. Claims and topics remain drafts; a policy pass is not legal verification.
+
+Before using this prompt, prepare the initial report and review file with `scripts/evaluate_compilation.py --initialize-review` in the build session. Replace the example run ID with the completed compilation's ID; if generation and classification used different IDs, set their directories separately. Preserve the original sample size, manifest, source root, taxonomy and policy:
+
+```sh
+RUN_ID="your-compilation-run-id"
+CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
+CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
+MANIFEST_PATH="data/manifest.json"
+SOURCE_ROOT="."
+TAXONOMY_PATH="config/topics-v1.json"
+REVIEW_POLICY="config/compilation-review-policy.json"
+SAMPLE_PER_DOCUMENT=12
+EVALUATION_REPORT="$CLASSIFIED_DIR/compilation-evaluation-report.json"
+REVIEW_FILE="$CLASSIFIED_DIR/compilation-review.json"
+```
+
+1. Read `doc/compilation.md`, `doc/compilation-evaluation.md`, the taxonomy, initial evaluation report and review file. Confirm the build/snapshot matches the supplied compilation. Do not repeat generation, classification or initial evaluation. An automatic pass is not expert approval.
+2. Record reviewer kind (`human` or `agent`), name and model if known. Record timezone-qualified start/end times and measured review usage/cost when available; leave unavailable measurements `null`, never invent them. Review measurements are separate from generation/classification telemetry. Set start time before source inspection and finish time afterwards.
+3. Review **every item in `review_sample`** against its saved source and relevant surrounding context. Inspect PDF layout/footnotes or saved HTML where needed. If a source cannot be inspected, leave the item `pending` with source-located notes. Do not pass an item by trusting its generated text or citations alone.
+4. For **generation**, verify evidence supports the entire candidate, atomicity, source terminology/version, subject, scope, conditions, exceptions, ambiguity and effective-date uncertainty. Check that footnotes attach to the correct parent rule. Do not resolve conflicts or infer effectiveness from `retrieved_on`.
+5. For **classification**, assess the main proposition against topic scopes and exclusions. Narrative facts do not become operational rules because they mention Tracfin or another topic keyword. Check null outcomes too. Candidate IDs, including unclassified ones, resolve in `CANDIDATES_DIR/claim-candidates.jsonl`; classified claim IDs differ.
+6. For **completeness**, compare the sampled chunk and nearby saved-source passages with generated candidates, including candidates citing overlapping evidence elsewhere. Check lists, qualifiers, delegated actors, tables and footnotes. A heading/reference/keyword chunk may properly yield no candidate; an omitted operative rule may not. Distinguish parsing omissions from generation omissions and classification mistakes.
+7. For **topics**, inspect the JSON/Markdown view and suggested linked claims. Check draft labels, traceability, source editions, cross-document grouping and unsupported synthesis. Do not count a claim defect again as a topic-view defect unless the view itself introduces a separate problem. Record uncertain conflicts without choosing a legally effective interpretation.
+8. Preserve each `sample_id` and dimension in `reviews`. Set status to `pass`, `fail` or `pending`; pending/failed items need concrete source-located notes. Failures need worst severity once per unit: `critical` for materially incorrect/unsupported rules or evidence, `major` for misleading missing rules/qualifications or topic assignments, `minor` for limited clarity/presentation defects without a meaning change. Inspect additional high-risk items when warranted. Put additional failures in `additional_findings` with a valid `<dimension>:<record-id>`, dimension, `status: fail`, severity and notes; do not duplicate sampled items or add extra passing items. Never change thresholds to obtain a pass.
+9. Run only the final policy evaluation:
+
+```sh
+.venv/bin/python scripts/evaluate_compilation.py \
+  --candidates-dir "$CANDIDATES_DIR" \
+  --classified-dir "$CLASSIFIED_DIR" \
+  --manifest "$MANIFEST_PATH" \
+  --source-root "$SOURCE_ROOT" \
+  --taxonomy "$TAXONOMY_PATH" \
+  --review-policy "$REVIEW_POLICY" \
+  --sample-per-document "$SAMPLE_PER_DOCUMENT" \
+  --review-file "$REVIEW_FILE" \
+  --output "$EVALUATION_REPORT"
+```
+
+The evaluator scores your recorded judgments; it does not conduct the source review. Report the exit code, automatic/review/overall gates, sample counts, severity counts, coverage, pass rate, combined score and dimension scores, reviewer measurements, and concise findings with candidate/claim/chunk/topic IDs and source locations. Link the review/report files. Explain any pending items and limits of the sample. A failed or pending result is honest; do not change artifacts or conceal findings to obtain a pass.

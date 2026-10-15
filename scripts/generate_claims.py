@@ -39,7 +39,7 @@ def main(argv=None):
     subset.add_argument("--subset-batches", type=int,
                         help="generate this many length-stratified claim-generation batches")
     subset.add_argument("--batch-numbers", type=int, nargs="+",
-                        help="generate these one-based original batch numbers for a targeted review")
+                        help="generate these one-based batches from the current context grouping")
     parser.add_argument("--resume", action="store_true",
                         help="resume an incomplete matching generation run in --output-dir")
     args = parser.parse_args(argv)

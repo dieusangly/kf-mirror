@@ -284,5 +284,98 @@ class ChunkEvaluationTests(unittest.TestCase):
         self.assertEqual(report["findings"][0]["code"], "BUILD_RECORD_COUNT")
 
 
+class ChunkReviewerMetadataTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.parsed = self.root / "parsed"
+        self.chunked = self.root / "chunked"
+        bundle = json.loads((ROOT / "examples/artifact-bundle-html.json").read_text(encoding="utf-8"))
+        for name in ("chunks", "claims", "topics", "builds"):
+            bundle[name] = []
+        doc_id = bundle["documents"][0]["id"]
+        target = self.parsed / "documents" / doc_id.removeprefix("doc:")
+        target.mkdir(parents=True)
+        (target / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+        sidecar = {"document_id": doc_id, "elements": [
+            {"element_id": element["id"], "evidence_role": "authoritative", "heading_path": []}
+            for element in bundle["elements"]]}
+        (target / "parse.json").write_text(json.dumps(sidecar), encoding="utf-8")
+        config = self.root / "config.json"
+        config.write_text(json.dumps({"root": str(ROOT), "manifest_file": "data/manifest.json",
+                                      "manifest_ids": ["L1"], "chunking": {"max_tokens": 64}}))
+        build_collection(config, self.parsed, self.chunked)
+        self.initial = evaluate(self.chunked, self.parsed)
+        self.review = copy.deepcopy(self.initial["review_template"])
+        self.review_path = self.root / "review.json"
+
+    def assess(self):
+        for row in self.review["reviews"]:
+            row.update(status="pass", notes="Fixture judgment only.")
+
+    def evaluate_review(self):
+        self.review_path.write_text(json.dumps(self.review), encoding="utf-8")
+        return evaluate(self.chunked, self.parsed, review_path=self.review_path)
+
+    def test_initial_template_and_pending_review_have_unknown_identity(self):
+        unknown = {"kind": None, "name": None, "model": None}
+        self.assertIsNone(self.initial["reviewer"])
+        self.assertEqual(self.review["reviewer"], unknown)
+        report = self.evaluate_review()
+        self.assertEqual(report["reviewer"], unknown)
+        self.assertEqual(report["review_gate"], "pending")
+        seed = self.root / "seed.json"
+        _write_review_seed(seed, self.initial)
+        self.assertEqual(json.loads(seed.read_text())["reviewer"], unknown)
+
+    def test_human_and_agent_identity_reaches_final_cli_report(self):
+        self.assess()
+        for kind, model in [("human", None), ("agent", None), ("agent", "test-model")]:
+            with self.subTest(kind=kind, model=model):
+                reviewer = {"kind": kind, "name": "Test reviewer", "model": model}
+                self.review["reviewer"] = reviewer
+                report = self.evaluate_review()
+                self.assertEqual(report["reviewer"], reviewer)
+                self.assertEqual(report["gate"], "pass")
+                before = self.review_path.read_bytes()
+                output = self.root / "evaluation.json"
+                with redirect_stdout(io.StringIO()):
+                    code = main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                                 "--review-file", str(self.review_path), "--output", str(output)])
+                self.assertEqual(code, 0)
+                self.assertEqual(json.loads(output.read_text())["reviewer"], reviewer)
+                self.assertEqual(self.review_path.read_bytes(), before)
+
+    def test_legacy_review_keeps_unknown_identity_and_same_scores(self):
+        self.assess()
+        self.review["reviewer"] = {"kind": "human", "name": "Test reviewer"}
+        known = self.evaluate_review()
+        self.assertIsNone(known["reviewer"]["model"])
+        del self.review["reviewer"]
+        legacy = self.evaluate_review()
+        self.assertEqual(legacy["reviewer"], {"kind": None, "name": None, "model": None})
+        self.assertEqual(legacy["review"], known["review"])
+        self.assertEqual(legacy["gate"], known["gate"])
+        self.assertNotIn("reviewer", json.loads(self.review_path.read_text()))
+
+    def test_invalid_or_missing_identity_in_new_assessed_review_is_rejected(self):
+        self.assess()
+        for reviewer in [None, [], "agent", {},
+                         {"kind": "agent"}, {"kind": "agent", "name": " "},
+                         {"kind": "agent", "name": 1}, {"kind": "robot", "name": "Test"},
+                         {"kind": [], "name": "Test"},
+                         {"kind": "agent", "name": "Test", "model": 1},
+                         {"kind": "agent", "name": "Test", "model": " "}]:
+            with self.subTest(reviewer=reviewer):
+                self.review["reviewer"] = reviewer
+                with self.assertRaisesRegex(ValueError, "reviewer"):
+                    self.evaluate_review()
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                  "--review-file", str(self.review_path), "--output", str(self.root / "invalid.json")])
+        self.assertEqual(error.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

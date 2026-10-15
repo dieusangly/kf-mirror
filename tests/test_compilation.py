@@ -12,7 +12,6 @@ from knowledge_foundry.claim_compilation import (
     ROOT, CANDIDATE_SCHEMA, FixtureProvider, OpenAIProvider, _candidate_input, _candidate_record,
     _evidence_choices, _generation_coverage, _project_generation, _subset_batch_indices, _telemetry,
     _validate_candidate, canonical, digest,
-    _check_fallback_conditions, _check_reporting_assignment,
     classify_claims, generate_claims,
 )
 from knowledge_foundry.openai_tools import DEFAULT_MODEL
@@ -418,161 +417,7 @@ class CompilationTests(unittest.TestCase):
     def test_exhausted_generation_retries_export_only_a_partial_build(self):
         self._check_generation_retries(recover=False)
 
-    def test_context_dependent_claims_are_retried_with_corrective_feedback(self):
-        for text in ["Pour ce service, les lieux sont recueillis.",
-                     "Il en va de même lorsque la victime porte plainte.",
-                     "Pour le reste de ce schéma, les experts-comptables détectent les flux.",
-                     "Une règle est citée. Il en va de même pour le mandataire."]:
-            with self.subTest(text=text):
-                self._check_generation_retries(recover=True, bad_text=text)
-
-    def test_unresolved_context_exhausts_retries_without_exporting_the_claim(self):
-        self._check_generation_retries(recover=False, bad_text="Il en va de même pour le client.")
-
-    def _bundle_with_passage(self, text, kind="paragraph"):
-        bundle = self._input_bundle()
-        element, chunk = bundle["elements"][0], bundle["chunks"][0]
-        element.update(text=text, kind=kind, revision=digest(kind + "\n" + text))
-        chunk["text"] = text
-        chunk["evidence"][0].update(element_revision=element["revision"],
-                                     span={"start": 0, "end": len(text)})
-        chunk["id"] = "chunk:" + digest(chunk["document_id"] + "\n" + chunk["chunker_version"] +
-                                         "\n" + canonical(chunk["evidence"]) + "\n" + text)
-        bundle["builds"][0]["output_chunk_ids"] = [chunk["id"]]
-        check(bundle)
-        return bundle
-
-    def test_fallback_guard_requires_both_explicit_prerequisites(self):
-        evidence = ("Si aucune personne physique n'a pu être identifiée dans le cadre de ces recherches, "
-                    "et que l'assujetti n'a pas de soupçon, le bénéficiaire effectif en dernier ressort "
-                    "est le représentant légal.")
-        for claim in ["Le bénéficiaire effectif en dernier ressort est le représentant légal.",
-                      "Lorsque les conditions sont réunies, le bénéficiaire effectif en dernier ressort est le dirigeant.",
-                      "Sans soupçon, le bénéficiaire effectif en dernier ressort est le dirigeant.",
-                      "Si aucune personne physique n'a pu être identifiée, le bénéficiaire effectif en dernier ressort est le dirigeant."]:
-            with self.subTest(claim=claim), self.assertRaisesRegex(ValueError, "explicit prerequisites"):
-                _check_fallback_conditions(claim, evidence)
-        _check_fallback_conditions(evidence, evidence)
-        _check_fallback_conditions("Après des recherches infructueuses et en l’absence de soupçon, "
-                                   "le bénéficiaire effectif en dernier ressort est le représentant légal.", evidence)
-        _check_fallback_conditions("Le bénéficiaire effectif contrôle le client.", evidence)
-        _check_fallback_conditions("Le bénéficiaire effectif en dernier ressort est défini ailleurs.",
-                                   "Un autre passage sans ces conditions.")
-
-    def test_known_generation_omissions_retry_or_fail_without_leaking_candidates(self):
-        fallback = ("Si aucune personne physique n'a pu être identifiée et que l'assujetti n'a pas de soupçon, "
-                    "le bénéficiaire effectif en dernier ressort est le représentant légal de la SICAV.")
-        footnote = ("Dans l'appréciation des obligations de déclaration à Tracfin, la Commission des sanctions "
-                    "tient compte de ce que l'activité de changeur manuel est particulièrement exposée au "
-                    "risque de participation à des opérations de blanchiment.")
-        for source, kind, bad, feedback in [
-                (fallback, "paragraph", [{"text": "Le bénéficiaire effectif en dernier ressort est le représentant légal.",
-                                          "evidence": ["E1"]}], "explicit prerequisites"),
-                (footnote, "footnote", [], "substantive footnote E1")]:
-            for recover in [True, False]:
-                with self.subTest(kind=kind, recover=recover), tempfile.TemporaryDirectory() as value:
-                    root = Path(value)
-                    chunked = root / "chunked"
-                    chunked.mkdir()
-                    bundle = self._bundle_with_passage(source, kind)
-                    (chunked / "artifact-bundle.json").write_text(json.dumps(bundle))
-                    config, _ = self._write_settings(root, retries=1)
-                    prompts = []
-
-                    class ScriptedProvider(FixtureProvider):
-                        def candidates(self, *_args):
-                            prompts.append(_args[1])
-                            self.usage_records.append({"input_tokens": 10, "cached_input_tokens": 0,
-                                                       "cache_write_tokens": 0, "output_tokens": 5})
-                            return {"claims": [{"text": source, "evidence": ["E1"]}]
-                                    if recover and len(prompts) == 2 else bad}
-
-                    with patch("knowledge_foundry.claim_compilation._provider", return_value=ScriptedProvider({})), \
-                            patch("knowledge_foundry.claim_compilation.time.sleep"):
-                        report = generate_claims(chunked, root / "generated", config)
-                    self.assertIn(feedback, prompts[1])
-                    self.assertEqual(report["telemetry"]["requests"], 2)
-                    self.assertEqual(report["telemetry"]["usage"]["input_tokens"], 20)
-                    self.assertEqual(report["candidates"], 1 if recover else 0)
-                    self.assertEqual(report["status"], "complete" if recover else "partial")
-                    if not recover:
-                        self.assertIn(feedback, report["errors"][0]["error"])
-
-    def test_reporting_assignment_guard_preserves_unrelated_nulls_and_missing_taxonomies(self):
-        topic = "topic:suspicious-transaction-reporting"
-        text = "La déclaration de soupçon et le dépôt de plainte sont deux procédures indépendantes."
-        context = {"claim": text, "evidence": [{"text": text}]}
-        with self.assertRaisesRegex(ValueError, "procedural relationship"):
-            _check_reporting_assignment({"topic_id": None}, context, {topic})
-        _check_reporting_assignment({"topic_id": topic}, context, {topic})
-        _check_reporting_assignment({"topic_id": None}, context, {"topic:other"})
-        _check_reporting_assignment({"topic_id": None}, {"claim": "Une victime porte plainte.",
-                                                       "evidence": [{"text": text}]}, {topic})
-
-    def test_reporting_null_is_retried_with_feedback_and_never_silently_reassigned(self):
-        text = "La déclaration de soupçon et le dépôt de plainte sont deux procédures indépendantes."
-        self._check_reporting_retry(text, "procedural relationship")
-
-    def test_ermes_null_is_retried_with_feedback_and_never_silently_reassigned(self):
-        text = ("Dans les modalités d'inscription de l'annexe 6, l'authentification simple est prévue "
-                "pour une utilisation ponctuelle d'ERMES et requiert un identifiant et un mot de passe.")
-        self._check_reporting_retry(text, "ERMES authentication procedure")
-
-    def test_ermes_guard_requires_specific_claim_and_evidence_and_available_topic(self):
-        topic = "topic:suspicious-transaction-reporting"
-        simple = "Authentification simple pour une utilisation ponctuelle d'ERMES (identifiant et mot de passe requis)."
-        strong = "Authentification forte pour une utilisation régulière d'ERMES (certificat requis)."
-        for text in [simple, strong]:
-            context = {"claim": text, "evidence": [{"text": text}]}
-            for assignment in [None, "topic:organisation-delegation"]:
-                with self.subTest(text=text, assignment=assignment), self.assertRaisesRegex(ValueError, "ERMES authentication"):
-                    _check_reporting_assignment({"topic_id": assignment}, context, {topic})
-            _check_reporting_assignment({"topic_id": topic}, context, {topic})
-            _check_reporting_assignment({"topic_id": None}, context, {"topic:other"})
-        for claim, evidence in [("Un protagoniste du cas utilise ERMES.", simple),
-                                ("Une authentification simple est prévue pour ce serveur.", simple),
-                                (simple, "Une procédure sans indication du système concerné.")]:
-            _check_reporting_assignment({"topic_id": None}, {"claim": claim, "evidence": [{"text": evidence}]}, {topic})
-
-    def _check_reporting_retry(self, text, expected_feedback):
-        topic = "topic:suspicious-transaction-reporting"
-        for recover in [True, False]:
-            with self.subTest(recover=recover), tempfile.TemporaryDirectory() as value:
-                root = Path(value)
-                bundle = self._bundle_with_passage(text)
-                chunked = root / "chunked"
-                chunked.mkdir()
-                (chunked / "artifact-bundle.json").write_text(json.dumps(bundle))
-                config, taxonomy = self._write_settings(root, retries=1)
-                topics = json.loads(taxonomy.read_text())
-                topics["topics"][0]["id"] = topic
-                taxonomy.write_text(json.dumps(topics))
-                fixture = root / "fixture.json"
-                fixture.write_text(json.dumps({"candidate_batches": {bundle["chunks"][0]["id"]: {
-                    "claims": [{"text": text, "evidence": ["E1"]}]}}, "classifications": {}}))
-                generated = root / "generated"
-                generate_claims(chunked, generated, config, fixture)
-                prompts = []
-
-                class ScriptedProvider(FixtureProvider):
-                    def classify(self, context, taxonomy, prompt, schema):
-                        prompts.append(prompt)
-                        self.usage_records.append({"input_tokens": 10, "cached_input_tokens": 0,
-                                                   "cache_write_tokens": 0, "output_tokens": 5})
-                        return {"topic_id": topic if recover and len(prompts) == 2 else None}
-
-                with patch("knowledge_foundry.claim_compilation._provider", return_value=ScriptedProvider({})), \
-                        patch("knowledge_foundry.claim_compilation.time.sleep"):
-                    report = classify_claims(generated, root / "classified", config, taxonomy, fixture)
-                self.assertIn(expected_feedback, prompts[1])
-                self.assertEqual(report["telemetry"]["requests"], 2)
-                self.assertEqual(report["telemetry"]["usage"]["input_tokens"], 20)
-                self.assertEqual(report["claims"], 1 if recover else 0)
-                self.assertEqual(report["status"], "complete" if recover else "partial")
-                self.assertEqual(len(report["errors"]), 0 if recover else 1)
-                self.assertEqual(report["unclassified_candidate_ids"], [])
-
-    def _check_generation_retries(self, recover, bad_text=None):
+    def _check_generation_retries(self, recover):
         with tempfile.TemporaryDirectory() as value:
             root = Path(value)
             chunked = root / "chunked"
@@ -580,7 +425,7 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(self._input_bundle()), encoding="utf-8")
             config, _ = self._write_settings(root, retries=1)
             good = {"text": "Assertion complète et conditionnelle.", "evidence": ["E1"]}
-            bad = {"text": bad_text or "Référence invalide.", "evidence": ["E1" if bad_text else "E999"]}
+            bad = {"text": "Référence invalide.", "evidence": ["E999"]}
             prompts = []
 
             class ScriptedProvider(FixtureProvider):
@@ -601,9 +446,8 @@ class CompilationTests(unittest.TestCase):
             self.assertEqual(report["status"], "complete" if recover else "partial")
             self.assertEqual(len(report["errors"]), 0 if recover else 1)
             self.assertEqual(report["coverage"]["summary"]["failed_chunks"], 0 if recover else 1)
-            if bad_text:
-                self.assertIn(bad_text, prompts[1])
-                self.assertIn("Corrigez la réponse complète", prompts[1])
+            self.assertIn("unknown evidence label", prompts[1])
+            self.assertIn("Corrigez la réponse complète", prompts[1])
             manifest = json.loads((root / "generated/build-manifest.json").read_text())
             self.assertIn("report.json", [item["path"] for item in manifest["outputs"]])
 

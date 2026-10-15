@@ -1,1 +1,1 @@
-"""Knowledge Foundry local pipeline package."""
+"""Knowledge Foundry pipeline package."""

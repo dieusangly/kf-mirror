@@ -1,7 +1,4 @@
-# Dependency used by the tests and artifact-example validator.
 jsonschema>=4,<5
-
-# Local parsing dependencies.
 torch>=2,<3
 torchvision>=0,<1
 docling==2.135.0

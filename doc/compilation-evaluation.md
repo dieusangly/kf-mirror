@@ -1,0 +1,125 @@
+# Compilation evaluation
+
+Review compilation against saved originals. The evaluator checks artifacts and
+scores judgments without model calls; claims/topics remain drafts.
+
+After [generation/classification](compilation.md), select a saved run from
+the repository root; set directories separately if stage run IDs differ:
+
+```sh
+RUN_ID="your-compilation-run-id"
+CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
+CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
+```
+
+## Initialise evaluation
+
+Run once, before source review:
+
+```sh
+.venv/bin/python scripts/evaluate_compilation.py \
+  --candidates-dir "$CANDIDATES_DIR" \
+  --classified-dir "$CLASSIFIED_DIR" \
+  --initialize-review
+```
+
+Creates `compilation-evaluation-report.json` and pending `compilation-review.json`
+in `CLASSIFIED_DIR`. Source review is still required. Both steps accept:
+
+| Argument | Default / purpose |
+| --- | --- |
+| `--manifest PATH` | `data/manifest.json`; source versions, hashes and saved paths. |
+| `--source-root PATH` | Repository root; resolves manifest `local_path` entries. |
+| `--taxonomy PATH` | `config/topics-v1.json`; must match the classification build. |
+| `--review-policy PATH` | `config/compilation-review-policy.json`. |
+| `--sample-per-document N` | 12 per document for each of generation, classification and completeness. |
+| `--output PATH` | Another evaluation-report location. |
+
+`--initialize-review PATH` selects another review location and refuses to
+overwrite an existing file. Evaluation outputs cannot overwrite input artifacts.
+Use the same inputs, source root, taxonomy, policy and sample size in both steps.
+
+## Review saved sources
+
+A separate human or agent inspects every sample against originals and fills the
+review file; agents use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_compilation_reviewer).
+Do not repeat initialisation or reuse another build’s judgments.
+
+Automatic checks cover schemas, hashes, IDs, exact spans, candidate preservation,
+stage errors, source versions, inverse links, JSONL exports and topic views.
+Missing candidates and null classifications need source review; they are not
+automatically wrong.
+
+Sampling selects available risks first, then spreads through reading order:
+
+| Dimension | Review unit and purpose |
+| --- | --- |
+| Generation | Candidate: full support, atomicity, scope, conditions and exceptions, including unclassified candidates. |
+| Classification | Candidate outcome: main proposition fits the topic scope or justifies null. |
+| Completeness | Selected chunk: missing rules, list options or qualifications; also check nearby source and candidates citing overlapping evidence. |
+| Topics | Every exported view: draft labels, traceability and unsupported synthesis. |
+
+Risks: unclassified outcomes, classified narratives, notes, tables/lists, qualifiers,
+cross-chunk/document evidence, repeated context and uncited chunks. Small populations
+contribute all items; cross-document units count once/dimension. Unselected chunks
+are excluded.
+
+Samples give text/evidence, native locations, source paths/versions and selection
+reasons. Inspect generation/classification together: they sample the same candidates.
+Candidate IDs differ from claim IDs; resolve them in `CANDIDATES_DIR/claim-candidates.jsonl`.
+
+Preserve `build_id`, `snapshot_sha256`, sample IDs and dimensions. Record reviewer
+kind (`human` or `agent`), name and model when known. Set every status to `pass`,
+`fail` or `pending`; uninspected items remain pending. Pending/failed items need
+source-located notes. Record one worst severity per failed unit:
+
+- **Critical:** materially incorrect or fabricated rule, unsupported obligation,
+  or evidence that cannot support the assertion.
+- **Major:** misleading missing rule, qualification, exception or topic assignment.
+- **Minor:** clarity/presentation defect without a meaning change.
+
+Put extra failures in `additional_findings`: valid `<dimension>:<record-id>`,
+dimension, `status: fail`, severity and source-located notes. Count once; no sampled
+duplicates or extra passes. Count a claim defect as a topic defect only if the
+view adds an independent problem.
+
+## Rerun evaluation with the human or agent review
+
+After the human or agent records judgments, rerun with `--review-file` and the
+same optional arguments as during initialisation to finalize the report:
+
+```sh
+.venv/bin/python scripts/evaluate_compilation.py \
+  --candidates-dir "$CANDIDATES_DIR" \
+  --classified-dir "$CLASSIFIED_DIR" \
+  --review-file "$CLASSIFIED_DIR/compilation-review.json"
+```
+
+Compilation and chunking share scoring: pass 10, minor 8, major 2, critical 0.
+`weighted_score = 100 × awarded points / (reviewed × 10)`.
+
+The [policy](../config/compilation-review-policy.json) requires **each applicable
+dimension** to have full review coverage, pass rate ≥80%, score ≥90 and zero
+critical failures. The combined score cannot compensate for a failed dimension:
+combined 92 with generation 86 still fails. Set thresholds before review.
+
+## Reports and reproducibility
+
+Snapshots pin both manifests, source hashes, taxonomy, policy and sample. Changes
+require fresh review. Record timezone-qualified review start/end times and measured
+requests/tokens/cost separately from generation/classification; unknowns stay `null`.
+Duration derives from timestamps. Identical inputs/judgments give identical
+samples, snapshots and scores.
+
+- `automatic_gate`: `pass` or `fail` for artifact checks.
+- `review_gate`: `pending`, `pass` or `fail` from dimension results. Known critical
+  findings block passing even while other samples remain pending.
+- `gate`: `pending_review`, `pass` or `fail`; both gates must pass for acceptance.
+
+Initial pending review returns exit `0`. With `--review-file`, exit `0` requires
+acceptance. Exit `1` means failure or pending supplied review; `2` means invalid
+input/review. Failed-gate reports are still written.
+
+Keep run-specific findings in the review/report. A policy pass may retain minor
+or limited major failures; it is not a whole-corpus accuracy estimate or legal
+verification. `retrieved_on` is a capture date, not proof of legal effectiveness.

@@ -1,18 +1,28 @@
 # Open-source project benchmark: documents to AI-ready knowledge
 
-**Research date:** 1 October 2026. This review compares 12 repositories from first-party sources; it does not measure accuracy or throughput.
+**Research date: 1 October 2026.** Comparison of 12 repositories using first-party
+sources, without accuracy/throughput measurements. Licenses, stars and last pushes
+are a dated GitHub snapshot, not quality scores. Scope reflects documentation,
+not tested failures; hosted products may differ.
 
 ## 1. Executive summary
 
-Closest references: [RAGFlow](https://github.com/infiniflow/ragflow) for topic-oriented knowledge compilation, [Docling Graph](https://github.com/docling-project/docling-graph) for grounded graph extraction, and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit) for reusable transforms. [Docling](https://github.com/docling-project/docling), [Unstructured](https://github.com/Unstructured-IO/unstructured), and [MinerU](https://github.com/opendatalab/MinerU) are parser candidates; [GraphRAG](https://github.com/microsoft/graphrag) is a graph-index reference.
+Closest references: [RAGFlow](https://github.com/infiniflow/ragflow) for topic
+compilation, [Docling Graph](https://github.com/docling-project/docling-graph) for
+grounded graphs and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit)
+for reusable transforms. Parser candidates are [Docling](https://github.com/docling-project/docling),
+[Unstructured](https://github.com/Unstructured-IO/unstructured) and
+[MinerU](https://github.com/opendatalab/MinerU); [GraphRAG](https://github.com/microsoft/graphrag)
+is a graph-index reference.
 
-The common flow is **ingest → parse → normalize → chunk → enrich → export**. Normalization retains document structure; provenance links derived knowledge to source locations. Knowledge Foundry adds durable **claim → topic** records before retrieval, graph, and dataset views. This is an inference from the reviewed projects; RAGFlow's Wiki is the closest direct reference.
+The shared flow is **ingest → parse → normalize → chunk → enrich → export**.
+Knowledge Foundry adds durable **claim → topic** records before retrieval, graph
+and dataset views. This is an architectural inference; RAGFlow Wiki is the
+closest direct example. Preserve structure during normalization and source
+locations through provenance.
 
-### Selection and evidence
-
-Scope comes from linked first-party sources. Licenses, stars, and last push are a **GitHub snapshot from 1 October 2026**, not quality measures. Boundaries below describe documented scope, not tested failures; hosted versions may differ.
-
-Table abbreviations: OCR = optical character recognition; VLM = vision-language model; ETL = extract, transform, load; SFT = supervised fine-tuning.
+Abbreviations: OCR = optical character recognition; VLM = vision-language model;
+ETL = extract, transform, load; SFT = supervised fine-tuning.
 
 ## 2. Comparison table
 
@@ -33,9 +43,7 @@ Table abbreviations: OCR = optical character recognition; VLM = vision-language 
 
 Sources for snapshot fields: the [GitHub repository API](https://docs.github.com/en/rest/repos/repos#get-a-repository) for each linked repository. MinerU's repository metadata reports `NOASSERTION`; the [license text](https://github.com/opendatalab/MinerU/blob/master/LICENSE.md) adds commercial-threshold and online-service attribution terms to Apache 2.0. Treat it as a custom license when evaluating dependencies.
 
-## 3. Detailed project reviews
-
-The table gives scope and metadata; the notes below identify useful mechanisms and boundaries.
+## 3. Project mechanisms and limits
 
 ### Parsing and normalization
 
@@ -71,31 +79,44 @@ The table gives scope and metadata; the notes below identify useful mechanisms a
 
 ## 4. Common architecture patterns
 
-1. **Route by format.** PDFs and scans need layout and OCR processing; HTML and email need different parsers. Record the parser and settings used. [Docling formats](https://github.com/docling-project/docling/blob/main/docs/usage/supported_formats.md).
-2. **Normalize before chunking.** Preserve headings, tables, page locations, and source IDs in a common model so chunks can follow document boundaries. [Docling model](https://docling-project.github.io/docling/concepts/docling_document/), [Unstructured chunking](https://docs.unstructured.io/api-reference/partition/chunking).
-3. **Compose replaceable stages.** Conversion, cleaning, extraction, indexing, and dataset writing can run or change independently. [Haystack pipelines](https://docs.haystack.deepset.ai/docs/serialization), [Data Prep Kit transforms](https://github.com/data-prep-kit/data-prep-kit).
-4. **Compile grounded topics.** Extracted claims need defined fields, validation, and links to supporting passages. Group them into cross-document topic pages and review summaries and conflicts against their claims. [RAGFlow Wiki template](https://github.com/infiniflow/ragflow/blob/main/docs/guides/knowledge_compilation/built_in_templates_and_dedicated_configuration.md), [Docling Graph provenance](https://github.com/docling-project/docling-graph/blob/main/docs/fundamentals/graph-management/provenance.md).
-5. **Export for several uses.** Structured documents, retrieval chunks, topic pages, graph tables, and training rows serve different consumers. Keep the knowledge records independent of any one index or model. [GraphRAG outputs](https://microsoft.github.io/graphrag/index/outputs/).
+1. **Route by format:** use appropriate PDF/scan, HTML and email parsers; record
+   parser/settings.
+2. **Normalize before chunking:** preserve hierarchy, tables, pages, source IDs
+   and boundaries in a common model.
+3. **Separate replaceable stages:** conversion, cleaning, extraction, indexing
+   and dataset writing should run/change independently.
+4. **Compile grounded topics:** validate claim fields/evidence; group across
+   documents and review summaries/conflicts against the underlying claims.
+5. **Export portable views:** documents, chunks, topics, graphs and training rows
+   serve different consumers; keep records independent of an index/model.
 
 ## 5. Gaps and opportunities
 
-These are design opportunities across the selected projects, not claims that every project lacks each feature.
+Design opportunities across the selection, not universal missing features:
 
-| Tension | Knowledge Foundry opportunity |
+| Tension | Knowledge Foundry response |
 | --- | --- |
-| Parser quality changes with document layout | Compare parsers on representative files; route failures to a fallback. |
-| Retrieval records often lose structure | Preserve a versioned document model with stable IDs, hierarchy, tables, and source spans. |
-| Cross-document topic pages can merge incompatible facts | Keep claims atomic, source-versioned, and reviewable; record conflicts instead of silently resolving them. |
-| Indexes and training datasets have different output needs | Make both rebuildable from durable, model-neutral artifacts with lineage. |
-| Quality, cost, and changes are hard to compare | Record stage versions, failures, runtime, and task-level evaluation results. |
+| Layout-dependent parser quality | Benchmark representative files and route failures to a fallback. |
+| Structure lost in retrieval records | Preserve versioned structure, IDs, hierarchy, tables and spans. |
+| Incompatible facts merged in topics | Keep atomic, versioned, reviewable claims; record conflicts explicitly. |
+| Different index/training needs | Rebuild both from durable, model-neutral artifacts with lineage. |
+| Hard-to-compare quality/cost/changes | Record stage versions, failures, runtime and task-level evaluations. |
 
-## 6. Implications and recommendations for Knowledge Foundry
+## 6. Recommendations for Knowledge Foundry
 
-Build a document-to-knowledge pipeline whose durable outputs are portable artifacts. RAGFlow, LlamaIndex, Haystack, and LangChain are possible consumers; the other projects offer candidate parsers or patterns for graph and dataset stages. This is an architectural recommendation, not a dependency commitment.
+Use portable artifacts as the contract; RAGFlow, LlamaIndex, Haystack and LangChain
+are possible consumers. Other projects supply parser, graph or dataset patterns.
+These are architectural options, not dependency commitments.
 
-1. **Define the artifact contract:** source version, normalized structure, chunks, grounded claims, and topics, each with source location and transformation lineage. Use portable JSON/JSONL for the pilot and add derived views as needed.
-2. **Measure parser quality:** test born-digital PDFs, scans, forms, tables, HTML, and email for reading order, structure, evidence locations, throughput, and license fit. Select a default and fallback from results.
-3. **Compile topics:** chunk at structural boundaries, derive atomic claims with passage evidence and generation versions, then group reviewed claims by stable topic ID across documents.
-4. **Export and evaluate:** produce readable topic pages and RAG-ready chunks, then graph data and training/evaluation rows from reviewed claims. Use a small human-annotated reference set to measure parse fidelity, claim grounding, topic consistency, citation accuracy, and cost.
+1. Define canonical document/claim/topic/provenance schemas, source versions,
+   locations and transformation lineage. Start with JSON/JSONL; derive other views.
+2. Benchmark born-digital PDFs, scans, forms, tables, HTML and email for fidelity,
+   reading order, locations, throughput and license fit; select default/fallback parsers.
+3. Chunk structurally, generate atomic passage-linked/versioned claims, then
+   group reviewed claims across documents under stable topic IDs.
+4. Export readable topic pages/RAG chunks, followed by reviewed graph and training/
+   evaluation data. Use human annotations to measure parsing, grounding, topic
+   consistency, citation accuracy and cost.
 
-The first design decision is the canonical document, claim, topic, and provenance schema. It lets parsers, indexes, graph tools, and models change without losing the source-to-output trail.
+The canonical contract keeps parsers, indexes and models replaceable without
+losing the source-to-output trail.

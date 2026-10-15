@@ -1,16 +1,18 @@
 # Banking and AML/CFT corpus catalog
 
-**Checked:** 1 October 2026. Language and jurisdiction limit benchmark transfer: English or Belgian data cannot validate French AML/CFT answers. Record each collection's version, publication date, and reuse terms before ingestion.
+**Checked: 1 October 2026.** English/Belgian benchmarks cannot validate French
+AML/CFT answers. Before ingestion, verify reuse terms and record each collection's
+version, publication date and terms.
 
 ## French-language sources
 
 | Resource | Jurisdiction; material | Useful for | Reuse note |
 | --- | --- | --- | --- |
-| [ACPR–Tracfin joint guidelines](https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf) | France; supervisory PDF on vigilance and suspicious-activity reporting | Core pilot corpus; obligation extraction and cited Q&A | Public document; verify reuse terms. April 2025 edition. |
-| [Tracfin publications](https://www.economie.gouv.fr/tracfin/les-publications-de-tracfin) and [2024–25 threat report](https://www.economie.gouv.fr/tracfin/lcb-ft-etat-de-la-menace-2024-2025) | France; reports, typologies, alert indicators | Typology extraction and source-grounded summaries | Public documents; verify reuse terms and report year. |
-| [Code monétaire et financier, L.561](https://www.legifrance.gouv.fr/codes/section_lc/LEGITEXT000006072026/LEGISCTA000006154830/) | France; AML/CFT legislation | Article-level retrieval, obligations, version tracking | Use a dated legal snapshot; verify reuse terms. |
-| [AMF DOC-2019-16](https://www.amf-france.org/fr/reglementation/doctrine/DOC-2019-16) | France; guidance on customer and beneficial-owner due diligence | Sector-specific comparison | Public document; verify reuse terms and current edition. |
-| [FATF/GAFI Recommendations](https://www.fatf-gafi.org/fr/publications/Recommandationsgafi/Recommandations-gafi.html) and [France evaluation](https://www.fatf-gafi.org/fr/countries/detail/france.html) | International / France; standards and evaluation reports in French | Cross-jurisdiction terminology and policy context | Standards are not French law; verify reuse terms and edition. |
+| [ACPR–Tracfin joint guidelines](https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf) | France; supervisory PDF on vigilance and suspicious-activity reporting | Core pilot corpus; obligation extraction and cited Q&A | Public; April 2025 edition. |
+| [Tracfin publications](https://www.economie.gouv.fr/tracfin/les-publications-de-tracfin) and [2024–25 threat report](https://www.economie.gouv.fr/tracfin/lcb-ft-etat-de-la-menace-2024-2025) | France; reports, typologies, alert indicators | Typology extraction and source-grounded summaries | Public; verify report year. |
+| [Code monétaire et financier, L.561](https://www.legifrance.gouv.fr/codes/section_lc/LEGITEXT000006072026/LEGISCTA000006154830/) | France; AML/CFT legislation | Article-level retrieval, obligations, version tracking | Use a dated legal snapshot. |
+| [AMF DOC-2019-16](https://www.amf-france.org/fr/reglementation/doctrine/DOC-2019-16) | France; guidance on customer and beneficial-owner due diligence | Sector-specific comparison | Public; verify edition. |
+| [FATF/GAFI Recommendations](https://www.fatf-gafi.org/fr/publications/Recommandationsgafi/Recommandations-gafi.html) and [France evaluation](https://www.fatf-gafi.org/fr/countries/detail/france.html) | International / France; standards and evaluation reports in French | Cross-jurisdiction terminology and policy context | Standards, not French law; verify edition. |
 | [BSARD](https://huggingface.co/datasets/maastrichtlawtech/bsard) | Belgium; French legal articles and 1,100+ expert-labeled questions | French legal retrieval baseline | Dataset: **CC BY-NC-SA 4.0**; non-commercial restriction. Not AML-specific. |
 
 ## English-language document benchmarks and sources
@@ -19,7 +21,7 @@
 | --- | --- | --- | --- |
 | [ObliQA](https://github.com/RegNLP/ObliQADataset) | ADGM/UAE; structured financial regulations and 27,869 synthetic question–passage pairs | Multi-passage regulatory retrieval and Q&A | Dataset license needs confirmation; synthetic labels and foreign law limit transfer. |
 | [SARSum](https://research.feedzai.com/publication/sarsum-a-relevance-and-comprehensiveness-aware-abstractive-summarization-dataset-for-suspicious-activity-reports/) ([data](https://www.kaggle.com/datasets/leonardovalves/sarsum)) | AML; 2,000 synthetic analyst-note sets with key facts and summary variants | Summary completeness and relevance | Confirm dataset terms before use; synthetic, not real reports. |
-| [FinCEN advisories](https://www.fincen.gov/resources/advisoriesbulletinsfact-sheets) | US; AML/CFT alerts, red flags, and guidance | Typology extraction and ingestion tests | Public documents; verify reuse terms and advisory status. |
+| [FinCEN advisories](https://www.fincen.gov/resources/advisoriesbulletinsfact-sheets) | US; AML/CFT alerts, red flags, and guidance | Typology extraction and ingestion tests | Public; verify advisory status. |
 | [FinanceBench](https://github.com/patronus-ai/financebench) | US; public-company filings and 150 open, evidence-annotated Q&A cases | Financial-document citation and Q&A evaluation | Open sample only; not AML-specific. Verify dataset/PDF terms. |
 | [FinQA](https://github.com/czyssrs/FinQA) | Financial reports; text, tables, questions, and reasoning programs | Table parsing and numerical reasoning | Not AML-specific; verify dataset terms. |
 
@@ -32,4 +34,7 @@
 
 ## Pilot selection
 
-Start with dated ACPR–Tracfin, Tracfin, Légifrance, and AMF files and a small expert-checked French question set with exact passages. None of the reviewed resources is an annotated **French AML/CFT document-understanding** benchmark. BSARD can test French legal retrieval; ObliQA and SARSum can test task methods, subject to their jurisdiction and synthetic-data limits. Evaluate transaction datasets separately.
+Start with dated ACPR–Tracfin, Tracfin, Légifrance and AMF files plus expert-checked
+French questions/exact passages. None is an annotated **French AML/CFT document-understanding**
+benchmark. BSARD tests French legal retrieval; ObliQA/SARSum test methods within
+foreign-jurisdiction/synthetic-data limits. Keep transaction evaluation separate.

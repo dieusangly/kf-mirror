@@ -1,4 +1,4 @@
-"""Run local parsing directly from a repository checkout."""
+"""Run parsing directly from a repository checkout."""
 
 import sys
 from pathlib import Path

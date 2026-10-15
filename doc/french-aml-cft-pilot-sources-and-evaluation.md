@@ -1,10 +1,12 @@
 # French AML/CFT pilot sources and evaluation
 
-Scope: public French banking AML/CFT (LCB-FT) materials in born-digital PDF and official HTML. OCR awaits a representative scan. The AMF document tests cross-authority handling, not banking guidance.
+Public French banking AML/CFT (LCB-FT): born-digital PDFs and official HTML. OCR
+awaits a representative scan; AMF tests cross-authority handling, not banking guidance.
 
 ## Selected sources
 
-IDs match the [source manifest](../data/manifest.json), which records stable source IDs, titles, classes, URLs, versions, saved files, dates, media types, sizes, and hashes. This table explains the selection.
+The [manifest](../data/manifest.json) records IDs, titles/classes, URLs, versions,
+saved files, dates, media types, sizes and hashes. Selection rationale:
 
 | ID | Source | Document class | Representative material |
 | --- | --- | --- | --- |
@@ -18,7 +20,8 @@ PDF page numbers are one-based file pages.
 
 ## Draft passage annotations
 
-These paraphrases and locators are **not expert-approved gold data**. A French AML/CFT reviewer must verify them before acceptance testing.
+**Draft paraphrases/locators, not approved gold data.** A French AML/CFT reviewer
+must verify them before acceptance testing.
 
 | ID | French evaluation question | Expected answer, paraphrased | Supporting passage |
 | --- | --- | --- | --- |
@@ -33,8 +36,14 @@ These paraphrases and locators are **not expert-approved gold data**. A French A
 
 ## Provisional quality and cost targets
 
-- **Evidence:** resolve all eight questions to the cited page/paragraph or article; generated answers must cite the supporting source.
-- **Parsing:** retain cited passages and reading order. Preserve at least 90% of checked headings, numbered paragraphs, and table headers/rows on selected pages; log failures.
-- **Retrieval:** find at least seven of eight supporting passages in the top five, alongside a lexical baseline. Eight questions are only a smoke test.
-- **Topic knowledge:** review grounding and topic assignments; record ambiguity, version conflicts, and unsupported summaries. The draft annotations lack approved topic labels and a numeric classification target.
-- **Cost:** use no paid model/API calls for selection or parser comparison. Record time per page, peak memory, parser/OCR settings, and later model-token cost; set a hardware-specific runtime limit after measurement.
+- **Evidence:** resolve all eight questions to cited pages/paragraphs/articles;
+  generated answers must cite support.
+- **Parsing:** retain passages/reading order and ≥90% of checked headings, numbered
+  paragraphs and table headers/rows on selected pages; log failures.
+- **Retrieval:** find ≥7/8 supporting passages in the top five; compare a lexical
+  baseline. Eight questions are only a smoke test.
+- **Topics:** review grounding/assignments; record ambiguity, version conflicts and
+  unsupported summaries. Approved labels and a numeric classification target are absent.
+- **Cost:** no paid model/API calls for selection/parser comparison. Record time/page,
+  peak memory, parser/OCR settings and later token cost; set hardware-specific
+  runtime limits after measurement.

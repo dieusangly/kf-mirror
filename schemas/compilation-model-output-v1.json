@@ -3,7 +3,7 @@
   "$id": "https://knowledge-foundry.local/schemas/compilation-model-output-v1.json",
   "$defs": {
     "evidence": {
-      "description": "Batch-local label resolved to a saved exact passage by compilation-v2.",
+      "description": "Request-local label resolved to an exact passage in a saved chunk.",
       "type": "string",
       "pattern": "^E[1-9][0-9]*$"
     }
