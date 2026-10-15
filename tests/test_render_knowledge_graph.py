@@ -14,6 +14,10 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
         graph = build_graph(self.bundle)
         self.assertEqual([node["group"] for node in graph["nodes"]],
                          ["source", "document", "element", "chunk", "claim", "topic"])
+        document_node = next(node for node in graph["nodes"] if node["group"] == "document")
+        source_record = next(source for source in self.bundle["sources"]
+                             if source["id"] == document_node["record"]["source_id"])
+        self.assertEqual(document_node["label"], source_record["title"])
         edges = {(edge["source"], edge["target"], edge["relation"], edge["evidence"])
                  for edge in graph["edges"]}
         source, document, element, chunk, claim, topic = [
@@ -44,6 +48,8 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
         self.assertIn('id="build-filter"', first)
         self.assertIn('id="review-filter"', first)
         self.assertIn('id="type-filter"', first)
+        self.assertIn('setAttribute("aria-label", "Go to page")', first)
+        self.assertIn('pageInput.type = "number"', first)
         self.assertIn("Explore provenance", first)
         self.assertIn("Explore local graph", first)
         self.assertIn("Document-derived knowledge", first)

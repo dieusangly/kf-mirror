@@ -3,13 +3,9 @@
   "$id": "https://knowledge-foundry.local/schemas/compilation-model-output-v1.json",
   "$defs": {
     "evidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["chunk_id", "evidence_index"],
-      "properties": {
-        "chunk_id": {"type": "string", "minLength": 1},
-        "evidence_index": {"type": "integer", "minimum": 0}
-      }
+      "description": "Batch-local label resolved to a saved exact passage by compilation-v2.",
+      "type": "string",
+      "pattern": "^E[1-9][0-9]*$"
     }
   },
   "oneOf": [

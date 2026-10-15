@@ -1,68 +1,47 @@
 # Knowledge provenance graph
 
-`render_knowledge_graph.py` creates a standalone interactive HTML view of a
-normalized artifact bundle. The bundle remains the source of truth; the viewer
-preserves and displays the saved record links without changing them.
-
-The default screen shows topics and a page of their claims. Select a claim and
-choose **Explore provenance** to follow its chunks, evidence elements,
-documents, and sources. The document-derived view starts at a selected document
-and shows the connected claims and evidence around it. **Full graph / debug**
-exposes all records; large results ask before rendering.
-
-Other selected provenance records can open a one-step local graph. Selecting a
-claim or document switches to its corresponding deeper view.
-
-The topic, document, build, review, and node type filters apply to each view.
-The detail panel contains the selected record's text and metadata, evidence
-references, related records, and source location where available. Topic claims
-are paged so the initial canvas stays small even when a topic has hundreds of
-claims. Every provenance record remains available through the local views or
-full graph.
-
-## Render a bundle
-
-Run the renderer against a classified bundle, choosing a new output file:
+Create a standalone HTML viewer from the full classified bundle:
 
 ```sh
 .venv/bin/python scripts/render_knowledge_graph.py \
-  --bundle artifacts/classified-claims-20261013-114244/artifact-bundle.json \
-  --output artifacts/classified-claims-20261013-114244/knowledge-provenance-graph.html
+  --bundle artifacts/classified-claims-v8-full/artifact-bundle.json \
+  --output artifacts/classified-claims-v8-full/knowledge-provenance-graph.html \
+  --force
 ```
 
-For the supplied example:
+Open the HTML in a browser. `--force` replaces only the named HTML file; omit it
+and choose a new filename to keep the existing view. Rendering makes no model
+calls and does not change the compilation records.
+
+## What is included
+
+`--bundle` loads the saved topics, classified claims, chunks, parsed elements,
+documents and sources. It does **not** load the separate candidate file.
+The printed `candidates: 0` therefore means no candidate records were supplied
+to the renderer; it does not mean generation produced no candidates.
+
+To include candidates, add this option to the command:
 
 ```sh
-.venv/bin/python scripts/render_knowledge_graph.py \
-  --bundle examples/artifact-bundle-pdf.json \
-  --output /tmp/knowledge-provenance-graph.html
+--claim-candidates artifacts/generated-claims-v8-full/claim-candidates.jsonl
 ```
 
-Open the generated HTML file in a browser. It has no external dependencies and
-can be shared with the matching artifact bundle. The renderer combines the
-viewer template, styles, and JavaScript modules under `scripts/kpg_viewer/` into
-one deterministic HTML file. It refuses to overwrite an existing output; pass
-`--force` only when replacing that file is intentional. Use `--title` to set
-the browser-page title.
+This loads **every candidate in that file**, including those already classified.
+It does not select only unclassified candidates. Candidate nodes have no
+topic links; the viewer's “unclassified candidate” label does not establish the
+candidate's actual classification outcome. Check `unclassified_candidate_ids`
+in the classification `report.json` for that outcome.
 
-## Render generated claim candidates
+## Inspect evidence
 
-Generation-stage bundles contain chunks but no normalized claims or topics.
-Pass the adjacent `claim-candidates.jsonl` using `--claim-candidates` to add
-unclassified candidate-claim nodes and their links to chunks and evidence:
+1. Select a topic and claim in **Topics and claims**.
+2. Choose **Explore provenance** and follow claim → chunk → element → document → source.
+3. Read the exact evidence spans and source locations in the detail panel;
+   compare the passage in the saved PDF or HTML. A publisher link is not the saved file.
 
-```sh
-.venv/bin/python scripts/render_knowledge_graph.py \
-  --bundle artifacts/generated-claims-20261013-114244/artifact-bundle.json \
-  --claim-candidates artifacts/generated-claims-20261013-114244/claim-candidates.jsonl \
-  --output artifacts/generated-claims-20261013-114244/knowledge-graph.html
-```
+Use **Document-derived knowledge** to inspect one document, or **Full graph / debug**
+for all loaded records. Filters and paged topic claims keep large views manageable.
 
-Candidate claims are distinct from classified claims and have no topic edge.
-They remain unclassified candidates even when their grounding review status is
-shown as verified.
-
-The graph displays only record links available in the bundle. It does not
-infer entity relationships, legal conclusions, or unrecorded evidence. The
-full graph is available for debugging, though very large bundles can still
-produce a dense canvas when that mode is explicitly rendered.
+The graph shows saved links, not proof of completeness or legal correctness.
+This compilation's claims and topics are drafts, not verified legal interpretations.
+A retrieval date is not evidence of legal effectiveness.

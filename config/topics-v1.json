@@ -1,15 +1,55 @@
 {
-  "taxonomy_version": "aml-cft-pilot-v1",
+  "taxonomy_version": "aml-cft-pilot-v4",
   "topics": [
     {
       "id": "topic:beneficial-ownership",
       "title": "Bénéficiaires effectifs",
-      "scope": "Identification, vérification et traitement des bénéficiaires effectifs."
+      "scope": "Définition, détermination, identification et vérification des bénéficiaires effectifs ; détention, contrôle, seuils et recours en dernier ressort, avec leurs conditions. Exclut le simple bénéficiaire d'un paiement, les champs d'un formulaire DS ou COSI et les faits de propriété d'un cas sans lien explicite avec la détermination d'un bénéficiaire effectif."
     },
     {
       "id": "topic:ongoing-vigilance",
       "title": "Vigilance constante",
-      "scope": "Suivi des relations d'affaires et des opérations dans la durée."
+      "scope": "Suivi des relations d'affaires et des opérations dans la durée : actualisation des dossiers, surveillance, paramétrage, détection et analyse des alertes, indicateurs typologiques et cohérence des flux. Exclut les simples faits narratifs d'un cas, l'identification initiale, les obligations propres à l'examen renforcé et les obligations de déclaration DS ou COSI. Inclut la réévaluation du profil du client et l'adaptation de sa vigilance après une plainte ou une DS : le contexte déclaratif ne change pas cet objet. Les bonnes pratiques de vérification et surveillance d'un cas sans diligence renforcée explicitement désignée relèvent ici. Exclut l'attribution des rôles et responsabilités aux personnes chargées de détecter."
+    },
+    {
+      "id": "topic:customer-due-diligence",
+      "title": "Identification et connaissance du client",
+      "scope": "Identification et vérification du client et de ses représentants, connaissance initiale, entrée en relation, distinction relation d'affaires/client occasionnel et diligences simplifiées ou exemptions. Exclut la détermination du bénéficiaire effectif, l'actualisation dans la durée et les mesures renforcées spécifiques."
+    },
+    {
+      "id": "topic:risk-assessment",
+      "title": "Évaluation des risques",
+      "scope": "Approche par les risques, classification, facteurs et niveaux de risque liés aux clients, produits, canaux, pays et opérations. Exclut les indicateurs concrets de surveillance, les diligences renforcées à mettre en œuvre et les obligations propres aux DS, COSI ou sanctions. Inclut les caractéristiques générales de schémas de BC-FT exprimées comme facteurs de risque, sans critère concret de surveillance ni proposition sur la déclaration."
+    },
+    {
+      "id": "topic:enhanced-vigilance",
+      "title": "Vigilance renforcée",
+      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, PPE et pays tiers à haut risque ; documentation de ces examens. Exclut le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » dans les bonnes pratiques d'un cas ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique."
+    },
+    {
+      "id": "topic:suspicious-transaction-reporting",
+      "title": "Déclarations de soupçon",
+      "scope": "Obligation, déclencheurs, soupçon de fraude fiscale, délais, contenu, transmission, recevabilité et confidentialité des DS ; déclarants, correspondants, utilisation d'ERMES pour les DS et droits de Tracfin liés à leur traitement. Inclut l'articulation entre DS et dépôt de plainte : indépendance, absence de substitution et absence d'obstacle. Les informations de bénéficiaire effectif exigées dans une DS relèvent ici. Exclut les COSI, la simple détection d'alertes et les récits d'opérations sans proposition relative à une DS. La décision d'envoyer une DS et ses informations justificatives relèvent ici même sous une rubrique de vigilance renforcée. Exclut la réévaluation du profil du client et l'adaptation de sa vigilance lorsqu'elles constituent l'objet de l'assertion, même après une DS ou une plainte."
+    },
+    {
+      "id": "topic:systematic-reporting",
+      "title": "Communications systématiques — COSI",
+      "scope": "Périmètre, critères, seuils, responsabilités, contenu et transmission des COSI, ainsi que leur articulation avec les DS. Inclut les champs concernant donneurs d'ordre et bénéficiaires des transmissions de fonds. Exclut la détermination des bénéficiaires effectifs et les obligations de DS sans objet COSI."
+    },
+    {
+      "id": "topic:asset-freezing-sanctions",
+      "title": "Gel des avoirs et sanctions",
+      "scope": "Portée et mise en œuvre des mesures restrictives, gel des avoirs, interdictions de mise à disposition, contournement et information de la DG Trésor ; articulation de ces mesures avec la vigilance ou la DS. Exclut les facteurs géographiques généraux sans proposition propre aux sanctions."
+    },
+    {
+      "id": "topic:organisation-delegation",
+      "title": "Organisation et délégation",
+      "scope": "Organisation du dispositif LCB-FT, contrôle interne, moyens, formation, tierce introduction, externalisation et partage des responsabilités. Exclut les rôles et procédures propres aux DS ou COSI, le paramétrage de surveillance et la documentation propre à une diligence particulière. Inclut les propositions indiquant quelles personnes sont chargées de détecter les opérations atypiques, sous quelle responsabilité, et avec quelles instructions ou contrôles. Distinguer ces rôles des indicateurs opérationnels à détecter."
+    },
+    {
+      "id": "topic:guidance-status",
+      "title": "Statut et portée des sources",
+      "scope": "Nature contraignante ou explicative, champ sectoriel, version, date de référence et limites déclarées des sources. Une simple référence à un article ou une date dans une obligation opérationnelle ne suffit pas ; classer cette obligation selon son objet. Inclut l'objet déclaré d'une annexe ou d'un document, lorsqu'il s'agit d'une proposition sur la portée et la finalité de cette source, sans règle opérationnelle."
     }
   ]
 }

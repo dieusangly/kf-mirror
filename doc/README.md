@@ -13,4 +13,4 @@
 | 9. Chunking | [Local chunking](local-chunking.md) | CLI, configuration, evidence rules, and outputs. |
 | 10. Chunk evaluation | [Pilot chunking evaluation](pilot-chunking-evaluation.md) | Pilot quality gate and source-linked review workflow; supports new documents. |
 | 11. Topic compilation | [Local topic compilation](local-compilation.md) | CLI, model setup, draft review, and exports. |
-| 12. Knowledge graph | [Knowledge graph](knowledge-graph.md) | Interactive local inspection of topic, claim, chunk, and source provenance. |
+| 12. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Interactive local inspection of topic, claim, chunk, and source provenance. |

@@ -43,3 +43,52 @@ class GenerateClaimsCliTests(unittest.TestCase):
                              "source_chunks": 806, "total": 202, "source_total": 202, "subset": False})
         self.assertIn("Full: 806/806 chunks; generating candidates in 202/202 batches", stderr.getvalue())
 
+    def test_cli_passes_explicit_batches_and_rejects_conflicting_subset_options(self):
+        captured = {}
+
+        def generate_claims(*_args, **kwargs):
+            captured.update(kwargs)
+            kwargs["on_progress"]({"phase": "complete", "state": "complete", "telemetry": {
+                "requests": 0, "estimated_cost_usd": 0}})
+            return {"status": "complete"}
+
+        with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--chunked-dir", "chunked", "--output-dir", "generated",
+                                   "--batch-numbers", "14", "202"]), 0)
+        self.assertEqual(captured["batch_numbers"], [14, 202])
+        self.assertIsNone(captured["subset_batches"])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            main(["--chunked-dir", "chunked", "--output-dir", "generated", "--batch-numbers", "1",
+                  "--subset-batches", "1"])
+        self.assertEqual(error.exception.code, 2)
+
+    def test_cli_reports_coverage_separately_from_processing_completion(self):
+        for status, missing, label in [("needs_review", ["src:cmf-L561-6"], "Coverage needs review"),
+                                       ("no_gaps_detected", [], "No coverage gaps detected")]:
+            with self.subTest(status=status):
+                report = {"status": "complete", "coverage": {
+                    "status": status, "selected_source_ids_without_candidates": missing,
+                    "summary": {"cited_chunks": 1, "selected_chunks": 2 if missing else 1,
+                                "sources_with_candidates": 1, "selected_sources": 2 if missing else 1,
+                                "failed_chunks": 0, "chunks_without_eligible_evidence": 0}}}
+
+                def generate_claims(*_args, **kwargs):
+                    kwargs["on_progress"]({"phase": "complete", "state": "complete", "telemetry": {
+                        "requests": 1, "estimated_cost_usd": 0.01}})
+                    return report
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(main(["--chunked-dir", "chunked", "--output-dir", "generated"]), 0)
+                self.assertEqual(json.loads(stdout.getvalue()), report)
+                self.assertIn("Complete in", stderr.getvalue())
+                self.assertIn(label, stderr.getvalue())
+                self.assertIn("(1 API requests)", stderr.getvalue())
+                self.assertIn("verified grounding", stderr.getvalue())
+                if missing:
+                    self.assertIn("Selected source without candidates: src:cmf-L561-6", stderr.getvalue())
+                else:
+                    self.assertNotIn("Selected source without candidates", stderr.getvalue())
+

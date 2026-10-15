@@ -4,11 +4,14 @@ import copy
 import hashlib
 import json
 import os
+import re
 import time
+import unicodedata
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
+from knowledge_foundry.evidence import claim_evidence_references
 from knowledge_foundry.openai_tools import DEFAULT_MODEL, REASONING_EFFORTS, OpenAIResponsesTool
 
 
@@ -26,10 +29,7 @@ CANDIDATE_SCHEMA = {
         "type": "object", "additionalProperties": False, "required": ["text", "evidence"],
         "properties": {"text": {"type": "string", "minLength": 1},
                        "evidence": {"type": "array", "minItems": 1, "items": {
-                           "type": "object", "additionalProperties": False,
-                           "required": ["chunk_id", "evidence_index"],
-                           "properties": {"chunk_id": {"type": "string", "minLength": 1},
-                                          "evidence_index": {"type": "integer", "minimum": 0}}}}}}}},
+                           "type": "string", "pattern": "^E[1-9][0-9]*$"}}}}}},
 }
 CLASSIFICATION_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["topic_id"],
@@ -154,7 +154,8 @@ class FixtureProvider:
         key = ",".join(chunk_ids)
         return self.fixture.get("candidate_batches", {}).get(key, {"claims": []})
 
-    def classify(self, text, _taxonomy, _prompt_text, _schema):
+    def classify(self, context, _taxonomy, _prompt_text, _schema):
+        text = context["claim"]
         try:
             return {"topic_id": self.fixture["classifications"][text]}
         except KeyError as exc:
@@ -170,29 +171,53 @@ class OpenAIProvider:
     def usage_records(self):
         return self.tool.usage_records
 
-    def candidates(self, chunks, prompt_text, schema):
-        input_text = _candidate_input(chunks)
+    def candidates(self, input_text, prompt_text, schema):
         return self.tool.json_response(instructions=prompt_text, input_text=input_text,
                                        schema_name="claim_candidates", schema=schema)
 
-    def candidate_request_characters(self, chunks, prompt_text, schema):
-        return self.tool.request_characters(instructions=prompt_text, input_text=_candidate_input(chunks),
+    def candidate_request_characters(self, input_text, prompt_text, schema):
+        return self.tool.request_characters(instructions=prompt_text, input_text=input_text,
                                             schema_name="claim_candidates", schema=schema)
 
-    def classify(self, text, taxonomy, prompt_text, schema):
-        input_text = canonical({"claim": text, "topics": taxonomy["topics"]})
+    def classify(self, context, taxonomy, prompt_text, schema):
+        input_text = canonical({**context, "topics": taxonomy["topics"]})
         return self.tool.json_response(instructions=prompt_text, input_text=input_text,
                                        schema_name="topic_classification", schema=schema)
 
 
-def _candidate_input(chunks):
-    evidence = []
+def _passage(ref, element_map):
+    element = element_map[ref["element_id"]]
+    span = ref["span"]
+    if not 0 <= span["start"] < span["end"] <= len(element["text"]):
+        raise ValueError("evidence span is out of bounds")
+    return {"text": element["text"][span["start"]:span["end"]],
+            "kind": element["kind"], "location": element["location"]}
+
+
+def _evidence_choices(chunks, element_map):
+    choices = {}
     for chunk in chunks:
-        for index, ref in enumerate(chunk["evidence"]):
+        for ref in claim_evidence_references(chunk, element_map):
             if "span" in ref:
-                evidence.append({"chunk_id": chunk["id"], "evidence_index": index,
-                                 "text": chunk["text"], "reference": ref})
-    return canonical({"chunks": chunks, "eligible_evidence": evidence})
+                choices[f"E{len(choices) + 1}"] = {
+                    "chunk_id": chunk["id"], "reference": ref, **_passage(ref, element_map)}
+    return choices
+
+
+def _candidate_input(chunks, element_map):
+    choices = _evidence_choices(chunks, element_map)
+    return canonical({"chunks": [{"chunk_id": chunk["id"], "text": chunk["text"]} for chunk in chunks],
+                      "eligible_evidence": [{"id": label, **{key: value for key, value in item.items()
+                                                            if key != "reference"}}
+                                            for label, item in choices.items()]})
+
+
+def _classification_input(candidate, chunk_map, element_map, document_map, source_map):
+    documents = [document_map[item] for item in sorted({ref["document_id"] for ref in candidate["evidence"]})]
+    return {"claim": candidate["text"],
+            "evidence": [{**ref, **_passage(ref, element_map)} for ref in candidate["evidence"]],
+            "chunks": [{"chunk_id": item, "text": chunk_map[item]["text"]} for item in candidate["chunk_ids"]],
+            "sources": [source_map[(doc["source_id"], doc["source_version"])] for doc in documents]}
 
 
 def _call(method, retries, on_retry=None):
@@ -247,9 +272,17 @@ def _telemetry(provider, config, usage_records=None):
                           "model": config["model"], "rates": copy.deepcopy(rate_card)}}
 
 
-def _subset_batch_indices(characters, subset_batches):
+def _subset_batch_indices(characters, subset_batches, batch_numbers=None):
     """Choose unique batch indices distributed by cumulative request characters."""
     count = len(characters)
+    if batch_numbers is not None:
+        if subset_batches is not None:
+            raise ValueError("batch_numbers and subset_batches are mutually exclusive")
+        if not isinstance(batch_numbers, list) or not batch_numbers or any(
+                not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= count
+                for number in batch_numbers) or len(set(batch_numbers)) != len(batch_numbers):
+            raise ValueError(f"batch_numbers must be unique integers between 1 and {count}")
+        return sorted(number - 1 for number in batch_numbers)
     if subset_batches is None:
         return list(range(count))
     if not isinstance(subset_batches, int) or isinstance(subset_batches, bool) or not 1 <= subset_batches <= count:
@@ -271,38 +304,96 @@ def _subset_batch_indices(characters, subset_batches):
     return sorted(selected)
 
 
-def _reference(chunk_map, item):
-    chunk_id = item["chunk_id"]
-    if chunk_id not in chunk_map:
-        raise ValueError(f"candidate names an unknown chunk: {chunk_id}")
-    refs = chunk_map[chunk_id]["evidence"]
-    index = item["evidence_index"]
-    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(refs):
-        raise ValueError(f"candidate evidence index is invalid: {chunk_id}")
-    ref = refs[index]
-    if "span" not in ref:
-        raise ValueError("candidate evidence must select an exact element span")
-    return copy.deepcopy(ref)
-
-
-def _candidate_record(generation_build_id, candidate, generation, chunk_map):
+def _candidate_record(generation_build_id, candidate, generation, choices):
     Draft202012Validator(CANDIDATE_SCHEMA).validate({"claims": [candidate]})
-    evidence = [_reference(chunk_map, value) for value in candidate["evidence"]]
+    if any(label not in choices for label in candidate["evidence"]):
+        raise ValueError("candidate selects an unknown evidence label")
+    selected = [choices[label] for label in candidate["evidence"]]
+    evidence = [copy.deepcopy(item["reference"]) for item in selected]
     if len({canonical(item) for item in evidence}) != len(evidence):
         raise ValueError("candidate repeats evidence")
     chunk_ids = []
-    for value in candidate["evidence"]:
+    for value in selected:
         if value["chunk_id"] not in chunk_ids:
             chunk_ids.append(value["chunk_id"])
     text = candidate["text"].strip()
     if not text:
         raise ValueError("candidate claim text is blank")
+    if re.search(r"(?:^|[.!?;]\s+)(?:pour ce service\s*(?=,|$)|il en va de même\b|"
+                 r"pour le reste de ce schéma\b)", text, re.IGNORECASE):
+        raise ValueError(f"candidate has an unresolved contextual reference; name its subject and rule: {text}")
+    # Look at the available passages of the cited chunks too: selecting only a
+    # heading must not hide prerequisites in the accompanying paragraph.
+    _check_fallback_conditions(text, " ".join(item["text"] for item in choices.values()
+                                             if item["chunk_id"] in chunk_ids))
     result = {"schema_version": SCHEMA_VERSION,
               "id": "candidate:" + digest(generation_build_id + "\n" + canonical(evidence) + "\n" + text),
               "generation_build_id": generation_build_id, "chunk_ids": chunk_ids, "text": text,
               "evidence": evidence, "grounding_review_status": "draft", "generation": generation}
     Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(result)
     return result
+
+
+def _plain_text(text):
+    text = text.lower().replace("’", "'").replace("œ", "oe")
+    return " ".join("".join(c for c in unicodedata.normalize("NFD", text)
+                            if not unicodedata.combining(c)).split())
+
+
+def _check_fallback_conditions(text, evidence_text):
+    """Check paired beneficial-owner fallback prerequisites; not general grounding."""
+    claim, evidence = _plain_text(text), _plain_text(evidence_text)
+    if "beneficiaire" not in claim or "dernier ressort" not in claim:
+        return
+    failed_identification = r"aucune personne physique.{0,100}identifi|recherches?\s+infructueuses?"
+    no_suspicion = r"n'a pas de soupcon|absence de soupcon|sans soupcon"
+    if re.search(failed_identification, evidence) and re.search(no_suspicion, evidence):
+        if not re.search(failed_identification, claim) or not re.search(no_suspicion, claim):
+            raise ValueError("fallback claim omits explicit prerequisites from its evidence: "
+                             "state unsuccessful identification and absence of suspicion in this same claim, "
+                             "with the relevant source context; another claim or 'conditions réunies' "
+                             "does not supply them: " + text)
+
+
+def _check_substantive_footnotes(records, choices):
+    """Check the specific 'tient compte de ce que' footnote pattern."""
+    cited = {canonical(ref) for record in records for ref in record["evidence"]}
+    for label, passage in choices.items():
+        if passage["kind"] == "footnote" and "tient compte de ce que" in _plain_text(passage["text"]) \
+                and canonical(passage["reference"]) not in cited:
+            raise ValueError(f"substantive footnote {label} was omitted; extract its qualified statement "
+                             "with its scope and exact evidence: " + passage["text"])
+
+
+def _check_reporting_assignment(response, context, valid_topics):
+    """Catch known DS procedure assignments when that curated topic is available."""
+    topic = "topic:suspicious-transaction-reporting"
+    if topic not in valid_topics:
+        return
+
+    def procedural_relationship(text):
+        text = _plain_text(text)
+        return ("plainte" in text and
+                ("declaration de soupcon" in text or re.search(r"\bds\b", text)) and
+                re.search(r"independan|substitu|obstacle", text))
+
+    if procedural_relationship(context["claim"]) and any(
+            procedural_relationship(item["text"]) for item in context["evidence"]) and \
+            response["topic_id"] != topic:
+        raise ValueError("explicit DS/complaint procedural relationship belongs to " + topic +
+                         "; reconsider the assignment using the cited passage and curated scope")
+
+    def ermes_authentication(text):
+        text = _plain_text(text)
+        return (re.search(r"\bermes\b", text) and "authentification" in text and
+                re.search(r"\bsimple\b|\bforte\b|certificat|identifiant|mot de passe", text))
+
+    if ermes_authentication(context["claim"]) and any(
+            ermes_authentication(item["text"]) for item in context["evidence"]) and \
+            response["topic_id"] != topic:
+        raise ValueError("ERMES authentication procedure belongs to " + topic +
+                         "; both simple and strong authentication are within its ERMES scope; "
+                         "reconsider the assignment using the cited passage")
 
 
 def _claim(build_id, candidate, classification, classifier):
@@ -385,12 +476,74 @@ def _build_id(pipeline_version, config_digest, document_ids):
 
 
 def _project_generation(scope, usage, config):
-    if scope["mode"] != "subset" or not usage:
+    if scope["mode"] != "subset" or scope.get("selection") == "explicit" or not usage:
         return None
     estimated_cost = _cost(usage, _rate_card(config)) * scope["generation_request_characters"]["total"] / \
         scope["generation_request_characters"]["selected"]
     return {"estimated_cost_usd": estimated_cost,
             "assumption": "observed cost scaled by exact serialized generation-request characters"}
+
+
+def _generation_coverage(bundle, candidates, scope, errors):
+    """Account for selected chunks cited by candidates, without judging extraction quality."""
+    selected = set(scope["selected_chunk_ids"])
+    chunk_map = {item["id"]: item for item in bundle["chunks"]}
+    document_map = {item["id"]: item for item in bundle["documents"]}
+    failed = {chunk_id for error in errors if error.get("stage") == "generation"
+              for chunk_id in error["chunk_ids"]} & selected
+    element_map = {item["id"]: item for item in bundle.get("elements", [])}
+    references = {chunk_id: {canonical(ref) for ref in claim_evidence_references(chunk, element_map)}
+                  for chunk_id, chunk in chunk_map.items()}
+    cited = {chunk_id: set() for chunk_id in selected}
+    for candidate in candidates:
+        evidence = {canonical(ref) for ref in candidate["evidence"]}
+        for chunk_id in candidate["chunk_ids"]:
+            if chunk_id not in selected:
+                raise ValueError("coverage candidate chunk is outside the selected scope")
+            if evidence & references[chunk_id]:
+                cited[chunk_id].add(candidate["id"])
+    chunks = []
+    for chunk in bundle["chunks"]:
+        chunk_id = chunk["id"]
+        if chunk_id not in selected:
+            continue
+        document = document_map[chunk["document_id"]]
+        eligible = sum("span" in ref for ref in claim_evidence_references(chunk, element_map))
+        status = ("generation_failed" if chunk_id in failed else "cited" if cited[chunk_id] else
+                  "no_eligible_evidence" if not eligible else "no_candidates")
+        chunks.append({"chunk_id": chunk_id, "document_id": chunk["document_id"],
+                       "source_id": document["source_id"], "source_version": document["source_version"],
+                       "candidate_count": len(cited[chunk_id]), "eligible_evidence_count": eligible,
+                       "status": status})
+    sources = []
+    for source in bundle["sources"]:
+        rows = [row for row in chunks if (row["source_id"], row["source_version"]) ==
+                (source["id"], source["version"])]
+        source_candidates = set().union(*(cited[row["chunk_id"]] for row in rows))
+        sources.append({"source_id": source["id"], "source_version": source["version"],
+                        "title": source["title"], "selected_chunks": len(rows),
+                        "cited_chunks": sum(row["candidate_count"] > 0 for row in rows),
+                        "candidate_count": len(source_candidates),
+                        "status": "not_selected" if not rows else
+                                  "has_candidates" if source_candidates else "no_candidates"})
+    missing_chunks = [row["chunk_id"] for row in chunks if not row["candidate_count"]]
+    missing_sources = [row for row in sources if row["status"] == "no_candidates"]
+    return {
+        "coverage_version": 1,
+        "status": "needs_review" if missing_chunks or failed else "no_gaps_detected",
+        "summary": {"selected_chunks": len(chunks), "cited_chunks": len(chunks) - len(missing_chunks),
+                    "chunks_without_candidates": len(missing_chunks),
+                    "failed_chunks": sum(row["status"] == "generation_failed" for row in chunks),
+                    "chunks_without_eligible_evidence": sum(not row["eligible_evidence_count"] for row in chunks),
+                    "not_selected_chunks": len(bundle["chunks"]) - len(chunks),
+                    "selected_sources": sum(row["status"] != "not_selected" for row in sources),
+                    "sources_with_candidates": sum(row["status"] == "has_candidates" for row in sources),
+                    "sources_without_candidates": len(missing_sources),
+                    "not_selected_sources": sum(row["status"] == "not_selected" for row in sources)},
+        "selected_chunk_ids_without_candidates": missing_chunks,
+        "selected_source_ids_without_candidates": sorted({row["source_id"] for row in missing_sources}),
+        "chunks": chunks, "sources": sources,
+    }
 
 
 def _candidate_manifest(candidate_dir):
@@ -409,14 +562,15 @@ def _candidate_manifest(candidate_dir):
     return manifest, candidate_path, manifest_path
 
 
-def _validate_candidate(candidate, generation_build_id, chunk_map):
+def _validate_candidate(candidate, generation_build_id, chunk_map, element_map):
     Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(candidate)
     if candidate["generation_build_id"] != generation_build_id:
         raise ValueError("candidate generation build mismatch")
     chunks = [chunk_map.get(chunk_id) for chunk_id in candidate["chunk_ids"]]
     if not all(chunks):
         raise ValueError("candidate chunk missing")
-    supporting = {canonical([item]) for chunk in chunks for item in chunk["evidence"]}
+    supporting = {canonical([item]) for chunk in chunks
+                  for item in claim_evidence_references(chunk, element_map)}
     for evidence in candidate["evidence"]:
         if "span" not in evidence or canonical([evidence]) not in supporting:
             raise ValueError("candidate evidence is not supported by its chunks")
@@ -432,7 +586,7 @@ def _generation_identity(build_id, input_path, config_digest, generation_hash, s
             "generation_prompt_sha256": generation_hash, "compilation_scope": scope}
 
 
-def _load_generation_checkpoints(output_dir, identity, selected_batches, chunk_map):
+def _load_generation_checkpoints(output_dir, identity, selected_batches, chunk_map, element_map):
     checkpoint_path = output_dir / "generation-checkpoint.json"
     if not checkpoint_path.is_file():
         raise ValueError("output directory is not a resumable claim-generation run")
@@ -452,7 +606,7 @@ def _load_generation_checkpoints(output_dir, identity, selected_batches, chunk_m
                 not isinstance(record.get("usage_records"), list):
             raise ValueError("generation batch checkpoint is invalid")
         for candidate in record["candidates"]:
-            _validate_candidate(candidate, identity["generation_build_id"], chunk_map)
+            _validate_candidate(candidate, identity["generation_build_id"], chunk_map, element_map)
         candidates.extend(record["candidates"])
         errors.extend(record["errors"])
         usage.extend(record["usage_records"])
@@ -461,7 +615,7 @@ def _load_generation_checkpoints(output_dir, identity, selected_batches, chunk_m
 
 
 def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilation.json", fixture_path=None,
-                    on_progress=None, subset_batches=None, resume=False):
+                    on_progress=None, subset_batches=None, resume=False, batch_numbers=None):
     """Generate durable, grounded candidate claims from one immutable chunk bundle."""
     chunked_dir, output_dir = Path(chunked_dir), Path(output_dir)
     input_path = chunked_dir / "artifact-bundle.json"
@@ -474,13 +628,18 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
     chunks, document_ids = bundle["chunks"], [item["id"] for item in bundle["documents"]]
     batch_size = config["batch_size_chunks"]
     all_batches = [chunks[start:start + batch_size] for start in range(0, len(chunks), batch_size)]
-    request_characters = [provider.candidate_request_characters(batch, generation_prompt, CANDIDATE_SCHEMA)
-                          for batch in all_batches] if isinstance(provider, OpenAIProvider) else \
-        [len(_candidate_input(batch)) for batch in all_batches]
-    selected_indices = _subset_batch_indices(request_characters, subset_batches)
+    element_map = {item["id"]: item for item in bundle["elements"]}
+    batch_inputs = [_candidate_input(batch, element_map) for batch in all_batches]
+    request_characters = [provider.candidate_request_characters(value, generation_prompt, CANDIDATE_SCHEMA)
+                          for value in batch_inputs] if isinstance(provider, OpenAIProvider) else \
+        [len(value) for value in batch_inputs]
+    selected_indices = _subset_batch_indices(request_characters, subset_batches, batch_numbers)
     selected_batches = [all_batches[index] for index in selected_indices]
     selected_chunks = [chunk for batch in selected_batches for chunk in batch]
-    scope = {"mode": "subset" if subset_batches is not None else "full", "total_chunks": len(chunks),
+    scope = {"mode": "subset" if subset_batches is not None or batch_numbers is not None else "full",
+             "selection": "explicit" if batch_numbers is not None else
+                          "length-stratified" if subset_batches is not None else "all",
+             "total_chunks": len(chunks),
              "selected_chunks": len(selected_chunks), "total_batches": len(all_batches),
              "selected_batch_numbers": [index + 1 for index in selected_indices],
              "selected_chunk_ids": [chunk["id"] for chunk in selected_chunks],
@@ -503,7 +662,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
         if (output_dir / "build-manifest.json").is_file():
             raise ValueError("claim-generation output is already complete")
         candidates, errors, usage, completed_batches = _load_generation_checkpoints(
-            output_dir, identity, selected_batches, chunk_map)
+            output_dir, identity, selected_batches, chunk_map, element_map)
         _write_jsonl_atomic(candidate_path, sorted(candidates, key=lambda item: item["id"]))
     else:
         if resume:
@@ -523,23 +682,38 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
             continue
         ids, usage_start = [item["id"] for item in batch], len(provider.usage_records)
         batch_candidates, batch_errors = [], []
+        choices = _evidence_choices(batch, element_map)
+        retry_feedback = ""
+
+        def generate_batch():
+            nonlocal retry_feedback
+            response = provider.candidates(ids if isinstance(provider, FixtureProvider) else
+                                           batch_inputs[selected_indices[completed - 1]],
+                                           generation_prompt + retry_feedback, CANDIDATE_SCHEMA)
+            try:
+                Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
+                records = [_candidate_record(build_id, item, generation, choices) for item in response["claims"]]
+                _check_substantive_footnotes(records, choices)
+                candidate_ids = {item["id"] for item in candidates}
+                if len({item["id"] for item in records}) != len(records) or \
+                        candidate_ids.intersection(item["id"] for item in records):
+                    raise ValueError("generation produced duplicate candidate IDs")
+            except (ValueError, ValidationError) as exc:
+                retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
+                                  "\nCorrigez la réponse complète. Explicitez les sujets et les règles ; "
+                                  "omettez toute assertion impossible à étayer avec les preuves proposées.")
+                raise
+            return records
+
         try:
-            response = _call(lambda: provider.candidates(ids if isinstance(provider, FixtureProvider) else batch,
-                                                          generation_prompt, CANDIDATE_SCHEMA), config["retries"],
-                             lambda attempt, total: on_progress and on_progress(
-                                 {"phase": "generation", "state": "retry", "completed": completed,
-                                  "total": len(selected_batches), "attempt": attempt, "attempts": total}))
-            Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
-            batch_candidates = [_candidate_record(build_id, item, generation, chunk_map)
-                                for item in response["claims"]]
-            candidate_ids = {item["id"] for item in candidates}
-            if len({item["id"] for item in batch_candidates}) != len(batch_candidates) or \
-                    candidate_ids.intersection(item["id"] for item in batch_candidates):
-                raise ValueError("generation produced duplicate candidate IDs")
+            batch_candidates = _call(
+                generate_batch, config["retries"],
+                lambda attempt, total: on_progress and on_progress(
+                    {"phase": "generation", "state": "retry", "completed": completed,
+                     "total": len(selected_batches), "attempt": attempt, "attempts": total}))
         except Exception as exc:
             batch_errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
-        finally:
-            batch_usage = provider.usage_records[usage_start:]
+        batch_usage = provider.usage_records[usage_start:]
         batch_record = {"batch_number": completed, "chunk_ids": ids, "candidates": batch_candidates,
                         "errors": batch_errors, "usage_records": batch_usage}
         _write_json_atomic(checkpoint_dir / f"batch-{completed:06d}.json", batch_record)
@@ -569,9 +743,10 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/compilat
     _write_json(output_dir / "artifact-bundle.json", result)
     _write_jsonl_atomic(candidate_path, candidates)
     telemetry = _telemetry(provider, config, usage)
+    coverage = _generation_coverage(bundle, candidates, scope, errors)
     report = {"generation_build_id": build_id, "upstream_chunk_build_id": bundle["builds"][0]["id"],
               "documents": len(document_ids), "chunks": len(chunks), "candidates": len(candidates),
-              "compilation_scope": scope, "errors": errors, "telemetry": telemetry,
+              "compilation_scope": scope, "coverage": coverage, "errors": errors, "telemetry": telemetry,
               "projected_full_generation": _project_generation(scope, usage, config),
               "status": "partial" if errors else "complete"}
     _write_json(output_dir / "report.json", report)
@@ -597,6 +772,7 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
                     taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None, review_path=None,
                     on_progress=None):
     """Classify a durable candidate artifact without regenerating its claims."""
+    started = time.monotonic()
     candidate_dir, output_dir = Path(candidate_dir), Path(output_dir)
     manifest, candidate_path, manifest_path = _candidate_manifest(candidate_dir)
     bundle = _read_json(candidate_dir / "artifact-bundle.json")
@@ -604,11 +780,15 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
         raise ValueError("candidate artifact bundle must not contain classified claims or topics")
     candidates = _read_jsonl(candidate_path)
     chunk_map = {item["id"]: item for item in bundle["chunks"]}
+    element_map = {item["id"]: item for item in bundle["elements"]}
+    document_map = {item["id"]: item for item in bundle["documents"]}
+    source_map = {(item["id"], item["version"]): item for item in bundle["sources"]}
     for candidate in candidates:
-        _validate_candidate(candidate, manifest["generation_build_id"], chunk_map)
+        _validate_candidate(candidate, manifest["generation_build_id"], chunk_map, element_map)
     if len({item["id"] for item in candidates}) != len(candidates):
         raise ValueError("candidate artifact has duplicate IDs")
     config, taxonomy = _config(config_path), _taxonomy(taxonomy_path)
+    valid_topics = {item["id"] for item in taxonomy["topics"]}
     classification_prompt, classification_hash = _prompt("topic_classification_v1.txt")
     provider = _provider(config, fixture_path)
     document_ids = [item["id"] for item in bundle["documents"]]
@@ -621,27 +801,41 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
     classifier = {"method": "model", "version": config["classification_version"],
                   "model_id": provider.model_id, "prompt_sha256": classification_hash}
     claims, errors, unclassified, usage = [], [], [], []
-    valid_topics = {item["id"] for item in taxonomy["topics"]}
     if on_progress:
         on_progress({"phase": "classification", "state": "started", "total": len(candidates)})
     for index, candidate in enumerate(candidates, start=1):
         usage_start = len(provider.usage_records)
+        context = _classification_input(candidate, chunk_map, element_map, document_map, source_map)
+        retry_feedback = ""
+
+        def classify_candidate():
+            nonlocal retry_feedback
+            response = provider.classify(context, taxonomy, classification_prompt + retry_feedback,
+                                         CLASSIFICATION_SCHEMA)
+            try:
+                Draft202012Validator(CLASSIFICATION_SCHEMA).validate(response)
+                if response["topic_id"] is not None and response["topic_id"] not in valid_topics:
+                    raise ValueError("classifier returned an uncurated topic ID")
+                _check_reporting_assignment(response, context, valid_topics)
+            except (ValueError, ValidationError) as exc:
+                retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
+                                  "\nRéexaminez les preuves et le périmètre organisé ; retournez le JSON corrigé.")
+                raise
+            return response
+
         try:
-            classification = _call(lambda: provider.classify(candidate["text"], taxonomy, classification_prompt,
-                                                              CLASSIFICATION_SCHEMA), config["retries"],
-                                   lambda attempt, total: on_progress and on_progress(
-                                       {"phase": "classification", "state": "retry", "completed": index,
-                                        "total": len(candidates), "attempt": attempt, "attempts": total}))
+            classification = _call(
+                classify_candidate, config["retries"],
+                lambda attempt, total: on_progress and on_progress(
+                    {"phase": "classification", "state": "retry", "completed": index,
+                     "total": len(candidates), "attempt": attempt, "attempts": total}))
             if classification.get("topic_id") is None:
                 unclassified.append(candidate["id"])
-            elif classification["topic_id"] not in valid_topics:
-                raise ValueError("classifier returned an uncurated topic ID")
             else:
                 claims.append(_claim(build_id, candidate, classification, classifier))
         except Exception as exc:
             errors.append({"stage": "classification", "candidate_id": candidate["id"], "error": str(exc)})
-        finally:
-            usage.extend(provider.usage_records[usage_start:])
+        usage.extend(provider.usage_records[usage_start:])
         if on_progress and _checkpoint(index, len(candidates)):
             on_progress({"phase": "classification", "state": "progress", "completed": index,
                          "total": len(candidates), "claims": len(claims)})
@@ -699,6 +893,7 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/compil
               "claims": len(claims), "topics": len(topics), "errors": errors,
               "unclassified_candidate_ids": unclassified, "telemetry": telemetry,
               "projected_full_build": projected, "review": review,
+              "duration_seconds": round(time.monotonic() - started, 3),
               "status": "partial" if errors else "complete"}
     _write_json(output_dir / "report.json", report)
     files = sorted(path for path in output_dir.rglob("*") if path.is_file())

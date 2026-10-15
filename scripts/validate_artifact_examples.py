@@ -8,6 +8,10 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+# Keep direct script execution usable without an installed package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from knowledge_foundry.evidence import claim_evidence_references
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text())
@@ -100,7 +104,8 @@ def check(bundle):
         claim_build = records["builds"][claim["build_id"]]
         require(all(chunk["document_id"] in claim_build["input_document_ids"] for chunk in chunks),
                 "claim chunk outside build inputs")
-        supporting = {canonical_evidence([item]) for chunk in chunks for item in chunk["evidence"]}
+        supporting = {canonical_evidence([item]) for chunk in chunks
+                      for item in claim_evidence_references(chunk, records["elements"])}
         for evidence in claim["evidence"]:
             require("span" in evidence, "claim evidence requires an exact span")
             check_evidence(evidence, records, {chunk["document_id"] for chunk in chunks})

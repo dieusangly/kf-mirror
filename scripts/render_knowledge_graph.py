@@ -26,17 +26,17 @@ def _record_detail(record_type, record):
     return record.get("uri", "")
 
 
-def _record_label(record_type, record):
+def _record_label(record_type, record, source_title=None):
     if record_type in {"topic", "source"}:
         return _short(record.get("title") or record["id"])
     if record_type == "document":
-        return _short(record.get("media_type") or record["id"])
+        return _short(record.get("title") or source_title or record.get("media_type") or record["id"])
     if record_type == "element":
         return _short(record.get("locator_key") or record["id"])
     return _short(record.get("text") or record["id"])
 
 
-def _node(record_type, record):
+def _node(record_type, record, source_title=None):
     record = dict(record)
     meta = record_type
     if record_type == "candidate":
@@ -45,7 +45,7 @@ def _node(record_type, record):
         "id": record["id"],
         "group": record_type,
         "meta": meta,
-        "label": _record_label(record_type, record),
+        "label": _record_label(record_type, record, source_title),
         "detail": _record_detail(record_type, record),
         "record": record,
     }
@@ -68,6 +68,7 @@ def build_graph(bundle, claim_candidates=None):
 
     records = {}
     nodes = []
+    source_titles = {source["id"]: source.get("title") for source in bundle["sources"]}
 
     def add_record(record_type, record):
         if not isinstance(record, dict) or not isinstance(record.get("id"), str):
@@ -75,7 +76,8 @@ def build_graph(bundle, claim_candidates=None):
         if record["id"] in records:
             raise ValueError(f"duplicate record id: {record['id']}")
         records[record["id"]] = record
-        nodes.append(_node(record_type, record))
+        source_title = source_titles.get(record.get("source_id")) if record_type == "document" else None
+        nodes.append(_node(record_type, record, source_title))
 
     for plural in RECORD_TYPES:
         for record in bundle[plural]:

@@ -72,9 +72,19 @@
     if (!["topic", "document"].includes(state.mode) || view.pageCount < 2) return;
     const previous = document.createElement("button"); previous.type = "button"; previous.textContent = "Previous"; previous.disabled = view.page === 0;
     previous.addEventListener("click", () => { state.page -= 1; render(); });
+    const pageInput = document.createElement("input");
+    pageInput.type = "number"; pageInput.min = "1"; pageInput.max = String(view.pageCount); pageInput.step = "1";
+    pageInput.value = String(view.page + 1); pageInput.setAttribute("aria-label", "Go to page");
+    pageInput.addEventListener("change", () => {
+      const requestedPage = Number.parseInt(pageInput.value, 10);
+      state.page = Number.isFinite(requestedPage)
+        ? Math.min(Math.max(requestedPage, 1), view.pageCount) - 1
+        : view.page;
+      render();
+    });
     const next = document.createElement("button"); next.type = "button"; next.textContent = "Next"; next.disabled = view.page + 1 >= view.pageCount;
     next.addEventListener("click", () => { state.page += 1; render(); });
-    pageNode.append(previous, document.createTextNode(`${view.page + 1} / ${view.pageCount}`), next);
+    pageNode.append(previous, pageInput, document.createTextNode(`of ${view.pageCount}`), next);
   }
 
   function drawEmpty(message, title) {

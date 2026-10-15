@@ -159,47 +159,48 @@ class ChunkEvaluationTests(unittest.TestCase):
                          sorted(item["element_id"] for item in two_assets))
 
     def test_manual_review_policy_scores_severity_and_requires_complete_review(self):
+        policy = {**REVIEW_POLICY, "minimum_weighted_score": 95}
         samples = [{"chunk_id": f"chunk:{index}"} for index in range(38)]
         build_id = "build:test"
         summary, _ = _apply_reviews({"build_id": build_id, "reviews": [
             {"chunk_id": "chunk:0", "status": "pass"},
             {"chunk_id": "chunk:1", "status": "pending", "notes": "source is unavailable"}]},
-            build_id, samples, REVIEW_POLICY)
+            build_id, samples, policy)
         self.assertEqual((summary["status"], summary["reviewed"], summary["pending"]), ("pending", 1, 37))
         review = [{"chunk_id": f"chunk:{index}", "status": "pass"} for index in range(38)]
         review[0] = {"chunk_id": "chunk:0", "status": "fail", "severity": "major", "notes": "missing lead"}
         summary, _ = _apply_reviews({"build_id": build_id, "reviews": [
-            *review]}, build_id, samples, REVIEW_POLICY)
+            *review]}, build_id, samples, policy)
         self.assertEqual((summary["status"], summary["allowed_failures"]),
                          ("pass", {"critical": 0}))
         self.assertAlmostEqual(summary["weighted_score"], 97.89473684210526)
         review[1] = {"chunk_id": "chunk:1", "status": "fail", "severity": "major", "notes": "split sentence"}
-        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, REVIEW_POLICY)
+        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, policy)
         self.assertEqual(summary["status"], "pass")
         self.assertAlmostEqual(summary["weighted_score"], 95.78947368421052)
         review[2] = {"chunk_id": "chunk:2", "status": "fail", "severity": "major", "notes": "missing condition"}
-        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, REVIEW_POLICY)
+        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, policy)
         self.assertEqual(summary["status"], "fail")
         self.assertAlmostEqual(summary["weighted_score"], 93.6842105263158)
         self.assertEqual(summary["severity_counts"], {"critical": 0, "major": 3, "minor": 0})
         review[2] = {"chunk_id": "chunk:2", "status": "fail", "severity": "critical", "notes": "wrong table mapping"}
-        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, REVIEW_POLICY)
+        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, policy)
         self.assertEqual(summary["status"], "fail")
         self.assertEqual(summary["severity_counts"], {"critical": 1, "major": 2, "minor": 0})
         review = [{"chunk_id": f"chunk:{index}", "status": "pass"} for index in range(38)]
         for index in range(8):
             review[index] = {"chunk_id": f"chunk:{index}", "status": "fail", "severity": "minor",
                              "notes": "formatting defect"}
-        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, REVIEW_POLICY)
+        summary, _ = _apply_reviews({"build_id": build_id, "reviews": review}, build_id, samples, policy)
         self.assertEqual(summary["status"], "fail")
-        self.assertGreater(summary["weighted_score"], REVIEW_POLICY["minimum_weighted_score"])
-        self.assertLess(summary["review_pass_rate"], REVIEW_POLICY["minimum_review_pass_rate"])
+        self.assertGreater(summary["weighted_score"], policy["minimum_weighted_score"])
+        self.assertLess(summary["review_pass_rate"], policy["minimum_review_pass_rate"])
         with self.assertRaises(ValueError):
             _apply_reviews({"build_id": build_id, "reviews": [
                 {"chunk_id": "chunk:0", "status": "fail", "notes": "missing severity"}
-            ]}, build_id, samples, REVIEW_POLICY)
+            ]}, build_id, samples, policy)
         with self.assertRaises(ValueError):
-            _apply_reviews({"build_id": "build:old", "reviews": []}, build_id, samples, REVIEW_POLICY)
+            _apply_reviews({"build_id": "build:old", "reviews": []}, build_id, samples, policy)
 
     def test_review_points_and_minimum_score_come_from_policy(self):
         with tempfile.TemporaryDirectory() as directory:
