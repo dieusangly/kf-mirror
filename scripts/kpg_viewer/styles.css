@@ -12,6 +12,8 @@
   --topic: light-dark(#eee9ff, #3a315f);
   --claim: light-dark(#e5f0ff, #263f62);
   --candidate: light-dark(#fff0df, #563c2d);
+  --semantic: light-dark(#e8e9ff, #373f68);
+  --structural: light-dark(#e2f6f5, #204d51);
   --chunk: light-dark(#e3f7ee, #204a42);
   --element: light-dark(#fff1e9, #5a3935);
   --document: light-dark(#e8f4ff, #294765);
@@ -50,6 +52,8 @@ svg { display: block; min-width: 680px; }
 .node.topic rect { fill: var(--topic); }
 .node.claim rect { fill: var(--claim); }
 .node.candidate rect { fill: var(--candidate); }
+.node.semantic_cluster rect { fill: var(--semantic); }
+.node.structural_chunk rect { fill: var(--structural); }
 .node.chunk rect { fill: var(--chunk); }
 .node.element rect { fill: var(--element); }
 .node.document rect { fill: var(--document); }

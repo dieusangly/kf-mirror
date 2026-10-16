@@ -25,7 +25,7 @@ class ClassifyClaimsCliTests(unittest.TestCase):
                 redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(["--candidates-dir", "candidates", "--output-dir", "compiled"]), 0)
         self.assertEqual(json.loads(stdout.getvalue()), report)
-        self.assertIn("Classifying 1 candidates", stderr.getvalue())
+        self.assertIn("Classifying 1 candidate claims", stderr.getvalue())
         self.assertIn("Classification: 1/1", stderr.getvalue())
         self.assertIn("Writing validated topic artifacts", stderr.getvalue())
         self.assertIn("OpenAI estimated cost: $0.001000 (1 API requests)", stderr.getvalue())

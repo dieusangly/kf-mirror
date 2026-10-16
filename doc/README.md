@@ -12,6 +12,6 @@
 | 8. Parsing evaluation | [Parsing evaluation](parsing-evaluation.md) | Checks and acceptance. |
 | 9. Chunking | [Chunking](chunking.md) | CLI, evidence rules, outputs. |
 | 10. Chunk evaluation | [Chunking evaluation](chunking-evaluation.md) | Automatic checks and source review. |
-| 11. Topic compilation | [Topic compilation](compilation.md) | Models, CLI, review, exports. |
-| 12. Compilation evaluation | [Compilation evaluation](compilation-evaluation.md) | Review and acceptance. |
+| 11. Claim generation and classification | [Claim generation and classification](claim-generation-and-classification.md) | Structural chunks, semantic clusters, models, CLI, review and exports. |
+| 12. Claim evaluation | [Claim evaluation](claim-evaluation.md) | Review and acceptance. |
 | 13. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |

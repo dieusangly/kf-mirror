@@ -1,8 +1,8 @@
 # Knowledge Foundry artifact schemas
 
 The [bundle schema](../schemas/artifact-schema-v1.0.0.json) defines seven normalized
-record types; the [candidate schema](../schemas/claim-candidate-artifact-schema-v1.0.0.json)
-defines intermediate claim candidates. `properties`/`required` define fields,
+record types; the [candidate claim schema](../schemas/claim-candidate-artifact-schema-v1.0.0.json)
+defines intermediate candidate claims. `properties`/`required` define fields,
 `$defs`/`$ref` reuse definitions, `oneOf` selects a location format, and
 `additionalProperties: false` rejects unknown fields.
 
@@ -10,7 +10,8 @@ Bundles and records use `schema_version: "1.0.0"` for field layout, independent 
 publisher versions. A bundle contains seven arrays: `sources`, `documents`,
 `elements`, `chunks`, `claims`, `topics`, `builds`; nested definitions cover
 locations, evidence, generation and spans. Bundles may span saved files; the
-schema does not require one JSON file per PDF. Compilation defines export layout.
+schema does not require one JSON file per PDF. Claim generation and classification
+define the export layout.
 
 ## Records
 
@@ -91,7 +92,7 @@ v1.0.0 contract, not an implemented parser/classifier.
 | Chunk → evidence | `element_id`/`element_revision` match element `id`/`revision`; evidence `document_id` equals the chunk's and element's, and `source_id` equals the document's. |
 | Build → inputs | `input_document_ids` includes every document used by its chunks. |
 | Build → outputs | `output_chunk_ids`, `output_claim_ids`, `output_topic_ids` contain all records whose `build_id` names that build. |
-| Claim → chunks | `chunk_ids` names supporting chunks whose documents are inputs to the compilation build; each claim passage occurs in those chunks. |
+| Claim → chunks | `chunk_ids` names supporting chunks whose documents are inputs to the claim classification build; each claim passage occurs in those chunks. |
 | Claim → evidence | Exact element ID/revision, document ID and source ID, resolved as for chunks. |
 | Claim ↔ topic | `topic_id` is the authoritative single assignment; `topic.claim_ids` is its exact inverse within the same build. |
 
@@ -118,7 +119,7 @@ Evidence names `source_id`, `document_id`, `element_id`, matching
 `0 <= start < end <= len(text)`. Multiple passages need multiple references.
 Locations/versions make evidence reviewable; map pilot locators after parsing.
 
-Claims may use multiple documents and an upstream chunk build. Their compilation
+Claims may use multiple documents and an upstream chunk build. Their classification
 build must include all supporting documents, and each evidence reference must
 exactly match a span-bearing passage in a supporting chunk.
 
@@ -143,3 +144,23 @@ output or approved answer labels.
 With `jsonschema` installed, run `python3 scripts/validate_artifact_examples.py`
 to check saved sources, schemas, IDs, references and spans. This does not measure
 parsing or retrieval quality.
+
+## Frozen structural chunks and semantic clusters
+
+[Structural chunks and semantic clusters build manifest](../schemas/claim-context-artifact-schema-v1.json) is separate
+from the canonical chunk, candidate claim and claim schemas. It pins the original bundle,
+configuration, prompt/schema assumptions and exact semantic cluster plan.
+
+| File | Purpose |
+| --- | --- |
+| `structural-chunks.jsonl` | Derived text, original chunk membership and evidence memberships |
+| `structural-links.jsonl` | Identity/heuristic link reasons and original endpoints |
+| `embeddings.jsonl` | Vectors, exact input hashes and cache/provider provenance |
+| `semantic-clusters.json` | Unique memberships, request hashes/counts and minimum similarity |
+| `report.json` | Sizes, refinement diagnostics and structural chunk and semantic cluster build telemetry |
+| `build-manifest.json` | File hashes, versions and frozen assumptions |
+
+Generation copies the frozen build and saves the candidate-claim-to-cluster mapping
+in `candidate-clusters.json`, preserving canonical evidence and original chunk IDs. Evidence
+spans use zero-based character offsets: start inclusive, end exclusive. See
+[claim generation and classification](claim-generation-and-classification.md) for cache keys, compatibility and resume rules.

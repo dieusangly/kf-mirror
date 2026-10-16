@@ -17,7 +17,7 @@ Topics group claims across sources; claims retain passages and review status.
 | 3. Ingestion | 2–3 | Package, config and CLI; inventory files, detect formats, hash bytes and record every source outcome. |
 | 4. Parsing/normalization | 4–7 | Existing parser for PDF/Markdown/HTML/DOCX and tested OCR scans; preserve hierarchy, tables, available locations and metadata origins; measure reference fidelity. |
 | 5. Cleanup/chunking | 3–5 | Conservative cleanup/exact deduplication; configurable structural chunks with tables, parent context, token limits and resolvable evidence. |
-| 6. Topic compilation/export | 4–7 | Evidence-linked candidate generation and LLM classification under stable topic IDs across documents. Separate generation/classification methods, versions and grounding/classification review statuses. Export normalized JSON, chunk/claim JSONL, topic JSON/Markdown and manifests; validate links and label unreviewed synthesis. |
+| 6. Claim generation, classification and export | 4–7 | Evidence-linked candidate claim generation and LLM classification under stable topic IDs across documents. Separate generation/classification methods, versions and grounding/classification review statuses. Export normalized JSON, chunk/claim JSONL, topic JSON/Markdown and manifests; validate links and label unreviewed synthesis. |
 | 7. Repeat builds | 3–5 | Cache/resume stages; invalidate affected chunks/claims/topics after source/settings changes. Test additions, updates, removals, conflicts and stale-artifact cleanup; retain prior editions. |
 
 Keep parser adapters small and parsed artifacts rebuildable. Compare alternatives
@@ -59,7 +59,7 @@ scope and measured limits.
 
 ## Dependencies and execution
 
-- Define scope/schemas before shared interfaces; ingest/parse before chunking/compilation.
+- Define scope/schemas before shared interfaces; ingest/parse before chunking/claim generation.
 - Validate the core before downstream views. Retrieval uses chunks/topics;
   graph/dataset exports use reviewed claims and can proceed independently.
 - Give agents bounded tasks and acceptance criteria; parallelize adapters/exporters

@@ -17,15 +17,19 @@ sys.path.insert(0, str(ROOT / "src"))
 from knowledge_foundry.chunking import TOKEN, clean, token_count  # noqa: E402
 from knowledge_foundry.review import (  # noqa: E402
     apply_reviews as _apply_reviews,
-    read_review_policy as _read_review_policy,
+    read_review_policy, review_policy_digest,
     select_samples,
 )
 from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 
-EVALUATION_VERSION = "chunk-eval-v1"
+EVALUATION_VERSION = "chunk-eval-v2"
 EXAMPLE_LIMIT = 5
-DEFAULT_REVIEW_POLICY = ROOT / "config/chunking-review-policy.json"
+DEFAULT_REVIEW_POLICY = ROOT / "config/review-policy.json"
 DEFAULT_PIPELINE_CONFIG = ROOT / "config/pipeline.json"
+
+
+def _read_review_policy(path):
+    return read_review_policy(path, subject='chunking')
 
 
 def _read_sample_per_document(config_path=DEFAULT_PIPELINE_CONFIG):
@@ -455,6 +459,9 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
             findings[item["code"]] = item
     samples = [sample for document in documents for sample in document["review_sample"]]
     review = json.loads(Path(review_path).read_text(encoding="utf-8")) if review_path else None
+    policy_hash = review_policy_digest(policy, 'chunking')
+    if review is not None and review.get('review_policy_sha256', policy_hash) != policy_hash:
+        raise ValueError('stale review policy snapshot')
     review_summary, review_findings = _apply_reviews(review, bundle["builds"][0]["id"], samples, policy)
     reviewer = _reviewer(review)
     for item in review_findings:
@@ -474,8 +481,9 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
             "automatic_gate": automatic_gate, "review_gate": review_summary["status"],
             "gate": gate, "max_tokens": maximum, "corpus": corpus, "documents": documents,
             "figures": {key: figure_audit[key] for key in ("expected", "linked")},
-            "references": references, "review_policy": policy, "review": review_summary, "reviewer": reviewer,
+            "references": references, "review_policy": policy, "review_policy_sha256": policy_hash, "review": review_summary, "reviewer": reviewer,
             "review_template": {"build_id": bundle["builds"][0]["id"],
+                                "review_policy_sha256": policy_hash,
                                 "reviewer": {"kind": None, "name": None, "model": None},
                                 "reviews": [{"chunk_id": item["chunk_id"], "status": "pending",
                                              "severity": None, "notes": "source inspection pending"}

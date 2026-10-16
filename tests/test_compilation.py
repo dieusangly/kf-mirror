@@ -8,11 +8,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from knowledge_foundry.claim_compilation import (
+from test_claim_context import generate_claims, prepare_fixture, fixture_settings
+
+from knowledge_foundry.claim_generation_and_classification import (
     ROOT, CANDIDATE_SCHEMA, FixtureProvider, OpenAIProvider, _candidate_input, _candidate_record,
     _evidence_choices, _generation_coverage, _project_generation, _subset_batch_indices, _telemetry,
     _validate_candidate, canonical, digest,
-    classify_claims, generate_claims,
+    classify_claims,
 )
 from knowledge_foundry.openai_tools import DEFAULT_MODEL
 from scripts.validate_artifact_examples import check
@@ -34,11 +36,11 @@ class CompilationTests(unittest.TestCase):
                                                               "cache_write": 2.5, "output": 10},
                      "long_context_usd_per_million_tokens": {"input": 4, "cached_input": 0.2,
                                                              "cache_write": 5, "output": 15}}
-        config = {"pipeline_version": "compilation-test-v1", "batch_size_chunks": 4, "retries": retries,
-                  "provider": provider, "model": DEFAULT_MODEL, "reasoning_effort": "medium",
-                  "pricing": {"rate_card_version": "test", "models": {DEFAULT_MODEL: rate_card}},
-                  "generation_version": "claim-generation-test-v1",
-                  "classification_version": "topic-classification-test-v1"}
+        config = fixture_settings()
+        config['pipeline_version'] = 'compilation-test-v1'
+        for name in ('claim_generation', 'topic_classification'):
+            config['steps'][name].update(provider=provider, retries=retries)
+            config['pricing']['providers'][provider]['models'][DEFAULT_MODEL].update(rate_card)
         taxonomy = {"taxonomy_version": "taxonomy-test-v1", "topics": [
             {"id": "topic:beneficial-ownership", "title": "Bénéficiaires effectifs", "scope": "Propriétaires."}]}
         config_path, taxonomy_path = directory / "config.json", directory / "topics.json"
@@ -54,7 +56,7 @@ class CompilationTests(unittest.TestCase):
             bundle = self._input_bundle()
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             chunk = bundle["chunks"][0]
-            fixture = {"candidate_batches": {chunk["id"]: {"claims": [{
+            fixture = {"candidate_clusters": {chunk["id"]: {"claims": [{
                 "text": "Les lignes directrices sauvegardées identifient l'autorité de contrôle compétente.",
                 "evidence": ["E1"]}]}},
                 "classifications": {"Les lignes directrices sauvegardées identifient l'autorité de contrôle compétente.":
@@ -100,23 +102,31 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             chunk = bundle["chunks"][0]
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+            fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": [{
                 "text": "Assertion persistée.",
                 "evidence": ["E1"],
             }]}}, "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             generated = root / "generated"
-            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+            with patch("knowledge_foundry.claim_generation_and_classification._write_json", side_effect=RuntimeError("export failure")):
                 with self.assertRaisesRegex(RuntimeError, "export failure"):
                     generate_claims(chunked, generated, config_path, fixture)
             self.assertTrue((generated / "generation-checkpoint.json").is_file())
             self.assertTrue((generated / "claim-candidates.jsonl").is_file())
+            # Simulate an older interrupted run: telemetry must survive resume.
+            saved_path = generated / 'generation-checkpoints/cluster-000001.json'
+            saved = json.loads(saved_path.read_text())
+            saved['token_counting'] = saved.pop('claim_generation_request_token_counting')
+            saved['token_counting']['cache_hits'] = 7
+            saved_path.write_text(json.dumps(saved))
             empty_fixture = root / "empty-fixture.json"
-            empty_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {
+            empty_fixture.write_text(json.dumps({"candidate_clusters": {}, "classifications": {
                 "Assertion persistée.": None}}), encoding="utf-8")
             report = generate_claims(chunked, generated, config_path, empty_fixture, resume=True)
             self.assertEqual((report["status"], report["candidates"]), ("complete", 1))
             self.assertEqual(report["coverage"]["summary"]["cited_chunks"], 1)
+            self.assertEqual(report['claim_generation_request_token_counting']['cache_hits'], 7)
+            self.assertNotIn('token_counting', report)
             self.assertFalse((generated / "generation-checkpoint.json").exists())
             self.assertTrue((generated / "build-manifest.json").is_file())
             classified = classify_claims(generated, root / "classified", config_path, taxonomy_path, empty_fixture)
@@ -130,10 +140,10 @@ class CompilationTests(unittest.TestCase):
             bundle = self._input_bundle()
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            fixture.write_text(json.dumps({"candidate_clusters": {}, "classifications": {}}), encoding="utf-8")
             config_path, _ = self._write_settings(root)
             generated = root / "generated"
-            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+            with patch("knowledge_foundry.claim_generation_and_classification._write_json", side_effect=RuntimeError("export failure")):
                 with self.assertRaisesRegex(RuntimeError, "export failure"):
                     generate_claims(chunked, generated, config_path, fixture)
             with self.assertRaisesRegex(ValueError, "checkpoint does not match"):
@@ -147,10 +157,10 @@ class CompilationTests(unittest.TestCase):
             bundle = self._input_bundle()
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            fixture.write_text(json.dumps({"candidate_clusters": {}, "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             generated = root / "generated"
-            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+            with patch("knowledge_foundry.claim_generation_and_classification._write_json", side_effect=RuntimeError("export failure")):
                 with self.assertRaisesRegex(RuntimeError, "export failure"):
                     generate_claims(chunked, generated, config_path, fixture)
             with self.assertRaisesRegex(ValueError, "generation is incomplete"):
@@ -165,14 +175,14 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             chunk = bundle["chunks"][0]
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
+            fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": []}},
                                            "classifications": {}}), encoding="utf-8")
             config_path, _ = self._write_settings(root)
             environment = dict(os.environ)
             environment.pop("PYTHONPATH", None)
             result = subprocess.run(
                 [sys.executable, str(ROOT / "scripts" / "generate_claims.py"),
-                 "--chunked-dir", str(chunked), "--output-dir", str(root / "generated"),
+                 "--context-dir", str(prepare_fixture(chunked, config_path)), "--output-dir", str(root / "generated"),
                  "--config", str(config_path), "--fixture", str(fixture)],
                 cwd=root, env=environment, text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -187,7 +197,7 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             chunk = bundle["chunks"][0]
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
+            fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": []}},
                                            "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             generated = root / "generated"
@@ -207,7 +217,7 @@ class CompilationTests(unittest.TestCase):
             {"input_tokens": 100, "cached_input_tokens": 20, "cache_write_tokens": 10, "output_tokens": 5},
             {"input_tokens": 300000, "cached_input_tokens": 0, "cache_write_tokens": 0, "output_tokens": 10},
         ]})()
-        config = {"provider": "openai", "model": DEFAULT_MODEL, "pricing": {
+        legacy = {"provider": "openai", "model": DEFAULT_MODEL, "pricing": {
             "rate_card_version": "test", "models": {DEFAULT_MODEL: {
                 "short_context_limit_tokens": 272000,
                 "short_context_usd_per_million_tokens": {"input": 2, "cached_input": 0.1,
@@ -216,6 +226,10 @@ class CompilationTests(unittest.TestCase):
                                                           "cache_write": 5, "output": 15},
             }},
         }}
+        config = fixture_settings()
+        config['steps']['claim_generation']['provider'] = 'openai'
+        config['pricing']['version'] = 'test'
+        config['pricing']['providers']['openai']['models'][DEFAULT_MODEL].update(legacy['pricing']['models'][DEFAULT_MODEL])
         telemetry = _telemetry(provider, config)
         self.assertEqual(telemetry["usage"], {"input_tokens": 300100, "cached_input_tokens": 20,
                                                "cache_write_tokens": 10, "output_tokens": 15})
@@ -224,13 +238,15 @@ class CompilationTests(unittest.TestCase):
 
     def test_length_stratified_subset_and_generation_projection_are_deterministic(self):
         self.assertEqual(_subset_batch_indices([10, 100, 10, 100], 2), [1, 3])
-        config = {"model": DEFAULT_MODEL, "pricing": {"models": {DEFAULT_MODEL: {
+        legacy = {"model": DEFAULT_MODEL, "pricing": {"models": {DEFAULT_MODEL: {
             "short_context_limit_tokens": 272000,
             "short_context_usd_per_million_tokens": {"input": 1, "cached_input": 0,
                                                        "cache_write": 0, "output": 1},
             "long_context_usd_per_million_tokens": {"input": 2, "cached_input": 0,
                                                       "cache_write": 0, "output": 2},
         }}}}
+        config = fixture_settings()
+        config['pricing']['providers']['fixture']['models'][DEFAULT_MODEL].update(legacy['pricing']['models'][DEFAULT_MODEL])
         scope = {"mode": "subset", "total_chunks": 8, "selected_chunks": 2,
                  "generation_request_characters": {"total": 400, "selected": 100}}
         records = [{"input_tokens": 100, "cached_input_tokens": 0,
@@ -247,7 +263,7 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             chunk = bundle["chunks"][0]
             fixture_path = root / "fixture.json"
-            fixture_path.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": []}},
+            fixture_path.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": []}},
                                                 "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             full = generate_claims(chunked, root / "full", config_path, fixture_path)
@@ -266,12 +282,12 @@ class CompilationTests(unittest.TestCase):
             chunk = bundle["chunks"][0]
             text = "Les lignes directrices sauvegardées identifient l'autorité de contrôle compétente."
             generation_fixture = root / "generation.json"
-            generation_fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+            generation_fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": [{
                 "text": text, "evidence": ["E1"]}]}},
                 "classifications": {}}), encoding="utf-8")
             null_fixture, topic_fixture = root / "null.json", root / "topic.json"
-            null_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {text: None}}), encoding="utf-8")
-            topic_fixture.write_text(json.dumps({"candidate_batches": {}, "classifications": {
+            null_fixture.write_text(json.dumps({"candidate_clusters": {}, "classifications": {text: None}}), encoding="utf-8")
+            topic_fixture.write_text(json.dumps({"candidate_clusters": {}, "classifications": {
                 text: "topic:beneficial-ownership"}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             generated = root / "generated"
@@ -290,12 +306,12 @@ class CompilationTests(unittest.TestCase):
             bundle = self._input_bundle()
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             fixture_path = root / "fixture.json"
-            fixture_path.write_text(json.dumps({"candidate_batches": {}, "classifications": {}}), encoding="utf-8")
+            fixture_path.write_text(json.dumps({"candidate_clusters": {}, "classifications": {}}), encoding="utf-8")
             config_path, taxonomy_path = self._write_settings(root)
             generated = root / "generated"
             generate_claims(chunked, generated, config_path, fixture_path)
             (generated / "claim-candidates.jsonl").write_text("{}\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "candidate artifact manifest is invalid"):
+            with self.assertRaisesRegex(ValueError, "candidate claim artifact manifest is invalid"):
                 classify_claims(generated, root / "compiled", config_path, taxonomy_path, fixture_path)
 
     def test_compiled_claim_requires_exact_span(self):
@@ -328,8 +344,10 @@ class CompilationTests(unittest.TestCase):
         self.assertEqual(list(choices), ["E1"])
         ref = chunk["evidence"][1]
         expected = elements[ref["element_id"]]["text"][ref["span"]["start"]:ref["span"]["end"]]
-        self.assertEqual(payload["eligible_evidence"][0]["text"], expected)
-        self.assertNotEqual(payload["eligible_evidence"][0]["text"], chunk["text"])
+        self.assertNotIn('text', payload['eligible_evidence'][0])
+        self.assertEqual(payload['structural_chunks'][0]['text'].count(expected), 1)
+        self.assertIn('[E1] Voir [C1]', payload['structural_chunks'][0]['text'])
+        self.assertNotIn(chunk['text'], payload['structural_chunks'][0]['text'])
         record = _candidate_record("build:test", {"text": "Assertion.", "evidence": ["E1"]},
                                    {"method": "manual", "version": "test"}, choices)
         self.assertEqual(record["evidence"], [ref])
@@ -362,7 +380,8 @@ class CompilationTests(unittest.TestCase):
         original = copy.deepcopy(bundle)
         elements = {item["id"]: item for item in bundle["elements"]}
         payload = json.loads(_candidate_input([chunk], elements))
-        self.assertEqual(payload["eligible_evidence"][0]["text"], heading["text"])
+        self.assertNotIn('text', payload['eligible_evidence'][0])
+        self.assertIn('[E1]\n' + heading['text'], payload['structural_chunks'][0]['text'])
         self.assertEqual(payload["eligible_evidence"][0]["kind"], "heading")
         with tempfile.TemporaryDirectory() as value:
             root = Path(value)
@@ -371,11 +390,11 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             config, taxonomy = self._write_settings(root)
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+            fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": [{
                 "text": "Assertion avec contexte sauvegardé.", "evidence": ["E1", "E2"]}]}},
                 "classifications": {"Assertion avec contexte sauvegardé.": "topic:beneficial-ownership"}}))
             generated = root / "generated"
-            with patch("scripts.validate_artifact_examples.check", side_effect=RuntimeError("export failure")):
+            with patch("knowledge_foundry.claim_generation_and_classification._write_json", side_effect=RuntimeError("export failure")):
                 with self.assertRaisesRegex(RuntimeError, "export failure"):
                     generate_claims(chunked, generated, config, fixture)
             with patch.object(FixtureProvider, "candidates", side_effect=AssertionError("must reuse checkpoint")):
@@ -436,8 +455,8 @@ class CompilationTests(unittest.TestCase):
                     return {"claims": [good] if recover and len(self.usage_records) == 2 else [good, bad]}
 
             provider = ScriptedProvider({})
-            with patch("knowledge_foundry.claim_compilation._provider", return_value=provider), \
-                    patch("knowledge_foundry.claim_compilation.time.sleep"):
+            with patch("knowledge_foundry.claim_generation_and_classification._provider", return_value=provider), \
+                    patch("knowledge_foundry.claim_generation_and_classification.time.sleep"):
                 report = generate_claims(chunked, root / "generated", config)
             self.assertEqual(report["telemetry"]["requests"], 2)
             self.assertEqual(report["telemetry"]["usage"]["input_tokens"], 20)
@@ -461,7 +480,7 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             config, taxonomy = self._write_settings(root, retries=1)
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {chunk["id"]: {"claims": [{
+            fixture.write_text(json.dumps({"candidate_clusters": {chunk["id"]: {"claims": [{
                 "text": "Assertion conservée.", "evidence": ["E1"]}]}}, "classifications": {}}))
             generated = root / "generated"
             generate_claims(chunked, generated, config, fixture)
@@ -474,10 +493,10 @@ class CompilationTests(unittest.TestCase):
                 return responses.pop(0)
 
             settings = json.loads(config.read_text())
-            settings["retries"] = 2
+            settings["steps"]["topic_classification"]["retries"] = 2
             config.write_text(json.dumps(settings))
             with patch.object(FixtureProvider, "classify", side_effect=classify), \
-                    patch("knowledge_foundry.claim_compilation.time.sleep"):
+                    patch("knowledge_foundry.claim_generation_and_classification.time.sleep"):
                 report = classify_claims(generated, root / "classified", config, taxonomy, fixture)
             self.assertEqual(len(contexts), 3)
             self.assertEqual((report["status"], report["claims"], report["errors"]), ("complete", 1, []))
@@ -492,7 +511,7 @@ class CompilationTests(unittest.TestCase):
             self.assertEqual(context["evidence"][0]["location"], element["location"])
             self.assertEqual(context["chunks"][0]["text"], chunk["text"])
             with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}), \
-                    patch("knowledge_foundry.claim_compilation.OpenAIResponsesTool.json_response",
+                    patch("knowledge_foundry.claim_generation_and_classification.OpenAIResponsesTool.json_response",
                           return_value={"topic_id": None}) as response:
                 provider = OpenAIProvider(DEFAULT_MODEL, "medium")
                 provider.classify(context, json.loads(taxonomy.read_text()), "test", {"type": "object"})
@@ -525,10 +544,10 @@ class CompilationTests(unittest.TestCase):
             (chunked / "artifact-bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
             config, _ = self._write_settings(root)
             fixture = root / "fixture.json"
-            fixture.write_text(json.dumps({"candidate_batches": {}}))
+            fixture.write_text(json.dumps({"candidate_clusters": {}}))
             report = generate_claims(chunked, root / "targeted", config, fixture, batch_numbers=[1])
             scope = report["compilation_scope"]
-            self.assertEqual((scope["mode"], scope["selection"], scope["selected_batch_numbers"]),
+            self.assertEqual((scope["mode"], scope["selection"], scope["selected_cluster_numbers"]),
                              ("subset", "explicit", [1]))
             self.assertEqual(scope["selected_chunk_ids"], [bundle["chunks"][0]["id"]])
             self.assertEqual(json.loads((root / "targeted/artifact-bundle.json").read_text())["chunks"],

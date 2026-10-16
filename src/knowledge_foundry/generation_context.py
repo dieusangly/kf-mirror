@@ -1,118 +1,117 @@
-"""Group saved passages using structural context hints for generation."""
+"""Exact generation request construction and cached provider token counts."""
 
-import re
-from collections import defaultdict
+import json
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
+from knowledge_foundry.embeddings import atomic_json
+from knowledge_foundry.openai_tools import response_payload
+from knowledge_foundry.structural_chunks import footnote_links, stable_hash
 
-def footnote_links(chunks, elements):
-    """Suggest numbered PDF note links from same-page text; review attachment."""
-    notes = defaultdict(list)
-    passages = []
-    for chunk in chunks:
-        for ref in chunk["evidence"]:
-            if "span" not in ref:
-                continue
-            element = elements[ref["element_id"]]
-            if element["location"]["format"] != "pdf":
-                continue
-            span = ref["span"]
-            text = element["text"][span["start"]:span["end"]]
-            location = (ref["document_id"], element["location"]["page"])
-            if element["kind"] == "footnote" and re.match(r"^\d+\s+", text):
-                notes[location].append((text.split()[0], ref))
-            elif element["kind"] not in {"footnote", "heading"}:
-                passages.append((location, text, ref))
-    return [(parent, note) for location, text, parent in passages
-            for number, note in notes[location]
-            if not re.match(r"^\s*" + re.escape(number) + r"[.)]\s", text) and
-            re.search(r"(?<![\w.\-])" + re.escape(number) + r"(?![\w°%\-]|\.\d)", text)]
+COUNT_VERSION = "response-input-count-v2"
 
 
-def generation_batches(chunks, elements, batch_size):
-    """Pack linked chunk groups once; batch_size is a target, not a context cutoff."""
-    owners = defaultdict(set)
-    for index, chunk in enumerate(chunks):
-        for ref in chunk["evidence"]:
-            if "span" in ref:
-                owners[ref["element_id"]].add(index)
-    parents = list(range(len(chunks)))
+def usable_input_budget(config):
+    budget = config['context_window_tokens'] - config['reserved_output_tokens'] - config['safety_margin_tokens']
+    cap = config['operational_input_cap_tokens']
+    return min(budget, cap) if cap is not None else budget
 
-    def root(index):
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
 
-    def link(left, right):
-        parents[root(right)] = root(left)
+def generation_payload(config, input_text, prompt, schema):
+    config = config['steps']['claim_generation']
+    return response_payload(config['model'], config['reasoning_effort'], prompt, input_text,
+                            'claim_candidates', schema,
+                            config['budget']['reserved_output_tokens'])
 
-    def link_elements(left_id, right_id):
-        for left in owners[left_id]:
-            for right in owners[right_id]:
-                link(left, right)
 
-    for index, chunk in enumerate(chunks):
-        for ref in chunk["evidence"]:
-            if "span" not in ref and elements[ref["element_id"]]["kind"] != "heading":
-                for owner in owners[ref["element_id"]]:
-                    link(index, owner)
-    # Lettered options need their introduction, including across PDF page breaks.
-    flow = sorted((elements[key] for key in owners if elements[key]["kind"] != "footnote"),
-                  key=lambda item: (item["document_id"], item["ordinal"]))
-    for index, element in enumerate(flow):
-        if not element["text"].rstrip().endswith(":"):
-            continue
-        related = []
-        for other in flow[index + 1:]:
-            if other["document_id"] != element["document_id"] or other["kind"] != "list_item" or \
-                    not re.match(r"^[a-z][.)]\s", other["text"], re.I):
-                break
-            related.append(other)
-        if related and index and flow[index - 1]["kind"] == "list_item" and \
-                flow[index - 1]["text"].rstrip().endswith(":") and \
-                flow[index - 1]["document_id"] == element["document_id"]:
-            related.append(flow[index - 1])
-        for other in related:
-            link_elements(element["id"], other["id"])
-    # A continued table row can carry an obligation in a different column from
-    # the typology examples. Keep its saved spans together across page breaks.
-    tables = sorted((elements[key] for key in owners if elements[key]["kind"] == "table"),
-                    key=lambda item: (item["document_id"], item["ordinal"]))
-    for previous, current in zip(tables, tables[1:]):
-        left_location, right_location = previous["location"], current["location"]
-        if previous["document_id"] != current["document_id"] or \
-                left_location["format"] != "pdf" or right_location["format"] != "pdf" or \
-                right_location["page"] != left_location["page"] + 1:
-            continue
-        cells = previous["text"].splitlines()[-1].split("|")
-        next_cells = current["text"].splitlines()[0].split("|")
-        if len(cells) < 2 or len(next_cells) < 2:
-            continue
-        # PDF extraction may omit an empty/merged column on the next page.
-        # In that case require a visibly continued final cell as well.
-        same_columns = len(cells) == len(next_cells)
-        continued_cell = (len(next_cells) < len(cells) and
-                          re.match(r"^[a-zà-ÿ]", next_cells[-1].lstrip()) and
-                          not cells[-1].rstrip().endswith((".", ";", ":", "!", "?")))
-        if not same_columns and not continued_cell:
-            continue
-        if any(cell.strip() and not cell.rstrip().endswith((".", ";", ":", "!", "?"))
-               for cell in cells[1:][-2:]):
-            link_elements(previous["id"], current["id"])
-    for parent, note in footnote_links(chunks, elements):
-        link_elements(parent["element_id"], note["element_id"])
-    groups = defaultdict(list)
-    for index, chunk in enumerate(chunks):
-        groups[root(index)].append(chunk)
-    batches, pending = [], []
-    for group in groups.values():
-        if pending and len(pending) + len(group) > batch_size:
-            batches.append(pending)
-            pending = []
-        pending.extend(group)
-        if len(pending) >= batch_size:
-            batches.append(pending)
-            pending = []
-    if pending:
-        batches.append(pending)
-    return batches
+def _token_count_http_error(error, api_key):
+    """Expose bounded provider diagnostics without request payloads or credentials."""
+    message, code, parameter = 'provider error details unavailable', None, None
+    try:
+        body = json.loads(error.read(8192).decode('utf-8', errors='replace'))
+        details = body.get('error') if isinstance(body, dict) else None
+        if isinstance(details, dict):
+            if isinstance(details.get('message'), str):
+                message = details['message']
+            code = details.get('code')
+            parameter = details.get('param')
+    except (OSError, ValueError, AttributeError):
+        pass
+    fields = [f'HTTP {error.code}']
+    for label, value in (('code', code), ('param', parameter)):
+        if isinstance(value, str) and value:
+            fields.append(f'{label}={value}')
+    request_id = error.headers.get('x-request-id') if error.headers else None
+    if isinstance(request_id, str) and request_id:
+        fields.append('request_id=' + request_id)
+    diagnostic = f"OpenAI input token counting failed ({', '.join(fields)}): {message}"
+    diagnostic = diagnostic.replace(api_key, '[redacted]')
+    return RuntimeError(' '.join(diagnostic.split())[:2000])
+
+
+class RequestCounter:
+    """Count exact payloads; fixture byte estimates are explicitly offline-only."""
+    def __init__(self, config, cache_dir, api_key=None):
+        config = config['steps']['claim_generation']
+        self.config, self.cache_dir, self.api_key = config, Path(cache_dir), api_key
+        self.telemetry = {'requests': 0, 'cache_hits': 0, 'failed_requests': 0,
+                          'estimated_cost_usd': None if config['provider'] == 'openai' else 0,
+                          'method': 'provider' if config['provider'] == 'openai' else 'offline_utf8_byte_estimate'}
+
+    def count(self, payload):
+        identity = {'version': COUNT_VERSION, 'method': self.telemetry['method'], 'payload': payload}
+        key = stable_hash(identity)
+        path = self.cache_dir / (key + '.json')
+        if path.exists():
+            record = json.loads(path.read_text())
+            if record.get('identity') != identity or type(record.get('input_tokens')) is not int or \
+                    record['input_tokens'] < 1 or record.get('sha256') != stable_hash([identity, record['input_tokens']]):
+                raise ValueError('token count cache integrity mismatch')
+            self.telemetry['cache_hits'] += 1
+            return record['input_tokens']
+        if self.config['provider'] == 'fixture':
+            count = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+        else:
+            import os
+            import time
+            key_value = self.api_key or os.environ.get('OPENAI_API_KEY')
+            if not key_value:
+                raise ValueError('OPENAI_API_KEY is required for request token counting')
+            for attempt in range(self.config['retries'] + 1):
+                self.telemetry['requests'] += 1
+                try:
+                    request = Request('https://api.openai.com/v1/responses/input_tokens',
+                                      # The counting endpoint accepts input fields, but not this output limit.
+                                      data=json.dumps({key: value for key, value in payload.items()
+                                                       if key != 'max_output_tokens'}, ensure_ascii=False).encode(),
+                                      headers={'Authorization': 'Bearer ' + key_value, 'Content-Type': 'application/json'})
+                    with urlopen(request, timeout=90) as response:
+                        count = json.load(response).get('input_tokens')
+                    if type(count) is not int or count < 1:
+                        raise ValueError('invalid provider input token count')
+                    break
+                except HTTPError as exc:
+                    self.telemetry['failed_requests'] += 1
+                    failure = _token_count_http_error(exc, key_value)
+                    retryable = exc.code in {408, 409, 429} or 500 <= exc.code <= 599
+                    if not retryable or attempt == self.config['retries']:
+                        raise failure from exc
+                    time.sleep(min(2 ** attempt, 4))
+                except Exception:
+                    self.telemetry['failed_requests'] += 1
+                    if attempt == self.config['retries']:
+                        raise
+                    time.sleep(min(2 ** attempt, 4))
+        atomic_json(path, {'identity': identity, 'input_tokens': count,
+                           'sha256': stable_hash([identity, count])})
+        return count
+
+    def check(self, payload, label):
+        tokens = self.count(payload)
+        limit = usable_input_budget(self.config['budget'])
+        if tokens > limit:
+            raise ValueError(f'{label}: complete generation request has {tokens} input tokens; limit {limit}; '
+                             'inspect structural links or rebuild structural chunks and semantic clusters with a verified larger budget; '
+                             'structural splitting is outside scope')
+        return tokens

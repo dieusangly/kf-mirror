@@ -1,4 +1,4 @@
-"""Regression checks for saved context and corpus-independent compilation."""
+"""Regression checks for saved context and claim generation/classification."""
 
 import copy
 import json
@@ -7,16 +7,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from knowledge_foundry.claim_compilation import (
+from test_claim_context import generate_claims, prepare_fixture, fixture_settings
+
+from knowledge_foundry.claim_generation_and_classification import (
     ROOT, FixtureProvider, _candidate_record, _evidence_choices,
-    _validate_candidate, canonical, classify_claims, digest, generate_claims,
+    _validate_candidate, canonical, classify_claims, digest,
 )
-from knowledge_foundry.generation_context import generation_batches
-from knowledge_foundry.parsing import parse_collection
 from knowledge_foundry.chunking import build_collection
+from knowledge_foundry.parsing import parse_collection
+from knowledge_foundry.structural_chunks import assemble_structural_chunks
+from scripts.evaluate_claims import evaluate as evaluate_compilation
 from scripts.evaluate_parsing import evaluate as evaluate_parsing
-from scripts.evaluate_compilation import evaluate as evaluate_compilation
 from scripts.validate_artifact_examples import check
+
+
+def generation_batches(chunks, elements, _legacy_size):
+    records, _ = assemble_structural_chunks({'chunks': chunks, 'elements': list(elements.values())})
+    by_id = {c['id']: c for c in chunks}
+    return sorted(([by_id[cid] for cid in r['original_chunk_ids']] for r in records),
+                  key=lambda group: min(c['sequence'] for c in group))
 
 
 class CompilationContextTests(unittest.TestCase):
@@ -53,6 +62,62 @@ class CompilationContextTests(unittest.TestCase):
                                    output_claim_ids=[], output_topic_ids=[])
         check(bundle)
         return bundle
+
+    def test_inline_structural_text_preserves_order_context_and_citation_map(self):
+        from knowledge_foundry.claim_generation_and_classification import _candidate_input
+        bundle = self.bundle([
+            ('paragraph', 'Context without an exact span.', 1),
+            ('paragraph', 'Dogs must rest.', 1),
+            ('footnote', 'Only when tired.', 1)], [[(0,), 1, 2]])
+        elements = {e['id']: e for e in bundle['elements']}
+        records, _ = assemble_structural_chunks(bundle)
+        original = copy.deepcopy(bundle)
+        payload = json.loads(_candidate_input(bundle['chunks'], elements, bundle, records))
+        self.assertEqual(bundle, original)
+        self.assertEqual(payload['structural_chunks'][0]['passage_ids'], ['C1', 'E1', 'E2'])
+        self.assertEqual(payload['structural_chunks'][0]['text'],
+                         '[C1] Contexte non citable\nContext without an exact span.\n\n'
+                         '[E1]\nDogs must rest.\n\n[E2]\nOnly when tired.')
+        self.assertEqual([r['id'] for r in payload['eligible_evidence']], ['E1', 'E2'])
+        self.assertTrue(all('text' not in r for r in payload['eligible_evidence']))
+        self.assertTrue(all('text' not in r for r in payload['original_chunks']))
+        choices = self.choices(bundle)
+        for citation in payload['eligible_evidence']:
+            self.assertEqual(citation['reference'], choices[citation['id']]['reference'])
+        self.assertEqual(payload['non_citable_context'][0]['id'], 'C1')
+        from jsonschema import ValidationError
+        with self.assertRaises(ValidationError):
+            self.record('Context is not evidence.', ['C1'], choices)
+        self.assertEqual(_candidate_input(bundle['chunks'], elements, bundle, records),
+                         _candidate_input(bundle['chunks'], elements, bundle, records))
+
+    def test_inline_citation_map_retains_passage_footnote_links(self):
+        from knowledge_foundry.claim_generation_and_classification import _candidate_input
+        bundle = self.exception_bundle()
+        elements = {e['id']: e for e in bundle['elements']}
+        records, _ = assemble_structural_chunks(bundle)
+        payload = json.loads(_candidate_input(bundle['chunks'], elements, bundle, records))
+        for entry in payload['eligible_evidence']:
+            expected = {k: v for k, v in self.choices(bundle)[entry['id']].items()
+                        if k not in {'text', 'chunk_id'}}
+            self.assertEqual(entry, {'id': entry['id'], **expected})
+        self.assertTrue(any(e.get('footnote_evidence') for e in payload['eligible_evidence']))
+
+    def test_shared_passages_render_once_but_distinct_locations_retain_equal_text(self):
+        from knowledge_foundry.claim_generation_and_classification import _candidate_input
+        bundle = self.bundle([('paragraph', 'Identical wording.', 1),
+                              ('paragraph', 'Identical wording.', 2)], [[0], [1]])
+        elements = {e['id']: e for e in bundle['elements']}
+        records, _ = assemble_structural_chunks(bundle)
+        # Explicit memberships let this exercise shared references across records,
+        # independently of assembly's choice to join fragments of one element.
+        records[1]['evidence_memberships'].insert(0, copy.deepcopy(records[0]['evidence_memberships'][0]))
+        payload = json.loads(_candidate_input(bundle['chunks'], elements, bundle, records))
+        text = '\n'.join(r['text'] for r in payload['structural_chunks'])
+        self.assertEqual(text.count('Identical wording.'), 2)
+        self.assertIn('même passage source', text)
+        self.assertEqual(len(payload['eligible_evidence']), 2)
+        self.assertEqual(sum(len(r['passage_ids']) for r in payload['structural_chunks']), 3)
 
     def exception_bundle(self):
         return self.bundle([
@@ -169,9 +234,10 @@ class CompilationContextTests(unittest.TestCase):
         chunked = root / 'chunked'
         chunked.mkdir(exist_ok=True)
         (chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
-        settings = json.loads((ROOT / 'config/compilation.json').read_text())
-        settings.update(provider='fixture', retries=1, batch_size_chunks=100)
-        config = root / 'compilation.json'
+        settings = fixture_settings()
+        settings['steps']['claim_generation']['retries'] = 1
+        settings['steps']['topic_classification']['retries'] = 1
+        config = root / 'claim-generation-and-classification.json'
         config.write_text(json.dumps(settings))
         taxonomy = root / 'topics.json'
         taxonomy.write_text(json.dumps({'taxonomy_version': 'observatory-v1', 'topics': [{
@@ -192,7 +258,7 @@ class CompilationContextTests(unittest.TestCase):
                 return {'topic_id': dict(outcomes)[context['claim']]}
 
         generated, classified = root / 'generated', root / 'classified'
-        with patch('knowledge_foundry.claim_compilation._provider', return_value=Provider({})):
+        with patch('knowledge_foundry.claim_generation_and_classification._provider', return_value=Provider({})):
             generation = generate_claims(chunked, generated, config)
             original = (generated / 'claim-candidates.jsonl').read_bytes()
             classification = classify_claims(generated, classified, config, taxonomy)

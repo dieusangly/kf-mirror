@@ -77,10 +77,13 @@
     });
     sorted.forEach(node => {
       const point = positions.get(node.id);
-      const group = svgElement("g", {class: `node ${node.group}${state.selectedId === node.id ? " selected" : ""}`, tabindex: "0", role: "button", "aria-label": `${node.group}: ${node.label}`});
+      const groupLabel = node.group === "candidate" ? `candidate claim, ${node.classification_status || "status unavailable"}` : node.group.replaceAll("_", " ");
+      const group = svgElement("g", {class: `node ${node.group}${state.selectedId === node.id ? " selected" : ""}`, tabindex: "0", role: "button", "aria-label": `${groupLabel}: ${node.label}`});
       group.append(svgElement("rect", {x: point.x, y: point.y, width: cardWidth, height: cardHeight}));
       const kind = svgElement("text", {x: point.x + 10, y: point.y + 15, class: "node-kind"});
-      kind.textContent = node.group.toUpperCase();
+      kind.textContent = node.group === "candidate"
+        ? `CANDIDATE · ${(node.classification_status || "STATUS UNKNOWN").toUpperCase()}`
+        : groupLabel.toUpperCase();
       group.append(kind);
       textLines(node.label, 28, 2).forEach((line, row) => {
         const label = svgElement("text", {x: point.x + 10, y: point.y + 34 + row * 14, class: "node-label"});

@@ -1,3 +1,4 @@
+from test_claim_context import generate_claims, prepare_fixture, fixture_settings
 """Source-review gates are deterministic; fixtures test mechanics, not model quality."""
 
 import copy
@@ -9,9 +10,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from knowledge_foundry.claim_compilation import ROOT, canonical, classify_claims, digest, generate_claims
+from knowledge_foundry.claim_generation_and_classification import ROOT, canonical, classify_claims, digest
 from knowledge_foundry.review import apply_reviews, read_review_policy
-from scripts.evaluate_compilation import DEFAULT_POLICY, _select, evaluate, main
+from scripts.evaluate_claims import DEFAULT_POLICY, _select, evaluate, main
 
 
 class CompilationEvaluationTests(unittest.TestCase):
@@ -25,12 +26,13 @@ class CompilationEvaluationTests(unittest.TestCase):
         bundle['claims'], bundle['topics'] = [], []
         bundle['builds'][0].update(output_claim_ids=[], output_topic_ids=[])
         (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
-        config = json.loads((ROOT / 'config/compilation.json').read_text())
-        config.update(provider='fixture', retries=0)
+        config = fixture_settings()
+        config['steps']['claim_generation']['retries'] = 0
+        config['steps']['topic_classification']['retries'] = 0
         self.config = self.root / 'config.json'
         self.config.write_text(json.dumps(config))
         self.fixture = self.root / 'fixture.json'
-        self.fixture.write_text(json.dumps({'candidate_batches': {bundle['chunks'][0]['id']: {'claims': [
+        self.fixture.write_text(json.dumps({'candidate_clusters': {bundle['chunks'][0]['id']: {'claims': [
             {'text': text, 'evidence': ['E1']} for text in ['Assertion A.', 'Assertion B.', 'Récit sans règle.']]}},
             'classifications': {'Assertion A.': 'topic:beneficial-ownership',
                                 'Assertion B.': 'topic:ongoing-vigilance', 'Récit sans règle.': None}}))
@@ -105,11 +107,22 @@ class CompilationEvaluationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'stale review snapshot'):
             self.evaluate(review_path=review, sample_count=1)
         policy = json.loads(DEFAULT_POLICY.read_text())
-        policy['minimum_weighted_score'] = 99
+        policy['policies']['claim_generation_and_classification']['minimum_weighted_score'] = 99
         path = self.root / 'policy.json'
         path.write_text(json.dumps(policy))
         with self.assertRaisesRegex(ValueError, 'stale review snapshot'):
             self.evaluate(review_path=review, review_policy_path=path)
+
+    def test_review_snapshot_ignores_other_subject_policy_changes(self):
+        initial = self.evaluate()
+        review = self.save(self.reviewed(initial))
+        catalogue = json.loads(DEFAULT_POLICY.read_text())
+        catalogue['policies']['chunking']['minimum_weighted_score'] = 99
+        path = self.root / 'changed-chunking-policy.json'
+        path.write_text(json.dumps(catalogue))
+        result = self.evaluate(review_path=review, review_policy_path=path)
+        self.assertEqual(result['snapshot_sha256'], initial['snapshot_sha256'])
+        self.assertEqual(result['gate'], 'pass')
 
     def test_invalid_review_ids_duplicates_notes_severity_and_identity_are_rejected(self):
         changes = [
@@ -180,10 +193,18 @@ class CompilationEvaluationTests(unittest.TestCase):
             self.assertEqual(main(args + ['--initialize-review']), 0)
             review = self.classified / 'compilation-review.json'
             self.assertTrue(review.is_file())
+            pending = json.loads(review.read_text())
+            pending['reviews'][0]['notes'] = 'Preserve this source-review note while resuming.'
+            review.write_text(json.dumps(pending))
+            original_review = review.read_bytes()
             self.assertEqual(main(args + ['--review-file', str(review)]), 1)
+            self.assertEqual(review.read_bytes(), original_review)
+            report = json.loads((self.classified / 'compilation-evaluation-report.json').read_text())
+            self.assertEqual((report['automatic_gate'], report['gate']), ('pass', 'pending_review'))
             with self.assertRaises(SystemExit) as error:
                 main(args + ['--initialize-review'])
             self.assertEqual(error.exception.code, 2)
+            self.assertEqual(review.read_bytes(), original_review)
             reviewed = self.reviewed()
             review.write_text(json.dumps(reviewed))
             self.assertEqual(main(args + ['--review-file', str(review)]), 0)
@@ -236,7 +257,7 @@ class CompilationEvaluationTests(unittest.TestCase):
         build['output_chunk_ids'] = [chunk['id']]
         (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
         fixture = json.loads(self.fixture.read_text())
-        fixture['candidate_batches'] = {chunk['id']: next(iter(fixture['candidate_batches'].values()))}
+        fixture['candidate_clusters'] = {chunk['id']: next(iter(fixture['candidate_clusters'].values()))}
         self.fixture.write_text(json.dumps(fixture))
         generated, classified = self.root / 'new-generated', self.root / 'new-classified'
         generate_claims(self.chunked, generated, self.config, self.fixture)
@@ -256,8 +277,8 @@ class CompilationEvaluationTests(unittest.TestCase):
         self.assertEqual(chosen, _select(rows, 5, ('table', 'footnote')))
 
     def test_policy_and_major_failure_scoring_match_chunking(self):
-        policy = read_review_policy(DEFAULT_POLICY)
-        chunking = read_review_policy(ROOT / 'config/chunking-review-policy.json')
+        policy = read_review_policy(DEFAULT_POLICY, 'claim_generation_and_classification')
+        chunking = read_review_policy(ROOT / 'config/review-policy.json', 'chunking')
         self.assertEqual({k: v for k, v in policy.items() if k != 'policy_version'},
                          {k: v for k, v in chunking.items() if k != 'policy_version'})
         samples = [{'sample_id': str(i)} for i in range(20)]

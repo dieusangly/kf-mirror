@@ -1,23 +1,46 @@
-# Compilation evaluation
+# Claim evaluation
 
-Review compilation against saved originals. The evaluator checks artifacts and
+Review generated claims and topic classifications against saved originals. The evaluator checks artifacts and
 scores judgments without model calls; claims/topics remain drafts.
 
-After [generation/classification](compilation.md), select a saved run from
+After [generation/classification](claim-generation-and-classification.md), select a saved run from
 the repository root; set directories separately if stage run IDs differ:
 
 ```sh
-RUN_ID="your-compilation-run-id"
+RUN_ID="your-claim-run-id"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 ```
 
-## Initialise evaluation
+For the saved subset, use `RUN_ID=20261016-subset`; the full run uses
+`RUN_ID=20261016-full-01`. Structural chunks and semantic clusters are shared from
+`artifacts/structural-chunks-and-semantic-clusters-20261016`.
 
-Run once, before source review:
+## One agent-review task
+
+Use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer)
+after classification. The agent initializes evaluation if needed, reviews saved
+sources, and runs final evaluation. Existing review files are validated and reused
+without resetting judgments. Stale snapshots or failed automatic checks stop the
+review. A pending review is expected before source inspection.
+
+To invoke the reviewer by path without copying the full prompt, send the agent:
+
+```text
+Read AGENTS.md and .agents/AGENTS.md, then follow
+src/knowledge_foundry/prompts/agent_prompt_claim_reviewer
+for RUN_ID="your-run-id".
+
+Complete initialization/reuse, source review, and final evaluation.
+Preserve existing review judgments and report the final results.
+```
+
+## Human-review setup
+
+Run once before handing the review file to a human:
 
 ```sh
-.venv/bin/python scripts/evaluate_compilation.py \
+.venv/bin/python scripts/evaluate_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --initialize-review
@@ -31,7 +54,7 @@ in `CLASSIFIED_DIR`. Source review is still required. Both steps accept:
 | `--manifest PATH` | `data/manifest.json`; source versions, hashes and saved paths. |
 | `--source-root PATH` | Repository root; resolves manifest `local_path` entries. |
 | `--taxonomy PATH` | `config/topics-v1.json`; must match the classification build. |
-| `--review-policy PATH` | `config/compilation-review-policy.json`. |
+| `--review-policy PATH` | `config/review-policy.json`, subject `claim_generation_and_classification`. |
 | `--sample-per-document N` | 12 per document for each of generation, classification and completeness. |
 | `--output PATH` | Another evaluation-report location. |
 
@@ -42,21 +65,25 @@ Use the same inputs, source root, taxonomy, policy and sample size in both steps
 ## Review saved sources
 
 A separate human or agent inspects every sample against originals and fills the
-review file; agents use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_compilation_reviewer).
-Do not repeat initialisation or reuse another build’s judgments.
+review file; agents use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer).
+Do not reinitialize existing review files or reuse another build’s judgments.
 
-Automatic checks cover schemas, hashes, IDs, exact spans, candidate preservation,
-stage errors, source versions, inverse links, JSONL exports and topic views.
-Missing candidates and null classifications need source review; they are not
+Automatic checks validate schemas, hashes, IDs, exact spans, unchanged candidate
+claims, stage errors, source versions, inverse links, JSONL exports and topic views.
+For frozen structural chunks and semantic clusters, they also validate unique
+membership, reconstructed structural links, similarity, request assumptions and
+candidate-claim lineage. Legacy candidate claim artifacts remain readable.
+Evaluation makes no embedding or generation calls.
+Missing candidate claims and null classifications need source review; they are not
 automatically wrong.
 
 Sampling selects available risks first, then spreads through reading order:
 
 | Dimension | Review unit and purpose |
 | --- | --- |
-| Generation | Candidate: full support, atomicity, scope, conditions and exceptions, including unclassified candidates. |
-| Classification | Candidate outcome: main proposition fits the topic scope or justifies null. |
-| Completeness | Selected chunk: missing rules, list options or qualifications; also check nearby source and candidates citing overlapping evidence. |
+| Generation | Candidate claim: full support, atomicity, scope, conditions and exceptions, including unclassified candidate claims. |
+| Classification | Candidate claim outcome: main proposition fits the topic scope or justifies null. |
+| Completeness | Selected chunk: missing rules, list options or qualifications; also check nearby source and candidate claims citing overlapping evidence. |
 | Topics | Every exported view: draft labels, traceability and unsupported synthesis. |
 
 Risks: unclassified outcomes, classified narratives, notes, tables/lists, qualifiers,
@@ -65,8 +92,8 @@ contribute all items; cross-document units count once/dimension. Unselected chun
 are excluded.
 
 Samples give text/evidence, native locations, source paths/versions and selection
-reasons. Inspect generation/classification together: they sample the same candidates.
-Candidate IDs differ from claim IDs; resolve them in `CANDIDATES_DIR/claim-candidates.jsonl`.
+reasons. Inspect generation/classification together: they sample the same candidate claims.
+Candidate claim IDs differ from claim IDs; resolve them in `CANDIDATES_DIR/claim-candidates.jsonl`.
 
 Preserve `build_id`, `snapshot_sha256`, sample IDs and dimensions. Record reviewer
 kind (`human` or `agent`), name and model when known. Set every status to `pass`,
@@ -89,24 +116,27 @@ After the human or agent records judgments, rerun with `--review-file` and the
 same optional arguments as during initialisation to finalize the report:
 
 ```sh
-.venv/bin/python scripts/evaluate_compilation.py \
+.venv/bin/python scripts/evaluate_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --review-file "$CLASSIFIED_DIR/compilation-review.json"
 ```
 
-Compilation and chunking share scoring: pass 10, minor 8, major 2, critical 0.
+Claim evaluation and chunking evaluation share scoring: pass 10, minor 8, major 2, critical 0.
 `weighted_score = 100 × awarded points / (reviewed × 10)`.
 
-The [policy](../config/compilation-review-policy.json) requires **each applicable
+The [policy](../config/review-policy.json) requires **each applicable
 dimension** to have full review coverage, pass rate ≥80%, score ≥90 and zero
 critical failures. The combined score cannot compensate for a failed dimension:
 combined 92 with generation 86 still fails. Set thresholds before review.
 
 ## Reports and reproducibility
 
-Snapshots pin both manifests, source hashes, taxonomy, policy and sample. Changes
-require fresh review. Record timezone-qualified review start/end times and measured
+Snapshots pin both manifests, source hashes, taxonomy, the selected subject's
+policy and sample. Changing another subject's policy does not invalidate this
+review. Changes to the selected policy require fresh review. Each subject has
+its own version, thresholds and scoring in the shared `review-policy.json`.
+Explicit standalone legacy policy files remain supported. Record timezone-qualified review start/end times and measured
 requests/tokens/cost separately from generation/classification; unknowns stay `null`.
 Duration derives from timestamps. Identical inputs/judgments give identical
 samples, snapshots and scores.
@@ -123,3 +153,9 @@ input/review. Failed-gate reports are still written.
 Keep run-specific findings in the review/report. A policy pass may retain minor
 or limited major failures; it is not a whole-corpus accuracy estimate or legal
 verification. `retrieved_on` is a capture date, not proof of legal effectiveness.
+
+Build reports include structural-chunk and semantic-cluster counts, size
+distributions, singletons, refinement splits and cross-document clusters.
+Generation adds cross-document candidate-claim counts. These diagnostics and
+citation coverage do not establish semantic completeness; source review must
+check missed relationships and duplicate claims.

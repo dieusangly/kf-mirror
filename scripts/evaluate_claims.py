@@ -1,4 +1,4 @@
-"""Evaluate saved compilation artifacts and prepare source-linked review samples. No API calls."""
+"""Evaluate saved claim generation and classification artifacts and prepare source-linked review samples. No API calls."""
 
 import argparse
 from collections import defaultdict
@@ -15,15 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
 
-from knowledge_foundry.claim_compilation import (  # noqa: E402
+from knowledge_foundry.claim_generation_and_classification import (  # noqa: E402
     _candidate_manifest, _generation_coverage, _validate_candidate, canonical, digest, file_digest,
 )
-from knowledge_foundry.review import apply_reviews, read_review_policy, select_samples as _select  # noqa: E402
+from knowledge_foundry.review import apply_reviews, read_review_policy, review_policy_digest, select_samples as _select  # noqa: E402
 from scripts.validate_artifact_examples import check  # noqa: E402
 
-EVALUATION_VERSION = 'compilation-eval-v1'
+EVALUATION_VERSION = 'claim-eval-v3'
 DIMENSIONS = ('generation', 'classification', 'completeness', 'topics')
-DEFAULT_POLICY = ROOT / 'config/compilation-review-policy.json'
+DEFAULT_POLICY = ROOT / 'config/review-policy.json'
 
 
 def _read(path):
@@ -66,7 +66,7 @@ def _load(candidates_dir, classified_dir, taxonomy_path):
              classification_manifest['compilation_build_id'] == classification_report['build_id'],
              'compilation lineage mismatch')
     _require(not generation_bundle['claims'] and not generation_bundle['topics'],
-             'candidate context contains classified knowledge')
+             'candidate claim context contains classified knowledge')
     _require(bundle['builds'][:-1] == generation_bundle['builds'] and
              bundle['builds'][-1]['id'] == classification_report['build_id'],
              'classification changed upstream builds')
@@ -92,23 +92,23 @@ def _load(candidates_dir, classified_dir, taxonomy_path):
         return canonical([candidate['text'], candidate['evidence'], candidate['chunk_ids']])
 
     candidates_by_content = {candidate_key(c): c for c in candidates}
-    _require(len(candidates_by_id) == len(candidates_by_content) == len(candidates), 'duplicate candidate IDs or content')
+    _require(len(candidates_by_id) == len(candidates_by_content) == len(candidates), 'duplicate candidate claim IDs or content')
     outcomes = {}
     for claim in bundle['claims']:
         candidate = candidates_by_content.get(candidate_key(claim))
-        _require(candidate is not None and candidate['id'] not in outcomes, 'changed or duplicated classified candidate')
+        _require(candidate is not None and candidate['id'] not in outcomes, 'changed or duplicated classified candidate claim')
         _require(claim['generation'] == candidate['generation'] and claim['topic_id'] in curated,
                  'claim generation metadata or topic mismatch')
         outcomes[candidate['id']] = {'status': 'classified', 'claim_id': claim['id'], 'topic_id': claim['topic_id']}
     for candidate_id in classification_report['unclassified_candidate_ids']:
         _require(candidate_id in candidates_by_id and candidate_id not in outcomes,
-                 'invalid unclassified candidate accounting')
+                 'invalid unclassified candidate claim accounting')
         outcomes[candidate_id] = {'status': 'unclassified', 'claim_id': None, 'topic_id': None}
     for error in classification_report['errors']:
         candidate_id = error.get('candidate_id')
-        _require(candidate_id in candidates_by_id and candidate_id not in outcomes, 'invalid failed candidate accounting')
+        _require(candidate_id in candidates_by_id and candidate_id not in outcomes, 'invalid failed candidate claim accounting')
         outcomes[candidate_id] = {'status': 'classification_error', 'claim_id': None, 'topic_id': None}
-    _require(set(outcomes) == set(candidates_by_id), 'candidates missing classification outcomes')
+    _require(set(outcomes) == set(candidates_by_id), 'candidate claims missing classification outcomes')
     _require(generation_report['candidates'] == classification_report['candidates'] == len(candidates) and
              classification_report['claims'] == len(bundle['claims']) and
              classification_report['topics'] == len(bundle['topics']), 'report counts mismatch')
@@ -312,7 +312,7 @@ def evaluate(candidates_dir, classified_dir, sample_count=12, review_path=None,
     """Return scores from reviewer judgments, never infer qualitative pass from artifacts."""
     _require(isinstance(sample_count, int) and not isinstance(sample_count, bool) and sample_count > 0,
              'sample-per-document must be an integer >= 1')
-    policy = read_review_policy(review_policy_path)
+    policy = read_review_policy(review_policy_path, subject='claim_generation_and_classification')
     candidates_dir, classified_dir, source_root = Path(candidates_dir), Path(classified_dir), Path(source_root)
     try:
         context = _load(candidates_dir, classified_dir, Path(taxonomy_path))
@@ -336,7 +336,7 @@ def evaluate(candidates_dir, classified_dir, sample_count=12, review_path=None,
                 'candidate_manifest_sha256': file_digest(candidates_dir / 'build-manifest.json'),
                 'classification_manifest_sha256': file_digest(classified_dir / 'build-manifest.json'),
                 'source_manifest_sha256': file_digest(manifest_path), 'source_hashes': source_hashes,
-                'taxonomy_sha256': file_digest(taxonomy_path), 'review_policy_sha256': file_digest(review_policy_path),
+                'taxonomy_sha256': file_digest(taxonomy_path), 'review_policy_sha256': review_policy_digest(policy, 'claim_generation_and_classification'),
                 'sample_per_document': sample_count, 'sample_sha256': digest(canonical(samples))}
     snapshot_sha = digest(canonical(snapshot))
     review = _read(review_path) if review_path else None
@@ -401,7 +401,11 @@ def evaluate(candidates_dir, classified_dir, sample_count=12, review_path=None,
             'taxonomy': context['taxonomy'],
             'reviewer': reviewer, 'review_telemetry': telemetry,
             'review_sha256': file_digest(review_path) if review_path else None,
-            'compilation_telemetry': {'generation': generation_report['telemetry'],
+            'preparation': generation_report.get('preparation'),
+            'compilation_telemetry': {'embeddings': generation_report.get('preparation', {}).get('embeddings'),
+                'claim_generation_request_token_counting': generation_report.get(
+                    'claim_generation_request_token_counting', generation_report.get('token_counting')),
+                'generation': generation_report['telemetry'],
                 'classification': classification_report['telemetry'],
                 'generation_duration_seconds': generation_report.get('duration_seconds'),
                 'classification_duration_seconds': classification_report.get('duration_seconds')},
@@ -429,7 +433,7 @@ def _protect_outputs(paths, candidates_dir, classified_dir, manifest, taxonomy, 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--candidates-dir', type=Path, required=True)
+    parser.add_argument('--candidates-dir', type=Path, required=True, help='directory containing saved candidate claims')
     parser.add_argument('--classified-dir', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, default=ROOT / 'data/manifest.json')
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -463,7 +467,7 @@ def main(argv=None):
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        parser.exit(2, f'compilation evaluation failed: {exc}\n')
+        parser.exit(2, f'claim evaluation failed: {exc}\n')
     print(json.dumps({'automatic_gate': report['automatic_gate'], 'review_gate': report['review_gate'],
                       'gate': report['gate'], 'report': str(output)}))
     return 1 if report['gate'] == 'fail' or args.review_file and report['gate'] != 'pass' else 0

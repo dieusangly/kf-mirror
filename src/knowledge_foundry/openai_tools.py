@@ -1,4 +1,4 @@
-"""Minimal OpenAI Responses API client for structured compilation outputs."""
+"""Minimal OpenAI Responses API client for structured claim outputs."""
 
 import json
 import os
@@ -42,7 +42,8 @@ class OpenAIResponsesTool:
     """Call the Responses API without making the SDK a runtime dependency."""
 
     def __init__(self, model=DEFAULT_MODEL, reasoning_effort="medium", api_key=None,
-                 url=RESPONSES_URL, timeout=90):
+                 url=RESPONSES_URL, timeout=90, max_output_tokens=None):
+        self.max_output_tokens = max_output_tokens
         self.model = model
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError("reasoning_effort is not supported")
@@ -75,11 +76,16 @@ class OpenAIResponsesTool:
         return len(json.dumps(self._payload(instructions, input_text, schema_name, schema), ensure_ascii=False))
 
     def _payload(self, instructions, input_text, schema_name, schema):
-        return {
-            "model": self.model,
-            "reasoning": {"effort": self.reasoning_effort},
-            "instructions": instructions,
-            "input": input_text,
-            "text": {"format": {"type": "json_schema", "name": schema_name,
-                                "strict": True, "schema": schema}},
-        }
+        return response_payload(self.model, self.reasoning_effort, instructions, input_text,
+                                schema_name, schema, self.max_output_tokens)
+
+
+def response_payload(model, reasoning_effort, instructions, input_text, schema_name, schema,
+                     max_output_tokens=None):
+    payload = {"model": model, "reasoning": {"effort": reasoning_effort},
+               "instructions": instructions, "input": input_text,
+               "text": {"format": {"type": "json_schema", "name": schema_name,
+                                   "strict": True, "schema": schema}}, "truncation": "disabled"}
+    if max_output_tokens is not None:
+        payload["max_output_tokens"] = max_output_tokens
+    return payload

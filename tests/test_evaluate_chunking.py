@@ -20,7 +20,7 @@ CHUNKED = ROOT / "artifacts/chunked"
 PARSED = ROOT / "artifacts/parsed"
 PILOT_AVAILABLE = (CHUNKED / "artifact-bundle.json").is_file() and len(
     list(PARSED.glob("documents/*/artifact-bundle.json"))) == 5
-REVIEW_POLICY = json.loads((ROOT / "config/chunking-review-policy.json").read_text(encoding="utf-8"))
+REVIEW_POLICY = _read_review_policy(ROOT / "config/review-policy.json")
 
 
 class ChunkEvaluationTests(unittest.TestCase):

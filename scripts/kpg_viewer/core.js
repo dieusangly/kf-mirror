@@ -1,8 +1,8 @@
 (function (KPG) {
   "use strict";
 
-  KPG.groups = ["topic", "claim", "candidate", "chunk", "element", "document", "source"];
-  KPG.groupLabels = {topic: "Topics", claim: "Claims", candidate: "Candidates", chunk: "Chunks", element: "Elements", document: "Documents", source: "Sources"};
+  KPG.groups = ["topic", "claim", "candidate", "semantic_cluster", "structural_chunk", "chunk", "element", "document", "source"];
+  KPG.groupLabels = {topic: "Topics", claim: "Claims", candidate: "Candidate claims", semantic_cluster: "Semantic clusters", structural_chunk: "Structural chunks", chunk: "Original chunks", element: "Elements", document: "Documents", source: "Sources"};
   KPG.pageSize = 24;
 
   KPG.createIndex = function (graph) {
@@ -27,13 +27,13 @@
       const seen = new Set([claim.id]);
       while (queue.length) {
         const current = queue.shift();
-        if (current.depth >= 4) continue;
+        if (current.depth >= 8) continue;
         (outgoing.get(current.id) || []).forEach(edge => {
           const target = nodes.get(edge.target);
           if (!target || seen.has(target.id)) return;
           seen.add(target.id);
           if (target.group === "document") found.add(target.id);
-          else if (["chunk", "element"].includes(target.group)) queue.push({id: target.id, depth: current.depth + 1});
+          else if (["semantic_cluster", "structural_chunk", "chunk", "element"].includes(target.group)) queue.push({id: target.id, depth: current.depth + 1});
         });
       }
       claimDocuments.set(claim.id, found);
@@ -59,8 +59,9 @@
     if (filters.review && !reviews.includes("unspecified") && !reviews.includes(filters.review)) return false;
     if (filters.document && node.group !== "document" && node.group !== "source") {
       if (["claim", "candidate"].includes(node.group) && !index.claimDocuments.get(node.id)?.has(filters.document)) return false;
-      if (node.group === "chunk" && record.document_id && record.document_id !== filters.document) return false;
-      if (node.group === "element" && record.document_id && record.document_id !== filters.document) return false;
+      if (["chunk", "element", "structural_chunk"].includes(node.group)
+        && record.document_id && record.document_id !== filters.document) return false;
+      if (node.group === "semantic_cluster" && Array.isArray(record.document_ids) && !record.document_ids.includes(filters.document)) return false;
     }
     return true;
   };
@@ -76,7 +77,7 @@
       nextIds.forEach(nextId => {
         const next = index.nodes.get(nextId);
         if (!next || visible.has(nextId)) return;
-        if (!["chunk", "element", "document", "source", "topic"].includes(next.group)) return;
+        if (!["semantic_cluster", "structural_chunk", "chunk", "element", "document", "source", "topic"].includes(next.group)) return;
         visible.add(nextId);
         queue.push(nextId);
       });

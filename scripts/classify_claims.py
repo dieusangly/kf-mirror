@@ -1,4 +1,4 @@
-"""Classify saved claim candidates into curated topic records."""
+"""Classify saved candidate claims into curated topic records."""
 
 import argparse
 import json
@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from knowledge_foundry.claim_compilation import classify_claims  # noqa: E402
+from knowledge_foundry.claim_generation_and_classification import classify_claims  # noqa: E402
 
 
 def _print_progress(event):
     if event["phase"] == "classification" and event["state"] == "started":
-        print(f"[classify] Classifying {event['total']} candidates", file=sys.stderr, flush=True)
+        print(f"[classify] Classifying {event['total']} candidate claims", file=sys.stderr, flush=True)
     elif event["state"] == "progress":
         print(f"[classify] {event['phase'].capitalize()}: {event['completed']}/{event['total']}",
               file=sys.stderr, flush=True)
@@ -28,9 +28,9 @@ def _print_progress(event):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--candidates-dir", type=Path, required=True)
+    parser.add_argument("--candidates-dir", type=Path, required=True, help="directory containing saved candidate claims")
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--config", type=Path, default=ROOT / "config" / "compilation.json")
+    parser.add_argument("--config", type=Path, default=ROOT / "config" / "claim-generation-and-classification.json")
     parser.add_argument("--taxonomy", type=Path, default=ROOT / "config" / "topics-v1.json")
     parser.add_argument("--fixture", type=Path, help="deterministic fixture required by provider fixture")
     args = parser.parse_args(argv)

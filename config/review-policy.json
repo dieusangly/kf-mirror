@@ -1,0 +1,29 @@
+{
+  "schema_version": "1",
+  "policies": {
+    "chunking": {
+      "policy_version": "1.2",
+      "minimum_review_pass_rate": 0.8,
+      "minimum_weighted_score": 90,
+      "maximum_critical_failures": 0,
+      "review_points": {
+        "pass": 10,
+        "minor": 8,
+        "major": 2,
+        "critical": 0
+      }
+    },
+    "claim_generation_and_classification": {
+      "policy_version": "1.1",
+      "minimum_review_pass_rate": 0.8,
+      "minimum_weighted_score": 90,
+      "maximum_critical_failures": 0,
+      "review_points": {
+        "pass": 10,
+        "minor": 8,
+        "major": 2,
+        "critical": 0
+      }
+    }
+  }
+}

@@ -42,7 +42,7 @@ Optional arguments apply to both evaluation steps:
 | --- | --- |
 | `--reference-fixture PATH` | Check source-verified passages. For the pilot, use `tests/fixtures/pilot_parsing_reference.json`; omit for sources without a fixture. Use the same selection in both steps. |
 | `--sample-per-document N` | Override `evaluation.chunking.sample_per_document` in `config/pipeline.json` (default: 12). |
-| `--review-policy PATH` | Override `config/chunking-review-policy.json`. |
+| `--review-policy PATH` | Override `config/review-policy.json`; selects subject `chunking`. |
 | `--output PATH` | Choose another report location. |
 
 `--initialize-review PATH` chooses another review-file location and refuses to
@@ -97,7 +97,7 @@ to include their judgments. Keep initial inputs, sample size, policy and referen
   --review-file "$CHUNKED_DIR/chunking-review.json"
 ```
 
-The [policy](../config/chunking-review-policy.json) requires 100% review coverage,
+The [policy](../config/review-policy.json) requires 100% review coverage,
 pass rate ≥80%, score ≥90 and zero critical failures. Points are pass 10, minor 8,
 major 2, critical 0; `weighted_score = 100 × awarded points / (reviewed × pass points)`.
 `review.to_review` counts samples; `review.reviewed` counts pass/fail judgments.
@@ -112,3 +112,8 @@ means invalid input. Failed-gate reports are still written.
 Keep run-specific findings in the saved review/report. A policy pass can retain
 failed samples and does not certify all chunks or legal correctness. Retrieval
 quality belongs to [retrieval evaluation](knowledge-foundry-implementation-plan.md).
+
+The shared policy file keeps independently versioned subject sections. Chunking
+selects `policies.chunking`; new review files pin that selected policy's hash.
+Changes to claim-review settings do not invalidate chunking reviews. Standalone
+legacy policy overrides remain readable.

@@ -21,6 +21,10 @@
     delete record.evidence;
     delete record.chunk_ids;
     delete record.claim_ids;
+    delete record.original_chunk_ids;
+    delete record.structural_chunk_ids;
+    delete record.document_ids;
+    delete record.evidence_memberships;
     const section = document.createElement("section");
     section.className = "detail-section";
     appendText("h3", "", "Record metadata", section);
@@ -69,7 +73,7 @@
     if (["claim", "candidate"].includes(node.group)) {
       const explore = document.createElement("button"); explore.type = "button"; explore.textContent = "Explore provenance";
       explore.addEventListener("click", () => onExplore("claim", node.id)); actions.append(explore);
-    } else if (["chunk", "element", "source"].includes(node.group)) {
+    } else if (["semantic_cluster", "structural_chunk", "chunk", "element", "source"].includes(node.group)) {
       const explore = document.createElement("button"); explore.type = "button"; explore.textContent = "Explore local graph";
       explore.addEventListener("click", () => onExplore("claim", node.id)); actions.append(explore);
     }

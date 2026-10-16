@@ -1,4 +1,4 @@
-"""Shared deterministic scoring for source-reviewed chunk and compilation samples."""
+"""Shared deterministic scoring for source-reviewed chunk and claim samples."""
 
 import json
 import math
@@ -9,14 +9,21 @@ REVIEW_SEVERITIES = {"critical", "major", "minor"}
 EXAMPLE_LIMIT = 5
 
 
-def read_review_policy(path):
+def read_review_policy(path, subject=None):
     """Load and validate the policy that turns reviewed samples into a gate."""
     policy = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(policy, dict) and 'policies' in policy:
+        if set(policy) != {'schema_version', 'policies'} or policy['schema_version'] != '1' or not isinstance(policy['policies'], dict):
+            raise ValueError('review policy catalogue has an invalid shape')
+        if subject is None or subject not in policy['policies']:
+            raise ValueError('select an explicit review policy subject')
+        policy = policy['policies'][subject]
+    # Flat, explicitly supplied policy files remain readable for historical reviews.
     required = {
         "policy_version", "minimum_review_pass_rate", "minimum_weighted_score",
         "maximum_critical_failures", "review_points",
     }
-    if set(policy) != required or not isinstance(policy["policy_version"], str):
+    if not isinstance(policy, dict) or set(policy) != required or not isinstance(policy["policy_version"], str):
         raise ValueError("review policy has an invalid shape")
     pass_rate = policy["minimum_review_pass_rate"]
     if isinstance(pass_rate, bool) or not isinstance(pass_rate, (int, float)) or not 0 <= pass_rate <= 1:
@@ -35,6 +42,14 @@ def read_review_policy(path):
             not 0 <= points["critical"] < points["major"] < points["minor"] < points["pass"]):
         raise ValueError("review policy review_points must satisfy 0 <= critical < major < minor < pass")
     return policy
+
+
+def review_policy_digest(policy, subject):
+    """Changing another subject must not invalidate this subject's review."""
+    import hashlib
+    value = json.dumps({'subject': subject, 'policy': policy}, sort_keys=True,
+                       ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def apply_reviews(review, build_id, samples, policy, id_field="chunk_id"):

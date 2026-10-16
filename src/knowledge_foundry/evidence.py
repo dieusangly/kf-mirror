@@ -10,3 +10,9 @@ def claim_evidence_references(chunk, element_map):
             reference = {**reference, "span": {"start": 0, "end": len(element["text"])}}
         references.append(reference)
     return references
+
+
+def evidence_key(reference):
+    """Exact source location identity; wording alone never identifies evidence."""
+    import json
+    return json.dumps(reference, sort_keys=True, ensure_ascii=False, separators=(',', ':'))

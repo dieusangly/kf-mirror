@@ -26,14 +26,14 @@ class GenerateClaimsCliTests(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
-            self.assertEqual(main(["--chunked-dir", "chunked", "--output-dir", "generated",
+            self.assertEqual(main(["--context-dir", "prepared", "--output-dir", "generated",
                                    "--subset-batches", "1"]), 0)
         self.assertEqual(json.loads(stdout.getvalue()), report)
-        self.assertIn("Subset: 4/4 chunks; generating candidates in 1/1 batches", stderr.getvalue())
+        self.assertIn("Subset: 4/4 chunks; generating candidate claims in 1/1 semantic clusters", stderr.getvalue())
         self.assertIn("Generation: 1/1", stderr.getvalue())
-        self.assertIn("Writing validated candidate artifacts", stderr.getvalue())
+        self.assertIn("Writing validated candidate claim artifacts", stderr.getvalue())
         self.assertIn("OpenAI estimated cost: $0.012345 (2 API requests)", stderr.getvalue())
-        self.assertEqual(captured["subset_batches"], 1)
+        self.assertEqual(captured["subset_clusters"], 1)
         self.assertFalse(captured["resume"])
 
     def test_full_generation_progress_includes_chunk_total(self):
@@ -41,7 +41,7 @@ class GenerateClaimsCliTests(unittest.TestCase):
         with redirect_stderr(stderr):
             _print_progress({"phase": "generation", "state": "started", "chunks": 806,
                              "source_chunks": 806, "total": 202, "source_total": 202, "subset": False})
-        self.assertIn("Full: 806/806 chunks; generating candidates in 202/202 batches", stderr.getvalue())
+        self.assertIn("Full: 806/806 chunks; generating candidate claims in 202/202 semantic clusters", stderr.getvalue())
 
     def test_cli_passes_explicit_batches_and_rejects_conflicting_subset_options(self):
         captured = {}
@@ -54,12 +54,12 @@ class GenerateClaimsCliTests(unittest.TestCase):
 
         with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(["--chunked-dir", "chunked", "--output-dir", "generated",
+            self.assertEqual(main(["--context-dir", "prepared", "--output-dir", "generated",
                                    "--batch-numbers", "14", "202"]), 0)
-        self.assertEqual(captured["batch_numbers"], [14, 202])
-        self.assertIsNone(captured["subset_batches"])
+        self.assertEqual(captured["cluster_numbers"], [14, 202])
+        self.assertIsNone(captured["subset_clusters"])
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
-            main(["--chunked-dir", "chunked", "--output-dir", "generated", "--batch-numbers", "1",
+            main(["--context-dir", "prepared", "--output-dir", "generated", "--batch-numbers", "1",
                   "--subset-batches", "1"])
         self.assertEqual(error.exception.code, 2)
 
@@ -81,14 +81,14 @@ class GenerateClaimsCliTests(unittest.TestCase):
                 stdout, stderr = io.StringIO(), io.StringIO()
                 with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
                         redirect_stdout(stdout), redirect_stderr(stderr):
-                    self.assertEqual(main(["--chunked-dir", "chunked", "--output-dir", "generated"]), 0)
+                    self.assertEqual(main(["--context-dir", "prepared", "--output-dir", "generated"]), 0)
                 self.assertEqual(json.loads(stdout.getvalue()), report)
                 self.assertIn("Complete in", stderr.getvalue())
                 self.assertIn(label, stderr.getvalue())
                 self.assertIn("(1 API requests)", stderr.getvalue())
                 self.assertIn("verified grounding", stderr.getvalue())
                 if missing:
-                    self.assertIn("Selected source without candidates: src:cmf-L561-6", stderr.getvalue())
+                    self.assertIn("Selected source without candidate claims: src:cmf-L561-6", stderr.getvalue())
                 else:
-                    self.assertNotIn("Selected source without candidates", stderr.getvalue())
+                    self.assertNotIn("Selected source without candidate claims", stderr.getvalue())
 
