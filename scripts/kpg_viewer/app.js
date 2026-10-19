@@ -62,8 +62,11 @@
   function modeDescription(view) {
     if (state.mode === "summaries") return `${view.availableSummaries.toLocaleString()} summaries · page ${view.page + 1} of ${view.pageCount}`;
     if (state.mode === "topic") return `${view.availableClaims.toLocaleString()} matching claims · page ${view.page + 1} of ${view.pageCount}`;
+    if (state.mode === "claim" && ["summary", "summary_cluster"].includes(view.root?.group)) {
+      return "Higher-level summaries are on the left; follow their inputs to the right.";
+    }
     if (state.mode === "claim") return view.root
-      ? (["claim", "candidate", "summary"].includes(view.root.group) ? "Source provenance for the selected record." : `Local graph around ${view.root.group}`)
+      ? (["claim", "candidate"].includes(view.root.group) ? "Source provenance for the selected record." : `Local graph around ${view.root.group}`)
       : "Select a claim in Topics and claims, then use Explore provenance.";
     if (state.mode === "document") return view.root
       ? `${view.availableClaims.toLocaleString()} knowledge records · page ${view.page + 1} of ${view.pageCount} · connected to ${view.root.label}`

@@ -2,8 +2,15 @@
   "use strict";
 
   const svg = document.getElementById("graph");
+  const canvas = svg.parentElement;
   const cardHeight = 82;
   const rowGap = 98;
+
+  function positionColumnHeadings() {
+    const headings = svg.querySelector(".column-headings");
+    if (headings) headings.setAttribute("transform", `translate(0, ${canvas.scrollTop})`);
+  }
+  canvas.addEventListener("scroll", positionColumnHeadings, {passive: true});
 
   function svgElement(name, attrs) {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -75,9 +82,9 @@
 
   KPG.renderGraph = function (index, view, state, onSelect) {
     const visibleNodes = [...view.visible].map(id => index.nodes.get(id)).filter(Boolean);
-    const sorted = KPG.groups.flatMap(group => visibleNodes
-      .filter(node => node.group === group)
-      .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id)));
+    const separateSummaryLevels = state.mode === "claim" && ["summary", "summary_cluster"].includes(view.root?.group);
+    const columns = KPG.layoutColumns(visibleNodes, separateSummaryLevels);
+    const sorted = columns.flatMap(column => column.nodes);
     if (!sorted.length) {
       svg.replaceChildren();
       svg.setAttribute("viewBox", "0 0 760 220");
@@ -86,31 +93,29 @@
       return;
     }
 
-    const visibleGroups = KPG.groups.filter(group => sorted.some(node => node.group === group));
-    const grouped = Object.fromEntries(visibleGroups.map(group => [group, sorted.filter(node => node.group === group)]));
-    const canvasWidth = svg.parentElement.clientWidth;
-    const compact = canvasWidth < 520 && visibleGroups.length === 2;
+    const canvasWidth = canvas.clientWidth;
+    const compact = canvasWidth < 520 && columns.length === 2;
     const availableWidth = Math.max(0, canvasWidth - (compact ? 16 : 0));
     const cardWidth = compact ? Math.max(128, Math.floor((availableWidth - 66) / 2)) : 222;
     const colGap = compact ? cardWidth + 22 : 258;
-    const maxRows = Math.max(1, ...Object.values(grouped).map(nodes => nodes.length));
+    const maxRows = Math.max(1, ...columns.map(column => column.nodes.length));
     const top = 54;
-    const contentWidth = 44 + (visibleGroups.length - 1) * colGap + cardWidth;
+    const contentWidth = 44 + (columns.length - 1) * colGap + cardWidth;
     const minWidth = Math.min(680, availableWidth);
     const width = Math.max(minWidth, contentWidth, availableWidth);
     const xOffset = 22 + Math.max(0, (width - contentWidth) / 2);
     const height = Math.max(220, top + (maxRows - 1) * rowGap + cardHeight + 30);
     const positions = new Map();
-    visibleGroups.forEach((group, column) => {
-      const nodes = grouped[group];
+    const centerColumns = ["claim", "document", "full"].includes(state.mode);
+    columns.forEach((entry, column) => {
+      const nodes = entry.nodes;
       const root = view.root && nodes.find(node => node.id === view.root.id);
       if (root) {
         const otherNodes = nodes.filter(node => node.id !== root.id);
         otherNodes.splice(Math.floor(otherNodes.length / 2), 0, root);
-        grouped[group] = otherNodes;
+        entry.nodes = otherNodes;
       }
-      const columnNodes = grouped[group];
-      const centerColumns = ["claim", "document", "full"].includes(state.mode);
+      const columnNodes = entry.nodes;
       const startY = top + (centerColumns ? ((maxRows - columnNodes.length) * rowGap) / 2 : 0);
       columnNodes.forEach((node, row) => positions.set(node.id, {
         x: xOffset + column * colGap,
@@ -123,10 +128,12 @@
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(height));
 
-    visibleGroups.forEach((group, column) => {
-      const heading = svgElement("text", {x: xOffset + column * colGap, y: 28, class: "node-kind"});
-      heading.textContent = KPG.groupLabels[group].toUpperCase();
-      svg.append(heading);
+    const headings = svgElement("g", {class: "column-headings", "pointer-events": "none"});
+    headings.append(svgElement("rect", {x: 0, y: 0, width, height: 40, fill: "var(--surface)"}));
+    columns.forEach((entry, column) => {
+      const heading = svgElement("text", {x: xOffset + column * colGap, y: 28, class: "node-kind", "data-column": entry.key});
+      heading.textContent = entry.label.toUpperCase();
+      headings.append(heading);
     });
 
     index.graph.edges.forEach(edge => {
@@ -186,6 +193,7 @@
       card.addEventListener("blur", () => applySelectedFocus());
       svg.append(card);
     });
+    svg.append(headings);
 
     function applySelectedFocus() {
       const selected = state.selectedId && view.visible.has(state.selectedId) ? state.selectedId : null;
@@ -196,10 +204,10 @@
     if (["claim", "document"].includes(state.mode) && view.root) {
       const rootPoint = positions.get(view.root.id);
       if (rootPoint) {
-        const canvas = svg.parentElement;
         canvas.scrollTop = Math.max(0, rootPoint.y + cardHeight / 2 - canvas.clientHeight / 2);
       }
     }
+    positionColumnHeadings();
   };
 
   KPG.svgElement = svgElement;

@@ -47,12 +47,26 @@ claim evidence. Related-record buttons expose direct input and output links.
 Full/local graphs also show structural context and element parent relationships;
 these do not assert that an entire section was merged into one chunk.
 
+Summary provenance uses separate columns for each summary level and its input
+cluster. Read right to left to follow generation: semantic cluster → level-one
+summary → cluster for level two → level-two summary. Read left to right to trace
+a summary back to its inputs. Ungrouped lower-level inputs can skip levels.
+
 Candidate nodes are separate from classified claim nodes. Classified
 candidates also appear as claims with topic links; candidates that did not
 produce a claim have no topic link. The viewer displays candidate status from
 the adjacent classification `report.json` and matching claim records.
+Local provenance and document views omit candidate nodes whose classified claim
+is available under the active filters. Unclassified candidates remain visible.
+Candidates remain accessible through **Connected records**, an explicit candidate
+selection/type filter, and full/debug views.
 `--claim-candidates "$CANDIDATES_DIR/claim-candidates.jsonl"` can add candidates
 without loading the structural and semantic stages.
+
+**Connected records** labels describe relationships from the selected record:
+`groups`/`grouped by`, `uses`/`used by`, `supported by`/`supports`,
+`generated from`/`generates`, and `classified as`/`classified from`. The latter
+connects a candidate to its classified claim; topic membership uses `groups`.
 
 ## Inspect evidence
 

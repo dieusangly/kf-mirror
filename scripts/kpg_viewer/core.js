@@ -5,6 +5,38 @@
   KPG.groupLabels = {topic: "Topics", claim: "Claims", candidate: "Candidate claims", summary: "Summaries", summary_cluster: "Summary clusters", semantic_cluster: "Semantic clusters", structural_chunk: "Structural chunks", chunk: "Original chunks", element: "Elements", document: "Documents", source: "Sources"};
   KPG.pageSize = 24;
 
+  const inverseRelations = {groups: "grouped by", "classified as": "classified from", uses: "used by",
+    "supported by": "supports", "generated from": "generates", summarizes: "summarized by",
+    "composed from": "part of", context: "provides context for", "context parent": "parent context for",
+    "located in": "contains element", "saved from": "saved document"};
+
+  KPG.relationLabel = function (edge, nodeId) {
+    if (edge.source === nodeId) return edge.relation;
+    return inverseRelations[edge.relation] || `← ${edge.relation}`;
+  };
+
+  KPG.layoutColumns = function (nodes, separateSummaryLevels) {
+    const columns = [];
+    const add = (key, label, matches) => {
+      const members = nodes.filter(matches).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+      if (members.length) columns.push({key, label, nodes: members});
+    };
+    KPG.groups.forEach(group => {
+      if (separateSummaryLevels && group === "summary_cluster") return;
+      if (separateSummaryLevels && group === "summary") {
+        const levels = [...new Set(nodes.filter(node => ["summary", "summary_cluster"].includes(node.group))
+          .map(node => node.record.level))].sort((a, b) => b - a);
+        levels.forEach(level => {
+          add(`summary:${level}`, `Level ${level} summaries`, node => node.group === "summary" && node.record.level === level);
+          add(`summary_cluster:${level}`, `Clusters for level ${level}`, node => node.group === "summary_cluster" && node.record.level === level);
+        });
+      } else {
+        add(group, KPG.groupLabels[group], node => node.group === group);
+      }
+    });
+    return columns;
+  };
+
   KPG.createIndex = function (graph) {
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     const outgoing = new Map();
@@ -59,6 +91,15 @@
     return true;
   };
 
+  KPG.isDuplicateCandidate = function (index, node, filters) {
+    if (node.group !== "candidate" || filters.type === "candidate") return false;
+    return (index.outgoing.get(node.id) || []).some(edge => {
+      const claim = index.nodes.get(edge.target);
+      return edge.relation === "classified as" && claim?.group === "claim"
+        && KPG.matchesFilters(index, claim, filters);
+    });
+  };
+
   KPG.localNeighborhood = function (index, rootId) {
     const visible = new Set();
     const root = index.nodes.get(rootId);
@@ -71,7 +112,8 @@
       include(rootId);
 
       (index.incoming.get(rootId) || []).forEach(edge => {
-        if (edge.relation === "groups" || edge.relation === "classified as") include(edge.source);
+        // Candidate records remain accessible without duplicating local claims.
+        if (edge.relation === "groups") include(edge.source);
       });
       (index.outgoing.get(rootId) || []).forEach(edge => {
         const target = index.nodes.get(edge.target);
@@ -166,7 +208,11 @@
       const visible = ["claim", "candidate", "summary", "summary_cluster"].includes(root.group)
         ? KPG.localNeighborhood(index, root.id)
         : new Set([root.id, ...(index.neighbors.get(root.id) || [])]);
-      return {visible: new Set([...visible].filter(id => KPG.matchesFilters(index, index.nodes.get(id), filters))), root};
+      return {visible: new Set([...visible].filter(id => {
+        const node = index.nodes.get(id);
+        return KPG.matchesFilters(index, node, filters)
+          && (id === root.id || !KPG.isDuplicateCandidate(index, node, filters));
+      })), root};
     }
     if (mode === "document") {
       const documentId = document || (index.nodes.get(selectedId)?.group === "document" ? selectedId : "");
@@ -174,7 +220,8 @@
       const claims = index.graph.nodes.filter(node => ["claim", "candidate", "summary"].includes(node.group)
         && (node.group === "summary" ? node.record.document_ids.includes(documentId) : index.claimDocuments.get(node.id)?.has(documentId))
         && (!topic || node.record.topic_id === topic)
-        && KPG.matchesFilters(index, node, filters))
+        && KPG.matchesFilters(index, node, filters)
+        && !KPG.isDuplicateCandidate(index, node, filters))
         .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
       const pageCount = Math.max(1, Math.ceil(claims.length / KPG.pageSize));
       const page = Math.min(state.page, pageCount - 1);

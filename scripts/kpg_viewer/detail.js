@@ -28,7 +28,7 @@
       if (!other) return;
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `${edge.relation} · ${KPG.groupLabels[other.group] || other.group}: ${other.label}`;
+      button.textContent = `${KPG.relationLabel(edge, node.id)} · ${KPG.groupLabels[other.group] || other.group}: ${other.label}`;
       button.addEventListener("click", () => onSelect(other.id));
       list.append(button);
     });
