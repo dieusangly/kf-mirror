@@ -1,8 +1,8 @@
 (function (KPG) {
   "use strict";
 
-  KPG.groups = ["topic", "claim", "candidate", "semantic_cluster", "structural_chunk", "chunk", "element", "document", "source"];
-  KPG.groupLabels = {topic: "Topics", claim: "Claims", candidate: "Candidate claims", semantic_cluster: "Semantic clusters", structural_chunk: "Structural chunks", chunk: "Original chunks", element: "Elements", document: "Documents", source: "Sources"};
+  KPG.groups = ["topic", "claim", "candidate", "summary", "summary_cluster", "semantic_cluster", "structural_chunk", "chunk", "element", "document", "source"];
+  KPG.groupLabels = {topic: "Topics", claim: "Claims", candidate: "Candidate claims", summary: "Summaries", summary_cluster: "Summary clusters", semantic_cluster: "Semantic clusters", structural_chunk: "Structural chunks", chunk: "Original chunks", element: "Elements", document: "Documents", source: "Sources"};
   KPG.pageSize = 24;
 
   KPG.createIndex = function (graph) {
@@ -53,7 +53,8 @@
       if (["claim", "candidate"].includes(node.group) && !index.claimDocuments.get(node.id)?.has(filters.document)) return false;
       if (["chunk", "element", "structural_chunk"].includes(node.group)
         && record.document_id && record.document_id !== filters.document) return false;
-      if (node.group === "semantic_cluster" && Array.isArray(record.document_ids) && !record.document_ids.includes(filters.document)) return false;
+      if (["semantic_cluster", "summary"].includes(node.group) && Array.isArray(record.document_ids) && !record.document_ids.includes(filters.document)) return false;
+      if (node.group === "summary_cluster" && !record.summary_ids.some(id => index.nodes.get(id)?.record.document_ids.includes(filters.document))) return false;
     }
     return true;
   };
@@ -118,15 +119,16 @@
     }
 
     const queue = [rootId];
+    const summaryProvenance = ["summary", "summary_cluster"].includes(root?.group);
     visible.add(rootId);
     for (let position = 0; position < queue.length; position += 1) {
       const id = queue[position];
       const nextIds = (index.outgoing.get(id) || []).map(edge => edge.target);
-      nextIds.push(...(index.incoming.get(id) || []).filter(edge => edge.relation === "groups").map(edge => edge.source));
+      if (!summaryProvenance) nextIds.push(...(index.incoming.get(id) || []).filter(edge => edge.relation === "groups").map(edge => edge.source));
       nextIds.forEach(nextId => {
         const next = index.nodes.get(nextId);
         if (!next || visible.has(nextId)) return;
-        if (!["semantic_cluster", "structural_chunk", "chunk", "element", "document", "source", "topic"].includes(next.group)) return;
+        if (!["summary", "summary_cluster", "semantic_cluster", "structural_chunk", "chunk", "element", "document", "source", "topic"].includes(next.group)) return;
         visible.add(nextId);
         queue.push(nextId);
       });
@@ -136,6 +138,14 @@
 
   KPG.computeView = function (index, state) {
     const {mode, topic, document, selectedId, filters} = state;
+    if (mode === "summaries") {
+      const summaries = KPG.sortedNodes(index, "summary").filter(node => KPG.matchesFilters(index, node, filters))
+        .sort((a, b) => b.record.level - a.record.level || a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+      const pageCount = Math.max(1, Math.ceil(summaries.length / KPG.pageSize));
+      const page = Math.min(state.page, pageCount - 1);
+      return {visible: new Set(summaries.slice(page * KPG.pageSize, (page + 1) * KPG.pageSize).map(node => node.id)),
+        page, pageCount, availableSummaries: summaries.length};
+    }
     if (mode === "topic") {
       const topics = KPG.sortedNodes(index, "topic").filter(node => (!topic || node.id === topic) && KPG.matchesFilters(index, node, filters));
       const topicIds = new Set(topics.map(node => node.id));
@@ -153,7 +163,7 @@
     if (mode === "claim") {
       const root = index.nodes.get(selectedId);
       if (!root) return {visible: new Set(), needsClaim: true};
-      const visible = ["claim", "candidate"].includes(root.group)
+      const visible = ["claim", "candidate", "summary", "summary_cluster"].includes(root.group)
         ? KPG.localNeighborhood(index, root.id)
         : new Set([root.id, ...(index.neighbors.get(root.id) || [])]);
       return {visible: new Set([...visible].filter(id => KPG.matchesFilters(index, index.nodes.get(id), filters))), root};
@@ -161,8 +171,8 @@
     if (mode === "document") {
       const documentId = document || (index.nodes.get(selectedId)?.group === "document" ? selectedId : "");
       if (!documentId) return {visible: new Set(), needsDocument: true};
-      const claims = index.graph.nodes.filter(node => ["claim", "candidate"].includes(node.group)
-        && index.claimDocuments.get(node.id)?.has(documentId)
+      const claims = index.graph.nodes.filter(node => ["claim", "candidate", "summary"].includes(node.group)
+        && (node.group === "summary" ? node.record.document_ids.includes(documentId) : index.claimDocuments.get(node.id)?.has(documentId))
         && (!topic || node.record.topic_id === topic)
         && KPG.matchesFilters(index, node, filters))
         .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));

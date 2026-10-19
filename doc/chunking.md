@@ -23,11 +23,14 @@ figure assets stop the build.
 
 ## Output
 
-The command writes three deterministic collection files:
+The command writes four deterministic collection files:
 
 - `artifact-bundle.json`: source, document, element, chunk, and build records. Claim/topic arrays remain empty.
 - `figure-links.json`: source locations and verified figure assets; no diagram relationships are inferred.
 - `report.json`: build ID, settings, and per-document counts.
+- `document-structure.json`: a versioned snapshot of parser parents, heading
+  levels/paths, evidence roles and native Docling references, keyed by element ID.
+  It is separate from the immutable canonical bundle and does not alter chunk IDs.
 
 `documents/<document-id-without-doc-prefix>/document-view.json` holds each
 document’s records, chunks, figure links and metrics, sharing bundle chunk/build
@@ -89,6 +92,58 @@ reference fixtures only while their passages apply.
   locators live on elements.
 
 Chunking does not resolve parser OCR/layout warnings. Heading context appears as cited text; visual links live in `figure-links.json` because the chunk schema has no dedicated fields for them.
+
+## Structural assembly after original chunking
+
+The structural/semantic preparation command in [claim generation](claim-generation-and-classification.md)
+reads the original bundle and `document-structure.json`. It saves
+`document-hierarchy.json`: one record per element with `element_id`,
+`parent_element_id` (nullable), `role` and `basis`. Parents precede their children
+in the derived hierarchy within the same document; canonical source order stays
+unchanged. Roles distinguish sections, numbered paragraphs, local
+list introductions, independent boxes, ordinary content and detached notes/furniture. The basis
+records whether a relationship came from parser metadata, heading levels, a
+numbered paragraph's scope or local list flow.
+
+Docling extracts reading order, text labels (including headings, paragraphs and
+list items), native groups and page/bounding-box provenance. Our parsing adapter
+derives heading levels/paths from numbering and index indentation and resolves
+element parent IDs. Structural assembly then builds numbered-paragraph and local
+list scope from these saved signals; Docling does not provide this finished
+hierarchy or our structural chunk links. No semantic similarity is used to infer
+document parents.
+
+When a PDF topic banner appears above a case heading on the page but late in
+parser reading order, assembly uses page geometry to restore the topic/case
+relationship. Case subheadings stay within that case. Stale, spanless heading
+context is excluded from derived evidence when it contradicts these ancestors;
+the original chunks remain unchanged. A markerless continuation across a page
+break retains its list introduction when text and column geometry support the
+continuation, even when detached footnotes intervene. Captioned boxes establish
+their own context under the section instead of inheriting the preceding numbered
+paragraph. These repairs are heuristics and require source review.
+
+For the ACPR–Tracfin **INTRODUCTION**, the numbered paragraphs are children of the
+introduction. Paragraph 7 remains the parent of the split “Dans le secteur de la
+banque :” and “Dans le secteur de l'assurance :” leads. Their respective list items
+are children of those leads, even across adjacent pages. The next independent
+numbered paragraph ends paragraph 7's scope. Page-bottom footnotes remain detached.
+These relationships survive when the paragraph, leads and lists occupy many
+structural chunks: they do not require one large introduction/section chunk.
+
+Each structural chunk keeps unique original-chunk membership, exact evidence
+memberships, and `context_element_ids` for source ancestors and direct note hints.
+Generation renders this extra context with non-citable C labels; it never invents
+supporting spans or expands original chunk membership. Summary generation also
+receives parent context separately from source evidence.
+
+Only adjacent shared-element fragments and geometrically supported sentence/table
+continuations may merge. Merged components are bounded to four original chunks and
+12,000 original-text characters; over-limit links remain relationships. List,
+parent, repeated-context and unique same-page footnote links never merge chunks.
+The `merges` flag in `structural-links.jsonl` distinguishes these cases. Original
+chunks are never split, rewritten or reassigned to multiple structural chunks.
+An already mixed original chunk cannot be disentangled by this stage.
 
 ## Validate and evaluate
 

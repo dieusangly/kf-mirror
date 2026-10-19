@@ -458,10 +458,12 @@ def build_collection(config_path, input_dir, output_dir):
     result = {"schema_version": SCHEMA_VERSION, "sources": [], "documents": [],
               "elements": [], "chunks": [], "claims": [], "topics": [], "builds": []}
     figures = []
+    structure_elements = []
     document_views = {}
     report = {"schema_version": SCHEMA_VERSION, "build_id": build_id,
               "settings": settings, "documents": []}
     for bundle, sidecar, folder in ordered:
+        structure_elements.extend(sidecar['elements'])
         document = bundle["documents"][0]
         result["sources"].extend(bundle["sources"])
         result["documents"].extend(bundle["documents"])
@@ -504,6 +506,11 @@ def build_collection(config_path, input_dir, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, value in (("artifact-bundle.json", result), ("figure-links.json", figures), ("report.json", report)):
         (output_dir / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    from knowledge_foundry.document_structure import structure_snapshot, validate_structure
+    structure = structure_snapshot(structure_elements)
+    validate_structure(result, structure)
+    (output_dir / 'document-structure.json').write_text(
+        json.dumps(structure, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     views_dir = output_dir / "documents"
     for document_id, view in document_views.items():
         folder = views_dir / document_id.removeprefix("doc:")

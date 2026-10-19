@@ -43,7 +43,10 @@
   }
 
   function evidenceExcerpt(index, item, element, claim) {
-    if (element?.record?.text?.trim()) return element.record.text.trim();
+    if (element?.record?.text?.trim()) {
+      const text = element.record.text;
+      return item.span ? Array.from(text).slice(item.span.start, item.span.end).join("") : text.trim();
+    }
     const chunk = (claim.chunk_ids || []).map(id => index.nodes.get(id)).find(candidate =>
       candidate?.record?.evidence?.some(reference => reference.element_id === item.element_id));
     return chunk?.record?.text?.trim() || "No extracted evidence text is stored for this location.";
@@ -52,7 +55,8 @@
   function renderEvidence(index, node) {
     const records = Array.isArray(node.record.evidence) ? node.record.evidence : [];
     if (!records.length) return;
-    const section = addSection("Evidence", panel);
+    const section = addSection(node.group === "summary" ? "Source provenance" : "Evidence", panel);
+    if (node.group === "summary") appendText("p", "muted", "Inherited source passages for draft synthesis. Follow input summaries and clusters to inspect how it was formed.", section);
     records.forEach((item, position) => {
       const element = index.nodes.get(item.element_id);
       const excerpt = appendText("blockquote", "evidence-excerpt", evidenceExcerpt(index, item, element, node.record), section);
@@ -110,13 +114,13 @@
 
     const actions = document.createElement("div");
     actions.className = "detail-actions";
-    if (["claim", "candidate"].includes(node.group)) {
+    if (["claim", "candidate", "summary"].includes(node.group)) {
       const explore = document.createElement("button");
       explore.type = "button";
       explore.textContent = "Explore provenance";
       explore.addEventListener("click", () => onExplore("claim", node.id));
       actions.append(explore);
-    } else if (["semantic_cluster", "structural_chunk", "chunk", "element", "source"].includes(node.group)) {
+    } else if (["summary_cluster", "semantic_cluster", "structural_chunk", "chunk", "element", "source"].includes(node.group)) {
       const explore = document.createElement("button");
       explore.type = "button";
       explore.textContent = "Explore local graph";

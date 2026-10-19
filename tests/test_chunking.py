@@ -393,7 +393,7 @@ class ChunkingTests(unittest.TestCase):
             report = build_collection(config, PARSED, first)
             build_collection(config, PARSED, second)
             self.assertFalse(stale.exists())
-            for name in ("artifact-bundle.json", "figure-links.json", "report.json"):
+            for name in ("artifact-bundle.json", "figure-links.json", "document-structure.json", "report.json"):
                 self.assertEqual((first / name).read_bytes(), (second / name).read_bytes(), name)
             result = json.loads((first / "artifact-bundle.json").read_text(encoding="utf-8"))
             check(result)

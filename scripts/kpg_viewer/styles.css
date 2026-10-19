@@ -68,6 +68,8 @@ svg { display: block; min-width: 680px; }
 .node.claim rect { fill: var(--claim); }
 .node.candidate rect { fill: var(--candidate); }
 .node.semantic_cluster rect { fill: var(--semantic); }
+.node.summary rect { fill: light-dark(#e3f2e5, #294737); }
+.node.summary_cluster rect { fill: light-dark(#eff3de, #41472c); }
 .node.structural_chunk rect { fill: var(--structural); }
 .node.chunk rect { fill: var(--chunk); }
 .node.element rect { fill: var(--element); }

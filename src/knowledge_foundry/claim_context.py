@@ -11,6 +11,8 @@ from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json
 from knowledge_foundry.generation_context import RequestCounter, generation_payload, usable_input_budget
 from knowledge_foundry.semantic_clusters import cluster_members, refine_clusters, similarity_matrix, cosine
 from knowledge_foundry.structural_chunks import VERSION, assemble_structural_chunks, stable_hash
+from knowledge_foundry.document_structure import (assemble_document_hierarchy, structure_snapshot,
+                                                validate_structure)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,7 +66,7 @@ def saved_settings(value):
         'pricing': {'version': old['pricing']['rate_card_version'], 'providers': providers}}
 
 
-def validate_settings(config):
+def validate_settings(config, frozen=False):
     """Validate the step configuration and the shared provider/model price catalogue."""
     from knowledge_foundry.openai_tools import REASONING_EFFORTS
     if not isinstance(config, dict) or set(config) != {'pipeline_version', 'steps', 'pricing'}:
@@ -84,7 +86,8 @@ def validate_settings(config):
     for name, keys in shapes.items():
         if not isinstance(steps[name], dict) or set(steps[name]) != keys:
             raise ValueError('invalid ' + name + ' configuration shape')
-    if steps['structural_chunks']['version'] != VERSION or steps['semantic_clusters']['version'] != 'all-members-v1':
+    versions = {VERSION, 'structural-chunks-v1', 'structural-chunks-v2'} if frozen else {VERSION}
+    if steps['structural_chunks']['version'] not in versions or steps['semantic_clusters']['version'] != 'all-members-v1':
         raise ValueError('unsupported structural chunk or semantic clustering version')
     embedding, clustering = steps['embeddings'], steps['semantic_clusters']
     for key in ('expected_dimensions', 'max_input_tokens', 'max_request_inputs', 'max_request_tokens', 'timeout_seconds'):
@@ -199,7 +202,7 @@ def request_for_members(members, structural, bundle, config, prompt, schema):
 
 
 def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/claim-generation-and-classification.json',
-                          cache_dir=None, fixture_path=None, on_progress=None):
+                          cache_dir=None, fixture_path=None, on_progress=None, parsed_dir=None):
     from knowledge_foundry.claim_generation_and_classification import _config, _prompt, CANDIDATE_SCHEMA
     from scripts.validate_artifact_examples import check
     output_dir = Path(output_dir)
@@ -220,7 +223,22 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/cl
     prompt, _ = _prompt('claim_generation_v1.txt')
     if on_progress:
         on_progress({'state': 'assembling_structural_chunks', 'original_chunks': len(bundle['chunks'])})
-    structural, links = assemble_structural_chunks(bundle)
+    structure_path = Path(chunked_dir) / 'document-structure.json'
+    structure = _json(structure_path) if structure_path.exists() else structure_snapshot([])
+    if parsed_dir is not None:
+        rows = []
+        for document in bundle['documents']:
+            sidecar = _json(Path(parsed_dir) / 'documents' / document['id'].removeprefix('doc:') / 'parse.json')
+            if sidecar['document_id'] != document['id']:
+                raise ValueError('parsed sidecar document mismatch')
+            rows.extend(sidecar['elements'])
+        from_parsed = structure_snapshot(rows)
+        if structure_path.exists() and from_parsed != structure:
+            raise ValueError('parsed sidecars conflict with saved document structure')
+        structure = from_parsed
+    validate_structure(bundle, structure)
+    hierarchy = assemble_document_hierarchy(bundle, structure)
+    structural, links = assemble_structural_chunks(bundle, structure)
     if on_progress:
         on_progress({'state': 'structural_chunks_assembled', 'structural_chunks': len(structural)})
     by_id = {r['id']: r for r in structural}
@@ -276,16 +294,20 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/cl
                   'cluster_structural_size_distribution': dict(Counter(len(c['structural_chunk_ids']) for c in clusters)),
                   'oversized_cluster_splits': splits, 'usable_input_tokens': limit,
                   'claim_generation_request_token_counting': counter.telemetry, 'embeddings': adapter.telemetry,
-                  'structural_limitations': 'Bundle only; no reliable parent list IDs or universal footnote attachment. '
-                                           'Heuristic links require source review; missed links remain possible.'}
+                  'structure_metadata_elements': len(structure['elements']),
+                  'structural_limitations': 'Heading metadata is parser-derived; numbered and local list scopes '
+                                           'are pipeline inferences. Footnotes are non-merging hints. '
+                                           'Without parser sidecars, heading levels fall back to source flow/numbering.'}
         # Preserve the exact original file bytes, including immutable upstream records.
         (output_dir / 'artifact-bundle.json').write_bytes(input_path.read_bytes())
         _write_jsonl(output_dir / 'structural-chunks.jsonl', structural)
         _write_jsonl(output_dir / 'structural-links.jsonl', links)
+        atomic_json(output_dir / 'document-structure.json', structure)
+        atomic_json(output_dir / 'document-hierarchy.json', hierarchy)
         _write_jsonl(output_dir / 'embeddings.jsonl', embeddings)
         atomic_json(output_dir / 'semantic-clusters.json', clusters)
-        atomic_json(output_dir / 'report.json', report)
-        manifest = {'version': 1, 'stage': 'claim-context-preparation', 'config': config,
+        atomic_json(output_dir / 'report.json', report, indent=2)
+        manifest = {'version': 2, 'stage': 'claim-context-preparation', 'config': config,
                     'input_bundle_sha256': _file_hash(input_path),
                     'cluster_plan_sha256': stable_hash(clusters),
                     'generation_prompt_sha256': stable_hash(prompt), 'candidate_schema_sha256': stable_hash(CANDIDATE_SCHEMA),
@@ -305,14 +327,18 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     from scripts.validate_artifact_examples import check
     directory = Path(context_dir)
     manifest = _json(directory / 'build-manifest.json')
-    schema = _json(ROOT / 'schemas/claim-context-artifact-schema-v1.json')
+    schema = _json(ROOT / f"schemas/claim-context-artifact-schema-v{manifest['version']}.json")
     Draft202012Validator(schema).validate(manifest)
     saved_config = saved_settings(manifest['config'])
-    validate_settings(saved_config)
+    validate_settings(saved_config, frozen=True)
+    if (manifest['version'] == 1) != (saved_config['steps']['structural_chunks']['version'] == 'structural-chunks-v1'):
+        raise ValueError('preparation manifest and structural version mismatch')
     if config is not None and execution_settings(saved_config) != execution_settings(config):
         raise ValueError('structural chunks and semantic clusters configuration mismatch; build a fresh artifact directory')
     required = {'artifact-bundle.json', 'structural-chunks.jsonl', 'structural-links.jsonl',
                 'embeddings.jsonl', 'semantic-clusters.json', 'report.json'}
+    if manifest['version'] == 2:
+        required |= {'document-structure.json', 'document-hierarchy.json'}
     if {r['path'] for r in manifest['outputs']} != required or len(manifest['outputs']) != len(required):
         raise ValueError('structural chunks and semantic clusters manifest outputs mismatch')
     for entry in manifest['outputs']:
@@ -333,7 +359,26 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     structural = _jsonl(directory / 'structural-chunks.jsonl')
     validate_records('structural_chunk', structural)
     validate_records('structural_link', _jsonl(directory / 'structural-links.jsonl'))
-    expected, links = assemble_structural_chunks(bundle)
+    hierarchy = []
+    if manifest['version'] == 1:
+        from knowledge_foundry._structural_chunks_v1 import assemble_structural_chunks as legacy_assemble
+        expected, links = legacy_assemble(bundle)
+    else:
+        structure = _json(directory / 'document-structure.json')
+        validate_records('document_structure', [structure])
+        validate_structure(bundle, structure)
+        if saved_config['steps']['structural_chunks']['version'] == 'structural-chunks-v2':
+            from knowledge_foundry._document_structure_v2 import assemble_document_hierarchy as frozen_hierarchy
+            from knowledge_foundry._structural_chunks_v2 import assemble_structural_chunks as frozen_assemble
+            hierarchy = frozen_hierarchy(bundle, structure)
+            expected, links = frozen_assemble(bundle, structure)
+        else:
+            hierarchy = assemble_document_hierarchy(bundle, structure)
+            expected, links = assemble_structural_chunks(bundle, structure)
+        saved_hierarchy = _json(directory / 'document-hierarchy.json')
+        validate_records('hierarchy_entry', saved_hierarchy)
+        if hierarchy != saved_hierarchy:
+            raise ValueError('document hierarchy mismatch')
     if structural != expected or _jsonl(directory / 'structural-links.jsonl') != links:
         raise ValueError('structural chunks membership, ordering or links mismatch')
     embeddings = _jsonl(directory / 'embeddings.jsonl')
@@ -385,7 +430,7 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     if any(report.get(k) != v for k, v in expected_counts.items()):
         raise ValueError('structural chunks and semantic clusters diagnostics mismatch')
     return {'manifest': manifest, 'bundle': bundle, 'structural_chunks': structural,
-            'clusters': clusters, 'report': report,
+            'clusters': clusters, 'hierarchy': hierarchy, 'report': report,
             'manifest_sha256': _file_hash(directory / 'build-manifest.json')}
 
 

@@ -38,7 +38,7 @@ class StructuralChunksTests(unittest.TestCase):
                              [[0], [1], [2], [3], [4], [5]])
         records, links = assemble_structural_chunks(bundle)
         self.assertEqual(len(records), 6)
-        self.assertEqual(links, [])
+        self.assertTrue(all(link['reason'] == 'document_parent' and not link['merges'] for link in links))
 
     def test_supported_table_continuation_records_heuristic_reason(self):
         bundle = self.bundle([('table', 'Action | suspend the', 1), ('table', ' | observations.', 2)], [[0], [1]])
@@ -54,8 +54,11 @@ class StructuralChunksTests(unittest.TestCase):
                 bundle = self.bundle([('paragraph', 'Operators must perform these checks:', 1),
                                       ('list_item', first, 1), ('list_item', second, 2)], [[0], [1], [2]])
                 records, links = assemble_structural_chunks(bundle)
-                self.assertEqual(len(records), 1)
-                self.assertEqual(len(links), 2)
+                self.assertEqual(len(records), 3)
+                self.assertTrue(all(not link['merges'] for link in links))
+                lead = bundle['elements'][0]['id']
+                children = [r for r in records if r['original_chunk_ids'] != [bundle['chunks'][0]['id']]]
+                self.assertTrue(all(lead in r['context_element_ids'] for r in children))
 
     def test_list_does_not_cross_outdent_or_new_marker_family(self):
         for last in ['1) New independent rule.', '- Another bullet.']:
@@ -64,7 +67,9 @@ class StructuralChunksTests(unittest.TestCase):
             for index, e in enumerate(bundle['elements']):
                 e['location']['bbox'] = [60 if index < 2 else 40, 40 + index * 20, 400, 50 + index * 20]
             records, _ = assemble_structural_chunks(bundle)
-            self.assertEqual(len(records), 2)
+            self.assertEqual(len(records), 3)
+            last_record = next(r for r in records if bundle['chunks'][2]['id'] in r['original_chunk_ids'])
+            self.assertNotIn(bundle['elements'][0]['id'], last_record['context_element_ids'])
 
     def test_box_sentence_continuation_requires_adjacent_matching_geometry(self):
         for interrupted, shifted in [(False, False), (True, False), (False, True)]:

@@ -60,19 +60,20 @@
   }
 
   function modeDescription(view) {
+    if (state.mode === "summaries") return `${view.availableSummaries.toLocaleString()} summaries · page ${view.page + 1} of ${view.pageCount}`;
     if (state.mode === "topic") return `${view.availableClaims.toLocaleString()} matching claims · page ${view.page + 1} of ${view.pageCount}`;
     if (state.mode === "claim") return view.root
-      ? (["claim", "candidate"].includes(view.root.group) ? "Source provenance for the selected claim." : `Local graph around ${view.root.group}`)
+      ? (["claim", "candidate", "summary"].includes(view.root.group) ? "Source provenance for the selected record." : `Local graph around ${view.root.group}`)
       : "Select a claim in Topics and claims, then use Explore provenance.";
     if (state.mode === "document") return view.root
-      ? `${view.availableClaims.toLocaleString()} matching claims · page ${view.page + 1} of ${view.pageCount} · connected to ${view.root.label}`
-      : "Choose a document to inspect the claims and evidence derived from it.";
+      ? `${view.availableClaims.toLocaleString()} knowledge records · page ${view.page + 1} of ${view.pageCount} · connected to ${view.root.label}`
+      : "Choose a document to inspect its claims and summaries.";
     return "All graph records matching the active filters.";
   }
 
   function renderPager(view) {
     pageNode.replaceChildren();
-    if (!["topic", "document"].includes(state.mode) || view.pageCount < 2) return;
+    if (!["topic", "summaries", "document"].includes(state.mode) || view.pageCount < 2) return;
     const previous = document.createElement("button"); previous.type = "button"; previous.textContent = "Previous"; previous.disabled = view.page === 0;
     previous.addEventListener("click", () => { state.page -= 1; render(); });
     const pageInput = document.createElement("input");
@@ -103,7 +104,7 @@
     state.document = controls.document.value;
     const view = KPG.computeView(index, {mode: state.mode, topic: state.topic, document: state.document,
       selectedId: state.selectedId, filters: currentFilters(), page: state.page});
-    viewTitle.textContent = {topic: "Topics and claims", claim: view.root && !["claim", "candidate"].includes(view.root.group) ? "Local graph" : "Claim provenance", document: "Document-derived knowledge", full: "Full graph / debug"}[state.mode];
+    viewTitle.textContent = {topic: "Topics and claims", summaries: "Summaries", claim: view.root?.group === "summary" ? "Summary provenance" : view.root && !["claim", "candidate"].includes(view.root.group) ? "Local graph" : "Claim provenance", document: "Document-derived knowledge", full: "Full graph / debug"}[state.mode];
     summary.textContent = modeDescription(view);
     visibleCount.textContent = `${view.visible.size.toLocaleString()} nodes in view`;
     renderPager(view);

@@ -31,6 +31,8 @@
 
   function nodeContext(node) {
     const record = node.record || {};
+    if (node.group === "summary") return `Level ${record.level} · ${record.original_chunk_ids.length} original chunks · ${record.review_status}`;
+    if (node.group === "summary_cluster") return `${record.summary_ids.length} summaries → level ${record.level}`;
     if (node.group === "topic") {
       const count = Array.isArray(record.claim_ids) ? record.claim_ids.length : 0;
       return `${count.toLocaleString()} claims`;

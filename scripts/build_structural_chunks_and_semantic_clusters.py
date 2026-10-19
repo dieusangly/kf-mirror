@@ -16,10 +16,12 @@ def main(argv=None):
     parser.add_argument('--config', type=Path, default=ROOT / 'config/claim-generation-and-classification.json')
     parser.add_argument('--cache-dir', type=Path)
     parser.add_argument('--fixture', type=Path, help='offline embedding vectors keyed by exact-text hash')
+    parser.add_argument('--parsed-dir', type=Path, help='matching saved parsing run for legacy chunks without document-structure.json')
     args = parser.parse_args(argv)
     try:
         report = prepare_claim_context(args.chunked_dir, args.output_dir, args.config, args.cache_dir, args.fixture,
-                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True))
+                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True),
+                                       parsed_dir=args.parsed_dir)
     except Exception as exc:
         parser.exit(2, f'structural chunks and semantic clusters build failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2))

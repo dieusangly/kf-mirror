@@ -52,8 +52,8 @@ def _token_count_http_error(error, api_key):
 
 class RequestCounter:
     """Count exact payloads; fixture byte estimates are explicitly offline-only."""
-    def __init__(self, config, cache_dir, api_key=None):
-        config = config['steps']['claim_generation']
+    def __init__(self, config, cache_dir, api_key=None, stage='claim_generation'):
+        config = config['steps'][stage]
         self.config, self.cache_dir, self.api_key = config, Path(cache_dir), api_key
         self.telemetry = {'requests': 0, 'cache_hits': 0, 'failed_requests': 0,
                           'estimated_cost_usd': None if config['provider'] == 'openai' else 0,

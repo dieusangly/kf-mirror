@@ -1,165 +1,127 @@
-"""Assemble original chunks using document-local structural evidence."""
+"""Focused structural chunks with explicit, non-merging document context."""
 
 from collections import defaultdict
-import hashlib
-import json
-import re
 
+from knowledge_foundry._structural_chunks_v1 import footnote_links, stable_hash
+from knowledge_foundry.document_structure import assemble_document_hierarchy, ancestor_ids
 from knowledge_foundry.evidence import claim_evidence_references, evidence_key
 
-VERSION = "structural-chunks-v1"
+VERSION = "structural-chunks-v3"
+MAX_ORIGINAL_CHUNKS = 4
+MAX_ASSEMBLED_CHARACTERS = 12000
 
 
-def stable_hash(value):
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
-                                     separators=(",", ":")).encode()).hexdigest()
+def assemble_structural_chunks(bundle, structure=None):
+    """Preserve unique original membership; relationships never imply union.
 
+    Only adjacent fragments and proven sentence/table continuations may merge,
+    with hard component bounds. Section/list/footnote links remain inspectable
+    relationships. Original chunks and their evidence are never rewritten.
+    """
+    from knowledge_foundry._structural_chunks_v1 import assemble_structural_chunks as legacy_assemble
 
-def footnote_links(chunks, elements):
-    """Conservative same-page, unique numbered-note hints; never identity links."""
-    notes, passages = defaultdict(dict), []
-    for chunk in chunks:
-        for ref in chunk['evidence']:
-            if 'span' not in ref:
-                continue
-            element = elements[ref['element_id']]
-            if element['location']['format'] != 'pdf':
-                continue
-            key = (ref['document_id'], element['location']['page'])
-            text = element['text'][ref['span']['start']:ref['span']['end']]
-            match = re.match(r'^(\d+)\s+', text)
-            if element['kind'] == 'footnote' and match:
-                notes[key][evidence_key(ref)] = (match[1], ref)
-            elif element['kind'] not in {'footnote', 'heading'}:
-                passages.append((key, text, ref))
-    result = []
-    for key, text, parent in passages:
-        by_number = defaultdict(list)
-        for number, note in notes[key].values():
-            by_number[number].append(note)
-        for number, refs in by_number.items():
-            if len(refs) != 1 or elements[parent['element_id']]['ordinal'] >= elements[refs[0]['element_id']]['ordinal'] or re.match(r'^\s*' + number + r'[.)]\s', text):
-                continue
-            # Decimal/article identifiers and enumerated list labels are not note markers.
-            if re.search(r'(?<![\w.\-])' + number + r'(?![\w°%\-]|\.\d)', text):
-                result.append((parent, refs[0]))
-    return result
-
-
-def assemble_structural_chunks(bundle):
-    """Return deterministic derived records and auditable accepted link reasons."""
     chunks = sorted(bundle['chunks'], key=lambda c: (c['document_id'], c['sequence'], c['id']))
     elements = {e['id']: e for e in bundle['elements']}
+    hierarchy = {r['element_id']: r for r in assemble_document_hierarchy(bundle, structure)}
     owners = defaultdict(set)
-    for index, chunk in enumerate(chunks):
+    for i, chunk in enumerate(chunks):
         for ref in chunk['evidence']:
             if 'span' in ref:
-                owners[ref['element_id']].add(index)
+                owners[ref['element_id']].add(i)
+    by_chunk = {c['id']: i for i, c in enumerate(chunks)}
     parents = list(range(len(chunks)))
-    links = {}
+    members = {i: {i} for i in parents}
 
     def root(i):
         while parents[i] != i:
-            parents[i] = parents[parents[i]]
             i = parents[i]
         return i
 
-    def link(a, b, reason, strength, element_ids):
-        if a == b or chunks[a]['document_id'] != chunks[b]['document_id']:
-            return
-        a, b = sorted((a, b))
-        key = (a, b, reason, tuple(element_ids))
-        links[key] = {'original_chunk_ids': [chunks[a]['id'], chunks[b]['id']],
-                      'element_ids': element_ids, 'reason': reason, 'strength': strength}
-        parents[root(b)] = root(a)
+    def can_merge(a, b):
+        group = members[root(a)] | members[root(b)]
+        ordered = sorted(group)
+        return (len(group) <= MAX_ORIGINAL_CHUNKS and
+                ordered == list(range(ordered[0], ordered[-1] + 1)) and
+                sum(len(chunks[i]['text']) for i in group) <= MAX_ASSEMBLED_CHARACTERS and
+                len({elements[r['element_id']]['kind'] == 'footnote'
+                     for i in group for r in chunks[i]['evidence'] if 'span' in r}) <= 1)
 
-    def link_elements(a, b, reason, strength='heuristic'):
-        for i in sorted(owners[a]):
-            for j in sorted(owners[b]):
-                link(i, j, reason, strength, [a, b])
-
-    for element_id, indices in sorted(owners.items()):
-        if elements[element_id]['kind'] in {'paragraph', 'list_item', 'table', 'footnote'}:
-            indices = sorted(indices)
-            for i in indices[1:]:
-                link(indices[0], i, 'shared_element_fragments', 'identity', [element_id])
-    for i, chunk in enumerate(chunks):
-        for ref in chunk['evidence']:
-            if 'span' not in ref and elements[ref['element_id']]['kind'] != 'heading':
-                for j in sorted(owners[ref['element_id']]):
-                    link(i, j, 'governing_context_reference', 'identity', [ref['element_id']])
-    # Consider the full element flow: intervening headings/content stop a list.
-    flow = sorted((e for e in bundle['elements'] if e['kind'] not in {'footnote', 'figure', 'table_cell'}),
-                  key=lambda e: (e['document_id'], e['ordinal'], e['id']))
-    for i, intro in enumerate(flow):
-        if intro['kind'] not in {'paragraph', 'list_item'} or not intro['text'].rstrip().endswith(':'):
+    # Reuse the proven geometric continuation detectors, but not their union
+    # result. In particular a note marker or repeated context cannot union groups.
+    _, detected = legacy_assemble(bundle)
+    links = []
+    merge_reasons = {'shared_element_fragments', 'adjacent_sentence_continuation', 'adjacent_table_continuation'}
+    for row in detected:
+        a, b = (by_chunk[cid] for cid in row['original_chunk_ids'])
+        merge = (row['reason'] in merge_reasons and abs(a - b) == 1 and can_merge(a, b))
+        if row['reason'] == 'governing_context_reference':
+            # Repeated context is a relationship only when the source hierarchy
+            # supports it or the references are local in source flow.
+            context = row['element_ids'][0]
+            content = [r['element_id'] for i in (a, b)
+                       if any(ref['element_id'] == context and 'span' not in ref for ref in chunks[i]['evidence'])
+                       for r in chunks[i]['evidence'] if 'span' in r]
+            location = elements[context]['location']
+            if not any(context in ancestor_ids(eid, hierarchy) or
+                       (abs(elements[eid]['ordinal'] - elements[context]['ordinal']) <= 1 and
+                        elements[eid]['location'].get('article_id') == location.get('article_id') and
+                        abs(elements[eid]['location'].get('page', 0) - location.get('page', 0)) <= 1)
+                       for eid in content):
+                continue
+        if row['reason'] in {'ordered_list_introduction', 'unordered_list_introduction', 'nested_list_introduction'}:
+            parent, child = row['element_ids']
+            if parent not in ancestor_ids(child, hierarchy):
+                continue
+        links.append({**row, 'merges': merge})
+        if merge and root(a) != root(b):
+            ra, rb = root(a), root(b)
+            parents[rb] = ra
+            members[ra] |= members.pop(rb)
+    # Explicit parent relationships also link chunks when parent and child are
+    # separately chunked. The element hierarchy remains authoritative even if a
+    # heading has only spanless references, or both endpoints share one chunk.
+    for eid, row in hierarchy.items():
+        parent = row['parent_element_id']
+        if parent is None:
             continue
-        family = None
-        for item in flow[i + 1:]:
-            marker = re.match(r'^\s*(?:([-–—•▪*])|([\w]+)[.)°])\s+', item['text'])
-            item_family = ('bullet' if marker and marker[1] else
-                           'number' if marker and marker[2].isdigit() else 'letter')
-            a, b = intro['location'], item['location']
-            if (item['document_id'] != intro['document_id'] or b.get('article_id') != a.get('article_id')
-                    or item['kind'] != 'list_item' or marker is None
-                    or (family is not None and family != item_family)
-                    or (a.get('bbox') and b.get('bbox') and b['bbox'][0] < a['bbox'][0] - 2)):
-                break
-            family = item_family
-            link_elements(intro['id'], item['id'],
-                          'unordered_list_introduction' if family == 'bullet' else 'ordered_list_introduction')
-            if i and flow[i - 1]['document_id'] == intro['document_id'] and \
-                    flow[i - 1]['kind'] == 'list_item' and flow[i - 1]['text'].rstrip().endswith(':'):
-                link_elements(flow[i - 1]['id'], intro['id'], 'nested_list_introduction')
-    # A sentence can be split between a table/box and a body-text block on the
-    # same page. Require adjacent source flow, unfinished syntax and matching
-    # geometry; never join across a heading or figure just because wording fits.
-    continuation_flow = sorted((e for e in bundle['elements'] if e['kind'] not in {'footnote', 'table_cell'}),
-                               key=lambda e: (e['document_id'], e['ordinal'], e['id']))
-    for previous, current in zip(continuation_flow, continuation_flow[1:]):
-        a, b = previous['location'], current['location']
-        left, right = previous['text'].rstrip(), current['text'].lstrip()
-        if (previous['document_id'] != current['document_id'] or previous['kind'] not in {'paragraph', 'table'}
-                or current['kind'] != 'paragraph' or a['format'] != 'pdf' or b['format'] != 'pdf'
-                or a['page'] != b['page'] or not a.get('bbox') or not b.get('bbox')
-                or not left or left.endswith(('.', ';', ':', '!', '?', '…')) or not right or not right[0].islower()):
-            continue
-        ab, bb = a['bbox'], b['bbox']
-        # A table's enclosing box may include border/padding below its last text
-        # cell. Allow a continuation line to overlap that edge, but not to sit
-        # wholly inside the table or overlap an ordinary prose block.
-        minimum_gap = -(bb[3] - bb[1]) if previous['kind'] == 'table' and bb[3] >= ab[3] else 0
-        if (ab[0] - 2 <= bb[0] < bb[2] <= ab[2] + 2
-                and minimum_gap <= bb[1] - ab[3] <= max(12, (bb[3] - bb[1]) * 1.5)):
-            link_elements(previous['id'], current['id'], 'adjacent_sentence_continuation')
-    for previous, current in zip(flow, flow[1:]):
-        a, b = previous['location'], current['location']
-        if previous['kind'] != 'table' or current['kind'] != 'table' or \
-                previous['document_id'] != current['document_id'] or a['format'] != 'pdf' or \
-                b['format'] != 'pdf' or b['page'] != a['page'] + 1:
-            continue
-        left, right = previous['text'].splitlines()[-1].split('|'), current['text'].splitlines()[0].split('|')
-        # Require an unfinished cell AND a lowercase continuation, not equal column counts alone.
-        if len(left) >= 2 and len(right) >= 2 and len(right) <= len(left) and \
-                re.match(r'^[a-zà-ÿ]', right[-1].lstrip()) and \
-                left[-1].strip() and not left[-1].rstrip().endswith(('.', ';', ':', '!', '?')):
-            link_elements(previous['id'], current['id'], 'adjacent_table_continuation')
-    for passage, note in footnote_links(chunks, elements):
-        link_elements(passage['element_id'], note['element_id'], 'same_page_unique_note_marker')
+        for a in sorted(owners[parent]):
+            for b in sorted(owners[eid]):
+                if a != b:
+                    links.append({'original_chunk_ids': [chunks[a]['id'], chunks[b]['id']],
+                                  'element_ids': [parent, eid], 'reason': 'document_parent',
+                                  'strength': 'heuristic', 'merges': False})
     groups = defaultdict(list)
     for i, chunk in enumerate(chunks):
         groups[root(i)].append(chunk)
     records = []
     for group in groups.values():
         refs = {}
+        body_ids = {ref['element_id'] for chunk in group for ref in chunk['evidence'] if 'span' in ref}
+        governing = {eid for child in body_ids for eid in ancestor_ids(child, hierarchy)}
         for chunk in group:
+            saved_headings = {ref['element_id'] for ref in chunk['evidence']
+                              if 'span' not in ref and elements[ref['element_id']]['kind'] == 'heading'}
             for ref in claim_evidence_references(chunk, elements):
-                key = evidence_key(ref)
-                refs.setdefault(key, {'reference': ref, 'original_chunk_ids': []})
-                refs[key]['original_chunk_ids'].append(chunk['id'])
+                # Preserve original references in the canonical bundle, but do
+                # not carry stale parser heading context into derived content.
+                if governing and ref['element_id'] in saved_headings and ref['element_id'] not in governing | body_ids:
+                    continue
+                item = refs.setdefault(evidence_key(ref), {'reference': ref, 'original_chunk_ids': []})
+                if chunk['id'] not in item['original_chunk_ids']:
+                    item['original_chunk_ids'].append(chunk['id'])
         refs = sorted(refs.values(), key=lambda r: (elements[r['reference']['element_id']]['ordinal'],
                       r['reference'].get('span', {}).get('start', -1), evidence_key(r['reference'])))
-        # Spanless context is retained in provenance, but is not promoted to evidence.
+        context_ids = sorted({parent for item in refs if 'span' in item['reference']
+                              for parent in ancestor_ids(item['reference']['element_id'], hierarchy)},
+                             key=lambda eid: (len(ancestor_ids(eid, hierarchy)), elements[eid]['ordinal'], eid))
+        # Note hints supply local context without pulling notes (and their
+        # neighbours) into the structural component or expanding its evidence.
+        own_passages = {item['reference']['element_id'] for item in refs if 'span' in item['reference']}
+        context_ids = sorted(set(context_ids) | {row['element_ids'][1] for row in detected
+            if row['reason'] == 'same_page_unique_note_marker' and row['element_ids'][0] in own_passages},
+            key=lambda eid: (len(ancestor_ids(eid, hierarchy)), elements[eid]['ordinal'], eid))
+        own_elements = {item['reference']['element_id'] for item in refs}
+        context_ids = [eid for eid in context_ids if eid not in own_elements]
         parts = []
         for item in refs:
             ref = item['reference']
@@ -167,7 +129,12 @@ def assemble_structural_chunks(bundle):
             span = ref.get('span')
             parts.append(text[span['start']:span['end']] if span else text)
         ids = [c['id'] for c in group]
-        records.append({'id': 'structural:' + stable_hash([VERSION, ids, refs]),
+        # Context participates in identity, without becoming citable evidence.
+        identity = [VERSION, ids, refs, [[eid, elements[eid]['revision']] for eid in context_ids]]
+        records.append({'id': 'structural:' + stable_hash(identity),
                         'document_id': group[0]['document_id'], 'original_chunk_ids': ids,
-                        'text': '\n\n'.join(parts), 'evidence_memberships': refs})
-    return sorted(records, key=lambda r: r['id']), [links[k] for k in sorted(links)]
+                        'text': '\n\n'.join(parts), 'evidence_memberships': refs,
+                        'context_element_ids': context_ids})
+    unique_links = {stable_hash(row): row for row in links}
+    return sorted(records, key=lambda r: r['id']), sorted(unique_links.values(), key=lambda r: (
+        r['original_chunk_ids'], r['reason'], r['element_ids']))

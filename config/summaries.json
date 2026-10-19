@@ -1,0 +1,87 @@
+{
+  "pipeline_version": "recursive-summaries-v1",
+  "steps": {
+    "embeddings": {
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "dimensions": 1536,
+      "expected_dimensions": 1536,
+      "tokenizer": "cl100k_base",
+      "max_input_tokens": 8192,
+      "max_request_inputs": 32,
+      "max_request_tokens": 32000,
+      "timeout_seconds": 90,
+      "retries": 2,
+      "preprocessing_version": "structural-evidence-text-v1"
+    },
+    "summary_generation": {
+      "version": "summary-generation-v1",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "reasoning_effort": "medium",
+      "retries": 2,
+      "budget": {
+        "context_window_tokens": 1050000,
+        "reserved_output_tokens": 4096,
+        "safety_margin_tokens": 4096,
+        "operational_input_cap_tokens": 32000,
+        "verified_model": "gpt-6-luna",
+        "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+        "verified_on": "2026-10-16"
+      }
+    },
+    "summary_clusters": {
+      "minimum_similarity": 0.8,
+      "max_members": 8,
+      "max_levels": 4
+    }
+  },
+  "pricing": {
+    "version": "pricing-snapshot-v1",
+    "providers": {
+      "openai": {
+        "models": {
+          "gpt-6-luna": {
+            "short_context_limit_tokens": 272000,
+            "short_context_usd_per_million_tokens": {
+              "input": 0.1,
+              "cached_input": 0.01,
+              "cache_write": 0.125,
+              "output": 0.5
+            },
+            "long_context_usd_per_million_tokens": {
+              "input": 0.2,
+              "cached_input": 0.02,
+              "cache_write": 0.25,
+              "output": 0.75
+            },
+            "verified_on": "2026-10-13",
+            "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+          },
+          "gpt-6.1-sol": {
+            "short_context_limit_tokens": 272000,
+            "short_context_usd_per_million_tokens": {
+              "input": 2.0,
+              "cached_input": 0.1,
+              "cache_write": 2.5,
+              "output": 10.0
+            },
+            "long_context_usd_per_million_tokens": {
+              "input": 4.0,
+              "cached_input": 0.2,
+              "cache_write": 5.0,
+              "output": 15.0
+            },
+            "verified_on": "2026-10-13",
+            "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+          },
+          "text-embedding-3-small": {
+            "usd_per_million_input_tokens": 0.02,
+            "verified_on": "2026-10-16",
+            "documentation_url": "https://developers.openai.com/api/docs/models/text-embedding-3-small"
+          }
+        }
+      }
+    }
+  }
+}

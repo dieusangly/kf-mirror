@@ -1,5 +1,8 @@
 # Knowledge Foundry documentation
 
+Start with the [pipeline runbook](pipeline-runbook.md) for successive commands,
+agent reviews, pass gates and safe reruns.
+
 | Order | Guide | Covers |
 | --- | --- | --- |
 | 1. Research | [Project benchmark](open-source-project-benchmark.md) | Framework comparison, actual dependencies and design references. |
@@ -15,3 +18,5 @@
 | 11. Claim generation and classification | [Claim generation and classification](claim-generation-and-classification.md) | Structural chunks, semantic clusters, models, CLI, review and exports. |
 | 12. Claim evaluation | [Claim evaluation](claim-evaluation.md) | Review and acceptance. |
 | 13. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |
+| 14. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
+| 15. Downstream uses | [Claims versus summaries](downstream-uses.md) | Graphs, RAG, candidate training data and reasoning-task uses. |

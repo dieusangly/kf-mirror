@@ -4,6 +4,9 @@
 
 Generation extracts draft, evidence-linked candidate claims. Classification assigns
 curated topics or explicit null outcomes without changing candidate text or evidence.
+Semantic clusters also feed an independent [recursive summary path](summaries.md).
+Summaries do not consume claims, and do not replace claim generation, classification
+or its grounding/classification review statuses.
 
 ## Normal case
 
@@ -15,15 +18,22 @@ Run each command only after the previous one succeeds.
 INPUT_RUN_ID="your-reviewed-chunking-run-id"
 RUN_ID="your-new-claim-run-id"
 CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
+PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
 CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${RUN_ID}"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 printf 'RUN_ID=%s\n' "$RUN_ID"
 
 .venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
-  --chunked-dir "$CHUNKED_DIR" --output-dir "$CONTEXT_DIR" \
+  --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" --output-dir "$CONTEXT_DIR" \
   --cache-dir artifacts/embeddings-and-token-counts
+```
 
+Preparation validates hierarchy, lineage, membership and request budgets.
+After it succeeds, continue with generation; there is no separate structural
+agent-review stage. Pilot source checks remain regression tests.
+
+```sh
 .venv/bin/python scripts/generate_claims.py \
   --context-dir "$CONTEXT_DIR" --output-dir "$CANDIDATES_DIR"
 
@@ -39,6 +49,7 @@ Then invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_c
 with this `RUN_ID`: it initializes or reuses the review, inspects saved sources and
 runs final evaluation. For manual review commands, see [claim evaluation](claim-evaluation.md).
 Then create the [knowledge provenance graph](knowledge-provenance-graph.md) for inspection.
+For prospective RAG and training consumers, see [downstream uses](downstream-uses.md).
 
 Preparation can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,
@@ -149,16 +160,28 @@ splits. Completed checks can include an oversized cluster awaiting refinement.
 
 ## Structure, evidence and completeness
 
-Structural chunks join document-local fragments/context, numbered or bulleted
-list introductions, table continuations and same-page note hints. Adjacent incomplete
-sentences may join across a table boundary when same-page geometry supports continuity.
-Heuristic links require source review; headings alone do not join chunks. Only identical evidence spans are
-deduplicated; repeated wording at distinct locations remains.
+Structural chunks preserve [explicit document hierarchy](chunking.md#structural-assembly-after-original-chunking)
+and keep original chunks focused. Bounded adjacent fragments and supported
+sentence/table continuations may join. Section/list parents, repeated context
+and same-page note hints are non-merging relationships. Ancestor and note text
+is supplied as non-citable context. Only identical evidence spans are deduplicated;
+repeated wording at distinct locations remains. Heuristic links require source review.
 
 Semantic clusters can span documents. Each original/structural chunk belongs to
 one final cluster. Greedy grouping requires similarity to every member; it is
 deterministic but order-sensitive. Similarity does not establish actor identity,
 agreement, legal scope or effective dates.
+
+New preparation uses `structural-chunks-v3`, `compilation-v13` and manifest/schema
+v2. For existing chunking runs without `document-structure.json`, add
+`--parsed-dir artifacts/parsed-YOUR_RUN` to preparation to snapshot the matching
+`parse.json` sidecars. With neither metadata source, source-flow/numbering fallback
+is explicit in the report and cannot recover all heading depths.
+Use a fresh preparation/output directory: structural IDs, semantic memberships
+and claim request hashes change. Original chunk IDs and bundle schemas remain
+unchanged. Frozen v1/v2 preparations/candidates remain readable and evaluable with
+their original algorithm; new generation under the current configuration requires
+fresh v3 preparation. Existing classified claim views remain supported.
 
 Each generation request covers one cluster. Temporary E labels cite exact evidence;
 C labels identify non-citable context. Independently citable passages always

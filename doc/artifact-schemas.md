@@ -76,6 +76,10 @@ flowchart LR
   Original -->|structural links| Structural[Structural chunks]
   Structural -->|embeddings + cosine similarity| Semantic[Semantic clusters]
   Semantic -->|claim generation: zero or many| Candidate[Candidate claims]
+  Semantic -->|one per cluster| Summary[Level-one summaries]
+  Summary --> SummaryCluster[Clusters of summaries]
+  SummaryCluster --> Higher[Higher-level summaries]
+  Higher --> SummaryCluster
   Candidate -->|topic classification| Claim[Classified claims]
   Claim --> Topic[Topics]
   Element -. exact evidence .-> Candidate
@@ -90,7 +94,9 @@ The [pipeline and record-lineage diagram](images/artifact-record-links-v1.0.0.sv
 shows canonical bundle records and the separate structural chunks, semantic
 clusters and candidate claim artifacts. Unclassified candidate claims remain
 available. Derived memberships preserve original chunk IDs and exact evidence;
-they do not add record types to the v1.0.0 bundle.
+they do not add record types to the v1.0.0 bundle. Recursive summaries and summary
+clusters are also separate artifacts, governed by the
+[summary manifest/record schema](../schemas/summary-artifact-schema-v1.json).
 
 | Link | Required relationship |
 | --- | --- |
@@ -149,22 +155,42 @@ parsing or retrieval quality.
 
 ## Frozen structural chunks and semantic clusters
 
-[Structural chunks and semantic clusters build manifest](../schemas/claim-context-artifact-schema-v1.json) is separate
+[Structural chunks and semantic clusters build manifest v2](../schemas/claim-context-artifact-schema-v2.json) is separate
 from the canonical chunk, candidate claim and claim schemas. It pins the original bundle,
 configuration, prompt/schema assumptions and exact semantic cluster plan.
 
 | File | Purpose |
 | --- | --- |
-| `structural-chunks.jsonl` | Derived text, original chunk membership and evidence memberships |
-| `structural-links.jsonl` | Identity/heuristic link reasons and original endpoints |
+| `document-structure.json` | Frozen parser parent, heading and native Docling metadata; v1 snapshot layout |
+| `document-hierarchy.json` | Element parent tree with section/numbered-paragraph/list roles and assembly basis |
+| `structural-chunks.jsonl` | Derived text, original chunk/evidence memberships and non-citable context element IDs |
+| `structural-links.jsonl` | Identity/heuristic reasons, original/element endpoints and explicit `merges` flag |
 | `embeddings.jsonl` | Vectors, exact input hashes and cache/provider provenance |
 | `semantic-clusters.json` | Unique memberships, request hashes/counts and minimum similarity |
 | `report.json` | Sizes, refinement diagnostics and structural chunk and semantic cluster build telemetry |
 | `build-manifest.json` | File hashes, versions and frozen assumptions |
 
 Link reasons cover shared fragments, governing context, numbered/bulleted list
-introductions, adjacent sentence/table continuations and same-page note markers.
-The schema enumerates the accepted reasons; heuristic links require source review.
+introductions, document parents, adjacent sentence/table continuations and
+same-page note markers. Only bounded adjacent fragments/continuations may merge;
+all parent, list, repeated-context and note links are relationships. The schema
+enumerates accepted reasons; heuristic links require source review. The element
+tree represents a section spanning many structural chunks without merging it.
+See the [INTRODUCTION/paragraph 7 example](chunking.md#structural-assembly-after-original-chunking).
+
+The [v1 manifest schema](../schemas/claim-context-artifact-schema-v1.json) and
+frozen v1/v2 assembly remain supported for reading existing preparations and claim
+lineage. New builds require `structural-chunks-v3` and manifest v2; migrate by
+creating a fresh preparation, optionally passing matching `--parsed-dir` sidecars
+for old chunking runs. Original bundle/chunk IDs and claim/candidate schemas do
+not change. Changed derived memberships require fresh downstream claim runs.
+
+Summary records link `input_cluster_id` to a semantic cluster at level one or a
+summary cluster above level one, with `input_summary_ids` for the latter. They
+retain exact transitive semantic cluster, original chunk and document IDs and
+source evidence. IDs include content and generation identity; `review_status`
+does not affect identity. Summary evidence is inherited provenance, separate from
+verified claim grounding. See [summary artifacts and levels](summaries.md).
 
 Generation copies the frozen build and saves the candidate-claim-to-cluster mapping
 in `candidate-clusters.json`, preserving canonical evidence and original chunk IDs. Evidence

@@ -182,7 +182,7 @@ def _passage(ref, element_map):
             "kind": element["kind"], "location": element["location"]}
 
 
-def _evidence_choices(chunks, element_map):
+def _evidence_choices(chunks, element_map, structural_chunks=None):
     choices, by_reference = {}, {}
     for chunk in chunks:
         for ref in claim_evidence_references(chunk, element_map):
@@ -207,20 +207,33 @@ def _evidence_choices(chunks, element_map):
             for note_label in labels[canonical(note)]:
                 choices[parent_label].setdefault("footnote_evidence", []).append(note_label)
                 choices[note_label].setdefault("parent_evidence", []).append(parent_label)
+    if structural_chunks is not None:
+        allowed = {canonical(item['reference']) for record in structural_chunks
+                   for item in record['evidence_memberships'] if 'span' in item['reference']}
+        choices = {label: item for label, item in choices.items() if canonical(item['reference']) in allowed}
     return choices
 
 
 def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
     """Render source text once in structural order, with a text-free citation map."""
-    choices = _evidence_choices(chunks, element_map)
-    labels = {canonical(item['reference']): label for label, item in choices.items()}
     if structural_chunks is None:
         structural_chunks, _ = assemble_structural_chunks(
             {'chunks': chunks, 'elements': list(element_map.values())})
+    choices = _evidence_choices(chunks, element_map, structural_chunks)
+    labels = {canonical(item['reference']): label for label, item in choices.items()}
     rendered, emitted, contexts = [], {}, {}
     for record in structural_chunks:
         parts, passage_ids = [], []
-        for membership in record['evidence_memberships']:
+        memberships = list(record['evidence_memberships'])
+        present = {item['reference']['element_id'] for item in memberships}
+        for eid in reversed(record.get('context_element_ids', [])):
+            if eid not in present:
+                element = element_map[eid]
+                source_id = record['evidence_memberships'][0]['reference']['source_id']
+                memberships.insert(0, {'reference': {'source_id': source_id,
+                    'document_id': element['document_id'], 'element_id': eid,
+                    'element_revision': element['revision']}, 'original_chunk_ids': []})
+        for membership in memberships:
             ref = membership['reference']
             key = canonical(ref)
             label = labels.get(key)
@@ -360,7 +373,10 @@ def _validate_saved_accounting(directory, manifest, candidates, preparation):
     expected_passages = 0
     for cluster in clusters:
         ids = selected[cluster['semantic_cluster_id']]['original_chunk_ids']
-        choices = _evidence_choices([chunks[cid] for cid in ids], elements)
+        structural = {r['id']: r for r in preparation['structural_chunks']}
+        semantic = selected[cluster['semantic_cluster_id']]
+        choices = _evidence_choices([chunks[cid] for cid in ids], elements,
+                                    [structural[sid] for sid in semantic['structural_chunk_ids']])
         expected_passages += len(choices)
         own = [c for c in candidates if mapping[c['id']] == cluster['semantic_cluster_id']]
         if not cluster['passages'] and not own and any(e.get('chunk_ids') == ids for e in report['errors']):
@@ -705,7 +721,8 @@ def _recovery_seed(directory, identity, selected_clusters, clusters):
     return seeds, metadata
 
 
-def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_map, element_map):
+def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_map, element_map,
+                                 cluster_choices=None):
     checkpoint_path = output_dir / "generation-checkpoint.json"
     if not checkpoint_path.is_file():
         raise ValueError("output directory is not a resumable claim-generation run")
@@ -729,7 +746,8 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
         if identity['checkpoint_version'] >= 2 and not isinstance(record.get('evidence_accounting'), list):
             raise ValueError('generation checkpoint lacks evidence accounting')
         if not record['errors']:
-            _validate_accounting_rows(record['evidence_accounting'], _evidence_choices(cluster, element_map),
+            choices = cluster_choices[number - 1] if cluster_choices is not None else _evidence_choices(cluster, element_map)
+            _validate_accounting_rows(record['evidence_accounting'], choices,
                                       record['candidates'])
         candidates.extend(record["candidates"])
         errors.extend(record["errors"])
@@ -778,6 +796,8 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                           for value in cluster_inputs]
     selected_indices = _subset_batch_indices(request_characters, subset_clusters, cluster_numbers)
     selected_clusters = [all_clusters[index] for index in selected_indices]
+    cluster_choices = [_evidence_choices(all_clusters[index], element_map,
+                       [structural[sid] for sid in clusters[index]['structural_chunk_ids']]) for index in selected_indices]
     selected_chunks = [chunk for cluster in selected_clusters for chunk in cluster]
     scope = {"mode": "subset" if subset_clusters is not None or cluster_numbers is not None else "full",
              "selection": "explicit" if cluster_numbers is not None else
@@ -819,7 +839,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         if (output_dir / "build-manifest.json").is_file():
             raise ValueError("claim-generation output is already complete")
         candidates, errors, usage, completed_clusters = _load_generation_checkpoints(
-            output_dir, identity, selected_clusters, chunk_map, element_map)
+            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices)
         _write_jsonl_atomic(candidate_path, sorted(candidates, key=lambda item: item["id"]))
     else:
         if resume:
@@ -835,7 +855,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             if not path.exists():
                 _write_json_atomic(path, record)
         candidates, errors, usage, completed_clusters = _load_generation_checkpoints(
-            output_dir, identity, selected_clusters, chunk_map, element_map)
+            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices)
     if not (output_dir / 'preparation').exists():
         shutil.copytree(context_dir, output_dir / 'preparation')
     else:
@@ -868,7 +888,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             continue
         ids, usage_start = [item["id"] for item in cluster], len(provider.usage_records)
         cluster_candidates, cluster_errors, cluster_accounting = [], [], []
-        choices = _evidence_choices(cluster, element_map)
+        choices = cluster_choices[completed - 1]
         retry_feedback = ""
         counter_start = dict(counter.telemetry)
 
@@ -979,7 +999,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                   cluster_plan_sha256=preparation['manifest']['cluster_plan_sha256'],
                   claim_generation_request_token_counting=counter.telemetry,
                   cross_document_candidates=sum(len({r['document_id'] for r in c['evidence']}) > 1 for c in candidates))
-    expected_passages = sum(len(_evidence_choices(cluster, element_map)) for cluster in selected_clusters)
+    expected_passages = sum(len(choices) for choices in cluster_choices)
     report['evidence_accounting'] = _accounting_summary(evidence_accounting,
         'model_self_report' if config['steps']['claim_generation']['provider'] == 'openai' else 'offline_fixture',
         expected_passages, bool(errors))

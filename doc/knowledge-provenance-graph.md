@@ -19,6 +19,13 @@ CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 Open the HTML in a browser. Add `--force` only to replace an existing viewer,
 or choose a new output name to preserve it. No model calls or claim artifact edits occur.
 
+Add `--summary-dir "artifacts/summaries-${RUN_ID}"` to include the independent
+[summary branch](summaries.md). It verifies and loads the frozen summary run and
+its preparation. The summary and claim preparations must match when both are
+provided. To view summaries before any claims exist, use the summary run's
+`preparation/artifact-bundle.json` as `--bundle`, pass `--summary-dir`, and omit
+`--claim-generation-dir`. Original bundle records must match the summary inputs.
+
 ## What is included
 
 `--bundle` loads topics, classified claims, original chunks, elements,
@@ -26,6 +33,19 @@ documents and sources. `--claim-generation-dir` adds structural chunks,
 semantic clusters, candidate-to-cluster links, and the generated candidate
 claims. Without it, the viewer omits the structural and semantic stages and
 continues to render older bundles.
+
+The **Summaries** view lists all summary levels, with highest levels first and
+document/review/type filters. Summary cards show level, original-chunk count and
+review status. **Document-derived knowledge** includes summaries alongside claims;
+**Topics and claims** retains its existing claim-only behavior.
+
+Choose a summary and **Explore provenance** to follow summary → summary cluster →
+input summaries → semantic cluster → structural chunk → original chunk → element
+→ document → source. Level-one summaries connect directly to semantic clusters.
+The detail panel labels inherited passages **Source provenance**, separate from
+claim evidence. Related-record buttons expose direct input and output links.
+Full/local graphs also show structural context and element parent relationships;
+these do not assert that an entire section was merged into one chunk.
 
 Candidate nodes are separate from classified claim nodes. Classified
 candidates also appear as claims with topic links; candidates that did not

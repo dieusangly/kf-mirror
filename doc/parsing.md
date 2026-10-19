@@ -88,6 +88,13 @@ later rules. Bottom-note runs require a recognised note or multiple numbered
 notes referenced by the body; adjacent same-page continuations retain all native
 references. No cross-page note attachment is inferred.
 
+Docling's labels, groups and page geometry are extraction signals. Heading levels,
+paths and resolved `parent_element_id` values in `parse.json` are produced by our
+adapter. Later [structural assembly](chunking.md#structural-assembly-after-original-chunking)
+preserves these metadata and adds explicit numbered-paragraph/local-list scope;
+for example, it connects paragraph 7's banking and insurance lists to that rule
+under the ACPR–Tracfin INTRODUCTION without merging the whole introduction.
+
 Table repairs use PDF glyph positions rather than language-specific header words.
 Wrapped header lines stay together; merged vertical labels and repeated markers
 are separated only when the text and geometry agree. Marker rows are reassigned

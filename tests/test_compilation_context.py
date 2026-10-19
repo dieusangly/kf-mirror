@@ -167,12 +167,16 @@ class CompilationContextTests(unittest.TestCase):
         return _candidate_record('build:test', {'text': text, 'evidence': evidence},
                                  {'method': 'manual', 'version': 'test'}, choices)
 
-    def test_same_page_exception_is_grouped_without_mutating_chunks(self):
+    def test_same_page_exception_is_linked_without_merging_chunks(self):
         bundle = self.exception_bundle()
         original = copy.deepcopy(bundle)
         batches = generation_batches(bundle['chunks'], {e['id']: e for e in bundle['elements']}, 1)
         self.assertEqual([[c['id'] for c in group] for group in batches],
-                         [[c['id'] for c in bundle['chunks'][:2]], [bundle['chunks'][2]['id']]])
+                         [[c['id']] for c in bundle['chunks']])
+        records, links = assemble_structural_chunks(bundle)
+        body = next(r for r in records if bundle['chunks'][0]['id'] in r['original_chunk_ids'])
+        self.assertIn(bundle['elements'][1]['id'], body['context_element_ids'])
+        self.assertTrue(all(not link['merges'] for link in links))
         self.assertEqual(bundle, original)
         choices = self.choices(bundle)
         self.assertEqual(choices['E1']['footnote_evidence'], ['E2'])
@@ -200,8 +204,7 @@ class CompilationContextTests(unittest.TestCase):
             ('list_item', 'b. Suspend observations.', 2)], [[0], [1, 2], [3]])
         original = copy.deepcopy(bundle)
         batches = generation_batches(bundle['chunks'], {e['id']: e for e in bundle['elements']}, 1)
-        self.assertEqual(len(batches), 1)
-        self.assertEqual(len(batches[0]), 3)
+        self.assertEqual(len(batches), 3)
         self.assertEqual(bundle, original)
 
     def test_repeated_paragraph_context_uses_its_original_citable_chunk(self):
@@ -210,7 +213,7 @@ class CompilationContextTests(unittest.TestCase):
             ('paragraph', "collectif mais la société de gestion, les obligations de vigilance portent sur cette société.", 8)],
             [[0], [(0,), 1]])
         elements = {e['id']: e for e in bundle['elements']}
-        self.assertEqual(len(generation_batches(bundle['chunks'], elements, 1)), 1)
+        self.assertEqual(len(generation_batches(bundle['chunks'], elements, 1)), 2)
         choices = self.choices(bundle)
         self.assertEqual(len(choices), 2)  # No invented span for the repeated context.
         record = self.record("Lorsque la société de gestion est le client, les obligations de vigilance portent sur elle.",
