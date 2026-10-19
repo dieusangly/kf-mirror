@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import time
+from collections import Counter
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -32,13 +33,23 @@ CANDIDATE_VALIDATION_SCHEMA = json.loads(json.dumps(CANDIDATE_ARTIFACT_SCHEMA).r
     "artifact-schema-v1.0.0.json#/$defs/", "#/$defs/"))
 CANDIDATE_VALIDATION_SCHEMA["$defs"] = ARTIFACT_SCHEMA["$defs"]
 CANDIDATE_SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["claims"],
+    "type": "object", "additionalProperties": False, "required": ["claims", "coverage"],
     "properties": {"claims": {"type": "array", "items": {
         "type": "object", "additionalProperties": False, "required": ["text", "evidence"],
         "properties": {"text": {"type": "string", "minLength": 1},
                        "evidence": {"type": "array", "minItems": 1, "items": {
                            "type": "string", "pattern": "^E[1-9][0-9]*$"}}}}}},
 }
+CANDIDATE_SCHEMA['properties']['coverage'] = {
+    'type': 'array', 'items': {
+        'type': 'object', 'additionalProperties': False,
+        'required': ['evidence_id', 'status', 'claim_indices', 'reason'],
+        'properties': {
+            'evidence_id': {'type': 'string', 'pattern': '^E[1-9][0-9]*$'},
+            'status': {'type': 'string', 'enum': [
+                'represented', 'non_substantive', 'insufficient_context', 'ambiguous']},
+            'claim_indices': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}},
+            'reason': {'type': 'string', 'minLength': 1}}}}
 CLASSIFICATION_SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["topic_id"],
     "properties": {"topic_id": {"type": ["string", "null"], "minLength": 1}},
@@ -249,6 +260,110 @@ def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
                       'non_citable_context': list(contexts.values())})
 
 
+def _derive_coverage_links(response):
+    """Derive mechanical links without changing model coverage judgments."""
+    return {**response, 'coverage': [
+        {**row, 'claim_indices': [i for i, claim in enumerate(response['claims'])
+                                 if row['evidence_id'] in claim['evidence']]}
+        for row in response['coverage']]}
+
+
+def _evidence_accounting(response, choices, records):
+    """Check complete source accounting and links, never infer semantic coverage."""
+    rows = response['coverage']
+    labels = [row['evidence_id'] for row in rows]
+    if len(labels) != len(set(labels)) or set(labels) != set(choices):
+        raise ValueError('coverage must account for every eligible evidence ID exactly once')
+    result = []
+    for row in rows:
+        label, indices = row['evidence_id'], row['claim_indices']
+        expected = [i for i, claim in enumerate(response['claims']) if label in claim['evidence']]
+        if sorted(indices) != expected:
+            raise ValueError('coverage claim_indices must match claims citing ' + label)
+        if row['status'] == 'represented' and not indices:
+            raise ValueError('represented evidence needs at least one citing claim: ' + label)
+        if row['status'] == 'non_substantive' and indices:
+            raise ValueError('non_substantive evidence cannot cite generated claims: ' + label)
+        if not row['reason'].strip():
+            raise ValueError('coverage needs a substantive reason: ' + label)
+        result.append({'reference': choices[label]['reference'], 'status': row['status'],
+                       'candidate_ids': [records[i]['id'] for i in indices], 'reason': row['reason']})
+    return result
+
+
+def _fixture_accounting(response, choices):
+    """Adapt old offline fixtures, explicitly without semantic assessment."""
+    return {**response, 'coverage': [
+        {'evidence_id': label, 'status': 'ambiguous',
+         'claim_indices': [i for i, claim in enumerate(response['claims']) if label in claim['evidence']],
+         'reason': 'Offline legacy fixture; semantic coverage was not assessed.'}
+        for label in choices]}
+
+
+def _accounting_summary(clusters, method, expected_passages, failed=False):
+    counts = Counter(row['status'] for cluster in clusters for row in cluster['passages'])
+    total = sum(counts.values())
+    return {
+        'version': 1, 'method': method,
+        'status': 'needs_review' if failed or total != expected_passages or counts['ambiguous'] or
+                  counts['insufficient_context'] else 'accounted',
+        'expected_passages': expected_passages, 'passages': total,
+        'unaccounted_passages': expected_passages - total,
+        'status_counts': {status: counts[status] for status in
+                          ('represented', 'non_substantive', 'insufficient_context', 'ambiguous')},
+        'limitation': 'Complete accounting is not proof of full support or semantic completeness.'}
+
+
+def _validate_accounting_rows(rows, choices, candidates):
+    labels = {canonical(value['reference']): label for label, value in choices.items()}
+    index = {candidate['id']: i for i, candidate in enumerate(candidates)}
+    try:
+        response = {'claims': [{'text': c['text'], 'evidence': [labels[canonical(ref)] for ref in c['evidence']]}
+                               for c in candidates],
+                    'coverage': [{'evidence_id': labels[canonical(row['reference'])],
+                                  'status': row['status'], 'reason': row['reason'],
+                                  'claim_indices': [index[cid] for cid in row['candidate_ids']]}
+                                 for row in rows]}
+        Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
+        _evidence_accounting(response, choices, candidates)
+    except (KeyError, TypeError, ValidationError, ValueError) as exc:
+        raise ValueError('invalid saved evidence accounting: ' + str(exc)[:200]) from exc
+
+
+def _validate_saved_accounting(directory, manifest, candidates, preparation):
+    """Validate the audit sidecar as part of lineage, including on resume/export."""
+    report = _read_json(directory / 'report.json')
+    version = manifest.get('evidence_accounting_version')
+    if version is None and 'evidence_accounting' not in report:
+        return  # Historical artifacts predate the accounting contract.
+    if version != 1 or preparation is None:
+        raise ValueError('invalid evidence accounting version or preparation')
+    audit = _read_json(directory / 'evidence-accounting.json')
+    if audit.get('version') != 1 or audit.get('generation_build_id') != manifest['generation_build_id']:
+        raise ValueError('evidence accounting build mismatch')
+    selected = {c['id']: c for c in preparation['clusters']
+                if c['id'] in report['compilation_scope']['selected_semantic_cluster_ids']}
+    clusters = audit.get('clusters', [])
+    if len(clusters) != len(selected) or {c['semantic_cluster_id'] for c in clusters} != set(selected):
+        raise ValueError('evidence accounting cluster mismatch')
+    bundle = preparation['bundle']
+    chunks, elements = ({item['id']: item for item in bundle[name]} for name in ('chunks', 'elements'))
+    mapping = {row['candidate_id']: row['semantic_cluster_id'] for row in
+               _read_json(directory / 'candidate-clusters.json')}
+    expected_passages = 0
+    for cluster in clusters:
+        ids = selected[cluster['semantic_cluster_id']]['original_chunk_ids']
+        choices = _evidence_choices([chunks[cid] for cid in ids], elements)
+        expected_passages += len(choices)
+        own = [c for c in candidates if mapping[c['id']] == cluster['semantic_cluster_id']]
+        if not cluster['passages'] and not own and any(e.get('chunk_ids') == ids for e in report['errors']):
+            continue
+        _validate_accounting_rows(cluster['passages'], choices, own)
+    method = 'model_self_report' if report['telemetry']['provider'] == 'openai' else 'offline_fixture'
+    if report['evidence_accounting'] != _accounting_summary(clusters, method, expected_passages, bool(report['errors'])):
+        raise ValueError('evidence accounting summary mismatch')
+
+
 def _classification_input(candidate, chunk_map, element_map, document_map, source_map):
     documents = [document_map[item] for item in sorted({ref["document_id"] for ref in candidate["evidence"]})]
     return {"claim": candidate["text"],
@@ -343,7 +458,7 @@ def _subset_batch_indices(characters, subset_batches, batch_numbers=None):
 
 
 def _candidate_record(generation_build_id, candidate, generation, choices):
-    Draft202012Validator(CANDIDATE_SCHEMA).validate({"claims": [candidate]})
+    Draft202012Validator(CANDIDATE_SCHEMA['properties']['claims']['items']).validate(candidate)
     if any(label not in choices for label in candidate["evidence"]):
         raise ValueError("candidate claim selects an unknown evidence label")
     selected = [choices[label] for label in candidate["evidence"]]
@@ -504,7 +619,9 @@ def _candidate_manifest(candidate_dir):
         if not path.is_relative_to(candidate_dir.resolve()) or file_digest(path) != entry['sha256']:
             raise ValueError('candidate claim output hash mismatch')
     from knowledge_foundry.claim_context import validate_candidate_lineage
-    validate_candidate_lineage(candidate_dir, manifest, _read_jsonl(candidate_path))
+    candidates = _read_jsonl(candidate_path)
+    preparation = validate_candidate_lineage(candidate_dir, manifest, candidates)
+    _validate_saved_accounting(candidate_dir, manifest, candidates, preparation)
     return manifest, candidate_path, manifest_path
 
 
@@ -531,9 +648,54 @@ def _validate_candidate(candidate, generation_build_id, chunk_map, element_map):
 
 
 def _generation_identity(build_id, input_path, config_digest, generation_hash, scope):
-    return {"checkpoint_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
+    return {"checkpoint_version": 2, "stage": "claim-generation", "generation_build_id": build_id,
             "input_bundle_sha256": file_digest(input_path), "config_sha256": config_digest,
             "generation_prompt_sha256": generation_hash, "compilation_scope": scope}
+
+
+def _recovery_seed(directory, identity, selected_clusters, clusters):
+    """Validate a finalized partial run and seed only its successful clusters."""
+    directory = Path(directory)
+    manifest, candidate_path, manifest_path = _candidate_manifest(directory)
+    keys = ('generation_build_id', 'input_bundle_sha256', 'config_sha256',
+            'generation_prompt_sha256', 'compilation_scope',
+            'preparation_manifest_sha256', 'cluster_plan_sha256')
+    if any(manifest.get(key) != identity[key] for key in keys):
+        raise ValueError('recovery source does not match input, configuration, prompt, or scope')
+    report = _read_json(directory / 'report.json')
+    if report['status'] != 'partial' or not report['errors']:
+        raise ValueError('recovery requires a finalized partial generation run with errors')
+    candidates = _read_jsonl(candidate_path)
+    mapping = {r['candidate_id']: r['semantic_cluster_id']
+               for r in _read_json(directory / 'candidate-clusters.json')}
+    accounting = {r['semantic_cluster_id']: r['passages']
+                  for r in _read_json(directory / 'evidence-accounting.json')['clusters']}
+    numbers = {tuple(c['original_chunk_ids']): n for n, c in enumerate(clusters, 1)}
+    failed = set()
+    for error in report['errors']:
+        number = numbers.get(tuple(error.get('chunk_ids', [])))
+        if error.get('stage') != 'generation' or number is None:
+            raise ValueError('recovery error must identify a selected generation cluster')
+        failed.add(number)
+    seeds = []
+    for ordinal, (chunks, cluster) in enumerate(zip(selected_clusters, clusters), 1):
+        own = [c for c in candidates if mapping[c['id']] == cluster['id']]
+        if ordinal in failed:
+            if own or accounting[cluster['id']]:
+                raise ValueError('failed recovery cluster must not contain accepted output')
+            continue
+        seeds.append({'cluster_number': ordinal, 'chunk_ids': [c['id'] for c in chunks],
+                      'candidates': own, 'evidence_accounting': accounting[cluster['id']],
+                      'errors': [], 'usage_records': []})
+    metadata = {'source_directory': str(directory.resolve()),
+                'source_manifest_sha256': file_digest(manifest_path),
+                'reused_clusters': len(seeds),
+                'retried_cluster_numbers': [identity['compilation_scope']['selected_cluster_numbers'][n - 1]
+                                            for n in sorted(failed)],
+                'prior_telemetry': report['telemetry'],
+                'prior_request_token_counting': report['claim_generation_request_token_counting'],
+                'prior_projected_full_generation': report['projected_full_generation']}
+    return seeds, metadata
 
 
 def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_map, element_map):
@@ -557,6 +719,11 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
             raise ValueError("generation cluster checkpoint is invalid")
         for candidate in record["candidates"]:
             _validate_candidate(candidate, identity["generation_build_id"], {c["id"]: c for c in cluster}, element_map)
+        if identity['checkpoint_version'] >= 2 and not isinstance(record.get('evidence_accounting'), list):
+            raise ValueError('generation checkpoint lacks evidence accounting')
+        if not record['errors']:
+            _validate_accounting_rows(record['evidence_accounting'], _evidence_choices(cluster, element_map),
+                                      record['candidates'])
         candidates.extend(record["candidates"])
         errors.extend(record["errors"])
         usage.extend(record["usage_records"])
@@ -566,8 +733,9 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
 
 def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-generation-and-classification.json", fixture_path=None,
                     on_progress=None, subset_clusters=None, resume=False, cluster_numbers=None, context_dir=None,
-                    subset_batches=None, batch_numbers=None):
+                    subset_batches=None, batch_numbers=None, retry_failed_from=None):
     """Generate durable, grounded candidate claims from one immutable chunk bundle."""
+    started = time.monotonic()
     if subset_batches is not None:
         if subset_clusters is not None:
             raise ValueError('duplicate subset selection arguments')
@@ -627,6 +795,14 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     identity = _generation_identity(build_id, input_path, config_digest, generation_hash, scope)
     identity.update(preparation_manifest_sha256=preparation["manifest_sha256"],
                     cluster_plan_sha256=preparation["manifest"]["cluster_plan_sha256"])
+    seeds, recovery = [], None
+    if retry_failed_from is not None:
+        source = Path(retry_failed_from).resolve()
+        if output_dir.resolve().is_relative_to(source) or source.is_relative_to(output_dir.resolve()):
+            raise ValueError('recovery output and source must be separate directories')
+        seeds, recovery = _recovery_seed(source, identity, selected_clusters,
+                                        [clusters[i] for i in selected_indices])
+    identity['recovery'] = recovery
     checkpoint_path = output_dir / "generation-checkpoint.json"
     checkpoint_dir = output_dir / "generation-checkpoints"
     candidate_path = output_dir / "claim-candidates.jsonl"
@@ -646,6 +822,13 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         candidates, errors, usage, completed_clusters = [], [], [], set()
         _write_jsonl_atomic(candidate_path, candidates)
         _write_json_atomic(checkpoint_path, {**identity, "status": "in_progress", "completed_cluster_numbers": []})
+    if seeds:
+        for record in seeds:
+            path = checkpoint_dir / f"cluster-{record['cluster_number']:06d}.json"
+            if not path.exists():
+                _write_json_atomic(path, record)
+        candidates, errors, usage, completed_clusters = _load_generation_checkpoints(
+            output_dir, identity, selected_clusters, chunk_map, element_map)
     if not (output_dir / 'preparation').exists():
         shutil.copytree(context_dir, output_dir / 'preparation')
     else:
@@ -654,9 +837,15 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             raise ValueError('saved structural chunks and semantic clusters artifacts mismatch')
     counter = RequestCounter(config, output_dir / 'request-counts')
     counter.telemetry['frozen_counts_reused'] = 0
-    candidate_clusters = []
+    if recovery:
+        for key, value in recovery['prior_request_token_counting'].items():
+            if key in counter.telemetry and type(value) is int:
+                counter.telemetry[key] += value
+    candidate_clusters, evidence_accounting = [], []
     for number in sorted(completed_clusters):
         saved_record = _read_json(checkpoint_dir / f'cluster-{number:06d}.json')
+        evidence_accounting.append({'semantic_cluster_id': clusters[selected_indices[number - 1]]['id'],
+                                    'passages': saved_record['evidence_accounting']})
         for key, value in saved_record.get('claim_generation_request_token_counting', saved_record.get('token_counting', {})).items():
             if key in counter.telemetry and type(value) is int:
                 counter.telemetry[key] += value
@@ -671,13 +860,13 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         if completed in completed_clusters:
             continue
         ids, usage_start = [item["id"] for item in cluster], len(provider.usage_records)
-        cluster_candidates, cluster_errors = [], []
+        cluster_candidates, cluster_errors, cluster_accounting = [], [], []
         choices = _evidence_choices(cluster, element_map)
         retry_feedback = ""
         counter_start = dict(counter.telemetry)
 
         def generate_cluster():
-            nonlocal retry_feedback
+            nonlocal retry_feedback, cluster_accounting
             request = generation_payload(config, cluster_inputs[selected_indices[completed - 1]],
                                          generation_prompt + retry_feedback, CANDIDATE_SCHEMA)
             # The frozen count is reusable only for the exact prepared request.
@@ -690,12 +879,17 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                                            cluster_inputs[selected_indices[completed - 1]],
                                            generation_prompt + retry_feedback, CANDIDATE_SCHEMA)
             try:
+                if isinstance(provider, FixtureProvider) and 'coverage' not in response:
+                    response = _fixture_accounting(response, choices)
                 Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
+                response = _derive_coverage_links(response)
                 records = [_candidate_record(build_id, item, generation, choices) for item in response["claims"]]
+                accounting = _evidence_accounting(response, choices, records)
                 candidate_ids = {item["id"] for item in candidates}
                 if len({item["id"] for item in records}) != len(records) or \
                         candidate_ids.intersection(item["id"] for item in records):
                     raise ValueError("generation produced duplicate candidate claim IDs")
+                cluster_accounting = accounting
             except (ValueError, ValidationError) as exc:
                 retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
                                   "\nCorrigez la réponse complète. Explicitez les sujets et les règles ; "
@@ -713,10 +907,13 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             cluster_errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
         cluster_usage = provider.usage_records[usage_start:]
         cluster_record = {"cluster_number": completed, "chunk_ids": ids, "candidates": cluster_candidates,
-                        "errors": cluster_errors, "usage_records": cluster_usage,
+                          "evidence_accounting": cluster_accounting,
+                          "errors": cluster_errors, "usage_records": cluster_usage,
                           "claim_generation_request_token_counting": {k: v - counter_start[k] for k, v in counter.telemetry.items()
                                              if type(v) is int}}
         _write_json_atomic(checkpoint_dir / f"cluster-{completed:06d}.json", cluster_record)
+        evidence_accounting.append({'semantic_cluster_id': clusters[selected_indices[completed - 1]]['id'],
+                                    'passages': cluster_accounting})
         candidate_clusters.extend({'candidate_id': c['id'],
                                    'semantic_cluster_id': clusters[selected_indices[completed - 1]]['id']}
                                   for c in cluster_candidates)
@@ -746,13 +943,28 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     _write_json(output_dir / "artifact-bundle.json", result)
     _write_jsonl_atomic(candidate_path, candidates)
     telemetry = _telemetry(provider, config, usage)
+    if recovery:
+        prior = recovery['prior_telemetry']
+        telemetry['requests'] += prior['requests']
+        telemetry['estimated_cost_usd'] += prior['estimated_cost_usd']
+        for field, value in prior['usage'].items():
+            telemetry['usage'][field] += value
     coverage = _generation_coverage(bundle, candidates, scope, errors)
     report = {"generation_build_id": build_id, "upstream_chunk_build_id": bundle["builds"][0]["id"],
               "documents": len(document_ids), "chunks": len(chunks), "candidates": len(candidates),
               "compilation_scope": scope, "coverage": coverage, "errors": errors, "telemetry": telemetry,
               "projected_full_generation": _project_generation(scope, usage, config),
+              "duration_seconds": round(time.monotonic() - started, 3),
               "status": "partial" if errors else "complete"}
     projection = report['projected_full_generation']
+    if recovery:
+        report['recovery'] = recovery
+        prior_projection = recovery['prior_projected_full_generation']
+        if prior_projection:
+            if projection is None:
+                projection = report['projected_full_generation'] = copy.deepcopy(prior_projection)
+            else:
+                projection['estimated_cost_usd'] += prior_projection['estimated_cost_usd']
     if projection is not None:
         projection['whole_input_embedding_estimated_cost_usd'] = preparation['report']['embeddings']['estimated_cost_usd']
     report.update(preparation=preparation['report'],
@@ -760,11 +972,19 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                   cluster_plan_sha256=preparation['manifest']['cluster_plan_sha256'],
                   claim_generation_request_token_counting=counter.telemetry,
                   cross_document_candidates=sum(len({r['document_id'] for r in c['evidence']}) > 1 for c in candidates))
+    expected_passages = sum(len(_evidence_choices(cluster, element_map)) for cluster in selected_clusters)
+    report['evidence_accounting'] = _accounting_summary(evidence_accounting,
+        'model_self_report' if config['steps']['claim_generation']['provider'] == 'openai' else 'offline_fixture',
+        expected_passages, bool(errors))
+    _write_json(output_dir / 'evidence-accounting.json', {
+        'version': 1, 'generation_build_id': build_id,
+        'clusters': sorted(evidence_accounting, key=lambda row: row['semantic_cluster_id'])})
     _write_json(output_dir / 'candidate-clusters.json', sorted(candidate_clusters, key=lambda r: r['candidate_id']))
     _write_json(output_dir / "report.json", report)
     files = sorted(path for path in output_dir.rglob("*") if path.is_file() and checkpoint_dir not in path.parents and
                    path != checkpoint_path)
     manifest = {"manifest_version": 1, "stage": "claim-generation", "generation_build_id": build_id,
+                "evidence_accounting_version": 1,
                 "upstream_chunk_build_id": bundle["builds"][0]["id"], "input_bundle_sha256": file_digest(input_path),
                 "config_sha256": config_digest, "generation_prompt_sha256": generation_hash,
                 "compilation_scope": scope, "candidate_sha256": file_digest(candidate_path),
@@ -784,11 +1004,24 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
 
 def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-generation-and-classification.json",
                     taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None,
-                    on_progress=None):
+                    on_progress=None, reuse_classification_from=None, reuse_candidates_dir=None, resume=False):
     """Classify a durable candidate claim artifact without regenerating its claims."""
     started = time.monotonic()
     candidate_dir, output_dir = Path(candidate_dir), Path(output_dir)
+    if (reuse_classification_from is None) != (reuse_candidates_dir is None):
+        raise ValueError('classification reuse requires both the prior classification and its candidates directory')
+    protected = [candidate_dir] + ([Path(reuse_classification_from), Path(reuse_candidates_dir)]
+                                  if reuse_classification_from is not None else [])
+    if any(output_dir.resolve().is_relative_to(path.resolve()) or path.resolve().is_relative_to(output_dir.resolve())
+           for path in protected):
+        raise ValueError('classification output must be separate from candidate and reuse artifacts')
+    if output_dir.exists() and not resume:
+        raise ValueError(f'output directory already exists: {output_dir}; use --resume for an interrupted run')
     manifest, candidate_path, manifest_path = _candidate_manifest(candidate_dir)
+    generation_report = _read_json(candidate_dir / 'report.json')
+    if generation_report.get('status') != 'complete' or generation_report.get('errors'):
+        raise ValueError('classification requires complete generation; recover the partial run with '
+                         'generate_claims.py --retry-failed-from into a fresh directory first')
     bundle = _read_json(candidate_dir / "artifact-bundle.json")
     if bundle["claims"] or bundle["topics"]:
         raise ValueError("candidate claim artifact bundle must not contain classified claims or topics")
@@ -814,12 +1047,27 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
     build_id = _build_id(pipeline_version, config_digest, document_ids)
     classifier = {"method": "model", "version": config["steps"]["topic_classification"]["version"],
                   "model_id": provider.model_id, "prompt_sha256": classification_hash}
+    from knowledge_foundry.classification_reuse import ClassificationJournal, load_reuse
+    reusable, reuse_provenance = {}, None
+    if reuse_classification_from is not None:
+        reusable, reuse_provenance = load_reuse(
+            reuse_classification_from, reuse_candidates_dir, candidates, bundle, config, taxonomy_path,
+            classification_hash, classifier)
+    contexts = {c['id']: _classification_input(c, chunk_map, element_map, document_map, source_map)
+                for c in candidates}
+    requests = {cid: digest(canonical(context)) for cid, context in contexts.items()}
+    journal = ClassificationJournal(output_dir, {
+        'version': 1, 'build_id': build_id, 'config_sha256': config_digest,
+        'schema_sha256': digest(canonical(CLASSIFICATION_SCHEMA)), 'reuse': reuse_provenance,
+        'fixture_sha256': file_digest(fixture_path) if fixture_path is not None else None,
+    }, requests, valid_topics, resume)
     claims, errors, unclassified, usage = [], [], [], []
     if on_progress:
-        on_progress({"phase": "classification", "state": "started", "total": len(candidates)})
+        on_progress({"phase": "classification", "state": "started", "total": len(candidates),
+                     "reusable_candidates": len(reusable), "saved_candidates": len(journal.records)})
     for index, candidate in enumerate(candidates, start=1):
         usage_start = len(provider.usage_records)
-        context = _classification_input(candidate, chunk_map, element_map, document_map, source_map)
+        context = contexts[candidate['id']]
         retry_feedback = ""
 
         def classify_candidate():
@@ -836,19 +1084,30 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
                 raise
             return response
 
-        try:
-            classification = _call(
-                classify_candidate, config["steps"]["topic_classification"]["retries"],
-                lambda attempt, total: on_progress and on_progress(
-                    {"phase": "classification", "state": "retry", "completed": index,
-                     "total": len(candidates), "attempt": attempt, "attempts": total}))
-            if classification.get("topic_id") is None:
-                unclassified.append(candidate["id"])
-            else:
-                claims.append(_claim(build_id, candidate, classification, classifier))
-        except Exception as exc:
-            errors.append({"stage": "classification", "candidate_id": candidate["id"], "error": str(exc)})
-        usage.extend(provider.usage_records[usage_start:])
+        saved = journal.records.get(candidate['id'])
+        if saved is None or saved['error'] is not None:
+            classification, error = None, None
+            reused = candidate['id'] in reusable
+            try:
+                classification = reusable[candidate['id']] if reused else _call(
+                    classify_candidate, config["steps"]["topic_classification"]["retries"],
+                    lambda attempt, total: on_progress and on_progress(
+                        {"phase": "classification", "state": "retry", "completed": index,
+                         "total": len(candidates), "attempt": attempt, "attempts": total}))
+            except Exception as exc:
+                error = str(exc) or type(exc).__name__
+            saved = {'candidate_id': candidate['id'], 'request_sha256': requests[candidate['id']],
+                     'classification': classification, 'error': error, 'reused': reused,
+                     'usage_records': (saved['usage_records'] if saved else []) +
+                                      provider.usage_records[usage_start:]}
+            journal.save(saved)
+        if saved['error'] is not None:
+            errors.append({'stage': 'classification', 'candidate_id': candidate['id'], 'error': saved['error']})
+        elif saved['classification']['topic_id'] is None:
+            unclassified.append(candidate['id'])
+        else:
+            claims.append(_claim(build_id, candidate, saved['classification'], classifier))
+        usage.extend(saved['usage_records'])
         if on_progress and _checkpoint(index, len(candidates)):
             on_progress({"phase": "classification", "state": "progress", "completed": index,
                          "total": len(candidates), "claims": len(claims)})
@@ -865,16 +1124,13 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
                                "status": "partial" if errors else "complete"})
     from scripts.validate_artifact_examples import check
     check(result)
-    if output_dir.exists():
-        raise ValueError(f"output directory already exists: {output_dir}")
-    output_dir.mkdir(parents=True)
     if on_progress:
         on_progress({"phase": "export", "state": "started"})
     _write_json(output_dir / "artifact-bundle.json", result)
     _write_jsonl(output_dir / "chunks.jsonl", result["chunks"])
     _write_jsonl(output_dir / "claims.jsonl", claims)
     topic_dir = output_dir / "topics"
-    topic_dir.mkdir()
+    topic_dir.mkdir(exist_ok=True)
     by_claim = {item["id"]: item for item in claims}
     for topic in topics:
         slug = topic["id"].removeprefix("topic:")
@@ -886,8 +1142,7 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
             lines.append(f"- `{claim['id']}` — {claim['text']} (grounding: "
                          f"{claim['grounding_review_status']}; classification: {claim['classification_review_status']})")
         (topic_dir / f"{slug}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    telemetry = _telemetry(provider, config, stage="topic_classification")
-    generation_report = _read_json(candidate_dir / "report.json")
+    telemetry = _telemetry(provider, config, usage, stage="topic_classification")
     projected = None
     scope = generation_report["compilation_scope"]
     if scope["mode"] == "subset" and candidates:
@@ -907,15 +1162,22 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
               "unclassified_candidate_ids": unclassified, "telemetry": telemetry,
               "projected_full_build": projected,
               "duration_seconds": round(time.monotonic() - started, 3),
+              "classification_reuse": {"source": reuse_provenance,
+                  "reused_candidates": sum(r['reused'] for r in journal.records.values()),
+                  "newly_classified_candidates": sum(not r['reused'] and r['error'] is None
+                                                     for r in journal.records.values()),
+                  "limitation": "Telemetry covers this output run, including resumed calls; prior reuse-source costs are excluded."},
               "status": "partial" if errors else "complete"}
     _write_json(output_dir / "report.json", report)
-    files = sorted(path for path in output_dir.rglob("*") if path.is_file())
+    files = sorted(path for path in output_dir.rglob("*") if path.is_file() and
+                   path != journal.path and journal.records_dir not in path.parents)
     output_manifest = {"manifest_version": 1, "stage": "topic-classification", "compilation_build_id": build_id,
                        "upstream_generation_build_id": manifest["generation_build_id"],
                        "candidate_manifest_sha256": file_digest(manifest_path), "config_sha256": config_digest,
                        "taxonomy_sha256": file_digest(taxonomy_path), "classification_prompt_sha256": classification_hash,
                        "outputs": [{"path": str(path.relative_to(output_dir)), "sha256": file_digest(path)} for path in files]}
     _write_json(output_dir / "build-manifest.json", output_manifest)
+    journal.clean()
     if on_progress:
         on_progress({"phase": "complete", "state": report["status"], "telemetry": telemetry,
                      "projection": projected})

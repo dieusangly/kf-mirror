@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 from knowledge_foundry.parsers import (  # noqa: E402
-    _pdf_text,
+    _pdf_text, FILENAME_FOOTNOTE,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
 )
 
@@ -114,6 +114,10 @@ def audit_document(outcome, elements, sidecar, folder):
             flag("EMPTY_SEMANTIC_ELEMENT", "error", {"element_id": element["id"],
                                                        "kind": element["kind"]})
         expected_role = "structural" if element["kind"] in {"table_cell", "figure"} else "authoritative"
+        filename_note = (element['kind'] == 'footnote' and
+                         detail.get('evidence_role') == 'structural' and
+                         detail.get('link_text_role') == 'non_substantive_filename' and
+                         FILENAME_FOOTNOTE.fullmatch(element['text']))
         parent_id = detail.get("parent_element_id")
         auxiliary = (detail.get("evidence_role") == "auxiliary" and parent_id in ids and
                      ids[parent_id]["kind"] == "figure" and element["kind"] not in
@@ -138,7 +142,7 @@ def audit_document(outcome, elements, sidecar, folder):
                            page_counts[element["location"].get("page")] <= 10 and
                            len(re.sub(r"\W", "", element["text"])) <= 4)
         if detail.get("evidence_role") != expected_role and not (
-                auxiliary or cover_furniture or running_header or drop_cap or sparse_fragment):
+                auxiliary or cover_furniture or running_header or drop_cap or sparse_fragment or filename_note):
             flag("INVALID_EVIDENCE_ROLE", "error", {"element_id": element["id"],
                                                     "kind": element["kind"],
                                                     "role": detail.get("evidence_role")})

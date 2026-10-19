@@ -2,7 +2,7 @@
 
 | Order | Guide | Covers |
 | --- | --- | --- |
-| 1. Research | [Project benchmark](open-source-project-benchmark.md) | Tools and patterns. |
+| 1. Research | [Project benchmark](open-source-project-benchmark.md) | Framework comparison, actual dependencies and design references. |
 | 2. Corpus | [AML/CFT catalog](banking-aml-cft-corpus-catalog.md) | Sources and benchmarks. |
 | 3. Pilot | [Pilot sources and evaluation](french-aml-cft-pilot-sources-and-evaluation.md) | Files, draft questions, targets. |
 | 4. Plan | [Implementation plan](knowledge-foundry-implementation-plan.md) | Tasks, dependencies, estimates. |

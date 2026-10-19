@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
 PIPELINE_VERSION = "chunking-v1"
-CHUNKER_VERSION = "structural-v3"
+CHUNKER_VERSION = "structural-v4"
 TOKEN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 SENTENCE_END = re.compile(r"(?<=[.!?;])\s+", re.UNICODE)
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
@@ -280,8 +280,10 @@ def _chunk_document(bundle, sidecar, build_id, settings):
             active_lead = element if is_lead else None
             active_lead_is_oversized = False
             compact_lead = None
-        elif (active_lead and active_lead["kind"] == "list_item" and
-              element["kind"] == "list_item" and re.match(r"^\d+[.)]\s", cleaned)):
+        elif (active_lead and element["kind"] == "list_item" and re.match(r"^\d+[.)]\s", cleaned) and
+              (active_lead["kind"] == "list_item" or
+               (active_lead['location'].get('bbox') and element['location'].get('bbox') and
+                element['location']['bbox'][0] < active_lead['location']['bbox'][0] - 2))):
             if pending_body_kinds() and any(kind != "heading" for kind in pending_body_kinds()):
                 emit()
             active_lead = None

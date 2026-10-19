@@ -402,6 +402,7 @@ def evaluate(candidates_dir, classified_dir, sample_count=12, review_path=None,
             'reviewer': reviewer, 'review_telemetry': telemetry,
             'review_sha256': file_digest(review_path) if review_path else None,
             'preparation': generation_report.get('preparation'),
+            'evidence_accounting': generation_report.get('evidence_accounting'),
             'compilation_telemetry': {'embeddings': generation_report.get('preparation', {}).get('embeddings'),
                 'claim_generation_request_token_counting': generation_report.get(
                     'claim_generation_request_token_counting', generation_report.get('token_counting')),

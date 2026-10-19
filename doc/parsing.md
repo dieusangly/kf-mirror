@@ -81,8 +81,20 @@ change the ID.
 - `auxiliary`: diagram labels, not independent text claims or proof of arrows/flow.
 
 Multi-page text follows Docling `charspan`/page provenance; headings use numbering/
-index indentation. Cleanup removes control characters, joins layout-hyphenated
-words, preserves cells and may repair narrow merged headers. Exclude running
+index indentation. Unnumbered headings ending in a colon immediately before a
+list are treated as local introductions, so their scope does not persist into
+later rules. Bottom-note runs require a recognised note or multiple numbered
+notes referenced by the body; adjacent same-page continuations retain all native
+references. No cross-page note attachment is inferred.
+
+Table repairs use PDF glyph positions rather than language-specific header words.
+Wrapped header lines stay together; merged vertical labels and repeated markers
+are separated only when the text and geometry agree. Row spans retain their
+governing cell text. Unresolved marker alignment produces
+`table_cell_alignment_uncertain` and requires source inspection; OCR-only tables
+do not gain invented coordinates. The sidecar records `adapter_version`.
+
+Cleanup removes control characters and joins layout-hyphenated words. Exclude running
 headers, sparse furniture, figure labels and filename-only notes as authoritative
 prose. Warnings locate graphics, corrupt OCR, furniture, uncertain labels and
 unresolved flow. Check meaningful layout decisions against the PDF.

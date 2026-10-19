@@ -120,3 +120,20 @@ These are architectural options, not dependency commitments.
 
 The canonical contract keeps parsers, indexes and models replaceable without
 losing the source-to-output trail.
+
+## 7. What Knowledge Foundry uses and adapts
+
+Implementation mapping checked on **16 October 2026**. The survey above describes
+external projects; this table distinguishes actual use from design comparisons.
+Similarity alone does not establish historical influence or copied code.
+
+| Project | Relationship | Knowledge Foundry implementation |
+| --- | --- | --- |
+| **Docling** | Direct PDF-parsing dependency, pinned in [requirements](../requirements.txt). Its [document model](https://docling-project.github.io/docling/concepts/docling_document/) provides structure and provenance. | [PDF conversion](../src/knowledge_foundry/parsers.py) uses `DocumentConverter` for text, layout, tables and configured OCR. Normalization, [original chunking](../src/knowledge_foundry/chunking.py) and [structural assembly](../src/knowledge_foundry/structural_chunks.py) are custom; we do not use Docling's chunker. |
+| **RAPTOR** | Conceptual comparison, not a dependency or implementation of its [recursive embedding/clustering/summarization tree](https://arxiv.org/abs/2401.18059). | We also group evidence using embeddings before generation. Our [clustering](../src/knowledge_foundry/semantic_clusters.py) is deterministic, nonoverlapping and constrained by every member's cosine similarity. Clusters produce atomic candidate claims, without recursive summaries or a retrieval tree. |
+| **Docling Graph** | Design reference in this survey: [source-linked graph provenance](https://docling-project.github.io/docling-graph/fundamentals/graph-management/provenance/). No integration. | Our [artifact contract](artifact-schemas.md) preserves original chunk IDs and exact source/element spans; [candidate-claim validation](../src/knowledge_foundry/claim_generation_and_classification.py) resolves evidence labels against saved passages. These are local implementations. |
+| **Other surveyed frameworks** | RAGFlow, LlamaIndex, Haystack, LangChain, GraphRAG and the corpus/dataset tools above remain comparison references or possible consumers. | No framework integration is implemented. Our saved JSON/JSONL artifacts, curated topics, numerical clustering, cache and review workflow remain repository-owned components. |
+
+The implemented flow is **original chunks → structural chunks → semantic clusters
+→ claims → topics**. Structural assembly uses document structure; semantic
+clustering uses embeddings. These stages serve different purposes.

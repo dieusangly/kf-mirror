@@ -15,6 +15,21 @@ from evaluate_parsing import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
+    def test_filename_only_note_role_is_valid_but_substantive_note_cannot_be_hidden(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            (folder / 'parse.json').write_text('{"warnings": []}')
+            element = {'id': 'note', 'kind': 'footnote', 'ordinal': 0,
+                       'text': '7 instrument-manual.pdf', 'location': {'format': 'pdf', 'page': 1}}
+            details = {'element_id': 'note', 'evidence_role': 'structural',
+                       'link_text_role': 'non_substantive_filename'}
+            outcome = {'manifest_id': 'instrument-manual', 'status': 'parsed', 'warnings': []}
+            result = audit_document(outcome, [element], [details], folder)
+            self.assertNotIn('INVALID_EVIDENCE_ROLE', [f['code'] for f in result['findings']])
+            element['text'] = '7 Operators must retain instrument records.'
+            result = audit_document(outcome, [element], [details], folder)
+            self.assertIn('INVALID_EVIDENCE_ROLE', [f['code'] for f in result['findings']])
+
     def test_pdf_furniture_roles_and_visual_parent_across_heading_paths(self):
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name)

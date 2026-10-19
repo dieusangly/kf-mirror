@@ -348,6 +348,7 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             metadata.update(_embedded_metadata(local_path, format_name))
             metadata = {key: value for key, value in metadata.items() if value is not None}
             parse_data = {"parse_version": 1, "document_id": document["id"], "parser": parser_name,
+                          "adapter_version": "format-adapters-v2",
                           "parser_versions": _tool_versions(format_name),
                           "settings": parser_settings, "metadata_origins": metadata,
                           "elements": sidecar, "warnings": warnings}

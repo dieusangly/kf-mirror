@@ -5,12 +5,25 @@ Evaluation leaves inputs unchanged and makes no legal judgment.
 
 ## Build and review sessions
 
-Run `scripts/run_parsing_chunking_auto_eval.sh` in the build session: it parses,
+Complete parsing and chunking first. Optionally use
+`scripts/run_parsing_chunking_auto_eval.sh` in the build session: it parses,
 evaluates parsing, chunks, initialises evaluation and prints the run ID.
 
-A human or agent reviews that run in a separate session, fills the review file
-and runs final evaluation. Agents use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer).
-Do not repeat parsing, chunking or initialisation.
+For an agent, invoke the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer)
+with the completed run ID. It handles initialization (or validation/reuse of an
+existing review), saved-source review and final evaluation in one task. No
+separate initialization command is needed. Existing judgments are preserved;
+parsing and chunking are not repeated. For example:
+
+```text
+Read AGENTS.md and .agents/AGENTS.md, then follow
+src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer
+for RUN_ID="your-build-run-id".
+Complete initialization/reuse, source review and final evaluation.
+Preserve existing judgments and report the final results.
+```
+
+Use the manual steps below for human review or explicit CLI control.
 
 ## Initialise evaluation manually
 

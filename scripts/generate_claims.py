@@ -43,6 +43,8 @@ def main(argv=None):
                         help="generate these one-based semantic clusters from the current context grouping")
     parser.add_argument("--resume", action="store_true",
                         help="resume an incomplete matching generation run in --output-dir")
+    parser.add_argument("--retry-failed-from", type=Path,
+                        help="recover a finalized partial run into a fresh output directory; reuse successful clusters")
     args = parser.parse_args(argv)
     telemetry = None
 
@@ -56,7 +58,8 @@ def main(argv=None):
     try:
         report = generate_claims(args.chunked_dir, args.output_dir, args.config, args.fixture,
                                  on_progress=progress, subset_clusters=args.subset_clusters, resume=args.resume,
-                                 cluster_numbers=args.cluster_numbers, context_dir=args.context_dir)
+                                 cluster_numbers=args.cluster_numbers, context_dir=args.context_dir,
+                                 retry_failed_from=args.retry_failed_from)
     except Exception as exc:
         parser.exit(2, f"claim generation failed; completed semantic clusters remain resumable with --resume: {exc}\n")
     print(f"[generate] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "
@@ -80,7 +83,7 @@ def main(argv=None):
               f"{scope['total_semantic_clusters']} subset semantic clusters: ${projection['estimated_cost_usd']:.6f} (estimate)",
               file=sys.stderr, flush=True)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if report['status'] == 'complete' else 1
 
 
 if __name__ == "__main__":

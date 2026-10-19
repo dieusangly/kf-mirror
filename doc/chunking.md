@@ -64,7 +64,7 @@ reference fixtures only while their passages apply.
 ## Configuration and version IDs
 
 - `chunking.max_tokens` must be at least 32; the default/pilot value is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
-- Build version `chunking-v1` and chunker version `structural-v3` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
+- Build version `chunking-v1` and chunker version `structural-v4` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
 - Outputs have no timestamps; identical inputs and settings produce identical bytes.
 
 ## Chunking rules
@@ -73,6 +73,8 @@ reference fixtures only while their passages apply.
   rows; no OCR repair or visual interpretation.
 - Follow element `ordinal`/heading-path changes; repeat earlier authoritative
   headings/list introductions as cited context when needed. Footnotes stay separate.
+- End a local list introduction when a numbered rule resumes at a less-indented
+  PDF position. Keep ordinary numbered alternatives within their governing list.
 - Keep fitting sentences/list items intact, dropping outer headings before
   splitting a fitting list item. Oversized sentences split at whitespace; long
   lists prefer sentence boundaries.

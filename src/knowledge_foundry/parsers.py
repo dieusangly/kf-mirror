@@ -1,8 +1,11 @@
 """Format adapters producing source-located blocks for parsing."""
 
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
+
+from knowledge_foundry.pdf_structure import repair_footnotes, table_text_groups
 
 
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
@@ -18,7 +21,6 @@ FIGURE_HEADING = re.compile(r"\b(?:schéma|diagramme|figure|flowchart|diagram)\b
 URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
-HEADER_LABEL = re.compile(r"\s+(?=(?:Les|Le|La|Critères)\s)")
 FILENAME_FOOTNOTE = re.compile(
     r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
 
@@ -28,30 +30,32 @@ def _pdf_text(value):
     return WRAPPED_WORD.sub("", PDF_CONTROLS.sub("", value or ""))
 
 
-def _pdf_table_cells(item):
-    """Return table cells with repaired, source-positioned header slots.
-
-    Some narrow PDF tables have adjacent, vertical header labels merged by
-    Docling into one cell despite distinct physical columns. Split only those
-    labels at a new header phrase, then use their x positions to retain the
-    original column mapping for the table body.
-    """
+def _pdf_table_cells(item, characters=None):
+    """Preserve cell positions; repair merged labels/markers only from glyphs."""
     cells = getattr(getattr(item, "data", None), "table_cells", []) or []
     if not cells:
         return []
     raw = sorted(cells, key=lambda cell: (cell.start_row_offset_idx,
                                           cell.start_col_offset_idx))
     header_cells = [cell for cell in raw if getattr(cell, "column_header", False)]
-    parts_by_cell = {
-        id(cell): [part for part in HEADER_LABEL.split(" ".join(_pdf_text(cell.text).split())) if part]
-        if getattr(cell, "column_header", False) else [" ".join(_pdf_text(cell.text).split())]
-        for cell in raw
-    }
+    parts_by_cell = {}
+    for cell in raw:
+        value = " ".join(_pdf_text(cell.text).split())
+        box = getattr(cell, 'bbox', None)
+        vertical = (getattr(cell, 'column_header', False) and box is not None and
+                    hasattr(box, 'b') and abs(box.b - box.t) > 3 * (box.r - box.l))
+        markers = bool(re.fullmatch(r'(\S)(?:\s+\1)+', value))
+        groups = table_text_groups(box, characters) if vertical or markers else []
+        # Glyphs must reproduce the complete recognised cell text.
+        def comparable(text):
+            return ''.join(unicodedata.normalize('NFKC', text).translate(
+                str.maketrans({'’': "'", '‘': "'", '‐': '-', '‑': '-'})).split())
+
+        if len(groups) > 1 and comparable(value) == comparable(''.join(g['text'] for g in groups)):
+            parts_by_cell[id(cell)] = [(" ".join(g['text'].split()), g['left']) for g in groups]
+        else:
+            parts_by_cell[id(cell)] = [(value, getattr(box, 'l', None))]
     repaired_headers = any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
-    lefts = sorted(getattr(getattr(cell, "bbox", None), "l", None)
-                   for cell in header_cells if getattr(getattr(cell, "bbox", None), "l", None) is not None)
-    gaps = [right - left for left, right in zip(lefts, lefts[1:]) if 8 <= right - left <= 35]
-    column_width = gaps[len(gaps) // 2] if gaps else None
     header_slots = []
     normalized = []
     next_header_column = 0
@@ -63,16 +67,13 @@ def _pdf_table_cells(item):
         if is_header:
             column = max(column, next_header_column)
             next_header_column = column + len(values)
-        elif repaired_headers:
-            left = getattr(getattr(cell, "bbox", None), "l", None)
-            if left is not None and header_slots:
-                column = min(header_slots, key=lambda slot: abs(slot[1] - left))[0]
-        for offset, value in enumerate(values):
+        for offset, (value, left) in enumerate(values):
             slot = column + offset
             if is_header:
-                left = getattr(getattr(cell, "bbox", None), "l", None)
                 if left is not None:
-                    header_slots.append((slot, left + offset * (column_width or 0)))
+                    header_slots.append((slot, left))
+            elif (repaired_headers or len(values) > 1 or len(value) == 1) and left is not None and header_slots:
+                slot = min(header_slots, key=lambda entry: abs(entry[1] - left))[0]
             normalized.append({
                 "row": row,
                 "column": slot,
@@ -82,18 +83,30 @@ def _pdf_table_cells(item):
                 "header": bool(getattr(cell, "column_header", False) or
                                getattr(cell, "row_header", False)),
                 "bbox": getattr(cell, "bbox", None),
+                "alignment_uncertain": bool(re.fullmatch(r'(\S)(?:\s+\1)+', value)) and len(values) == 1,
             })
+    positions = [(cell['row'], cell['column']) for cell in normalized]
+    if len(positions) != len(set(positions)):
+        # Conflicting geometry is not permission to overwrite a recognised cell.
+        # Retain the native grid and make the uncertainty visible to evaluation.
+        return [{'row': cell.start_row_offset_idx, 'column': cell.start_col_offset_idx,
+                 'text': ' '.join(_pdf_text(cell.text).split()),
+                 'row_span': getattr(cell, 'row_span', 1) or 1,
+                 'col_span': getattr(cell, 'col_span', 1) or 1,
+                 'header': bool(getattr(cell, 'column_header', False) or getattr(cell, 'row_header', False)),
+                 'bbox': getattr(cell, 'bbox', None), 'alignment_uncertain': True} for cell in raw]
     return normalized
 
 
-def _pdf_table_text(item, doc):
+def _pdf_table_text(item, doc, characters=None):
     """Serialize recognized cells once while retaining their column positions."""
-    cells = _pdf_table_cells(item)
+    cells = _pdf_table_cells(item, characters)
     if not cells:
         return _pdf_text(item.export_to_markdown(doc=doc)) if hasattr(item, "export_to_markdown") else ""
     rows = {}
     for cell in cells:
-        rows.setdefault(cell["row"], []).append(cell)
+        for row in range(cell['row'], cell['row'] + cell['row_span']):
+            rows.setdefault(row, []).append(cell)
     lines = []
     for _, row in sorted(rows.items()):
         values = []
@@ -722,6 +735,34 @@ def parse_pdf(path, _source, options, converter=None):
                          for word in re.findall(r"[^\W\d_]+", node.get("text", ""), flags=re.UNICODE))
     represented_refs = set()
     excluded_picture_refs = set()
+    character_cache = {}
+
+    def table_characters(provenance):
+        if len(provenance) != 1 or not Path(path).is_file():
+            return []
+        page = provenance[0].page_no
+        if page not in character_cache:
+            # PDFium is already required by Docling. The text layer supplies
+            # geometry only; OCR-only tables retain their recognised cells.
+            import pypdfium2 as pdfium
+
+            with pdfium.PdfDocument(path) as pdf:
+                pdf_page = pdf[page - 1]
+                try:
+                    height = pdf_page.get_height()
+                    text_page = pdf_page.get_textpage()
+                    try:
+                        characters = []
+                        for index in range(text_page.count_chars()):
+                            left, bottom, right, top = text_page.get_charbox(index)
+                            characters.append({'index': index, 'text': text_page.get_text_range(index, 1),
+                                               'bbox': [left, height - top, right, height - bottom]})
+                        character_cache[page] = characters
+                    finally:
+                        text_page.close()
+                finally:
+                    pdf_page.close()
+        return character_cache[page]
 
     def add_block(kind, text, ref, parent_ref, provenance, stack, *, evidence_role="authoritative",
                   checkbox_state=None, picture_child=False, minimum_heading_level=1):
@@ -954,7 +995,8 @@ def parse_pdf(path, _source, options, converter=None):
                              "candidates": [candidate for candidate in potential_candidates
                                             if candidate["role"] == "flow"]})
 
-    for item, level in doc.iterate_items(with_groups=False):
+    flow_items = list(doc.iterate_items(with_groups=False))
+    for flow_index, (item, level) in enumerate(flow_items):
         label = str(getattr(item, "label", "")).lower()
         if "section_header" in label or "title" in label:
             kind = "heading"
@@ -972,8 +1014,10 @@ def parse_pdf(path, _source, options, converter=None):
             kind = "list_item"
         else:
             kind = "paragraph"
+        prov = getattr(item, "prov", []) or []
+        characters = table_characters(prov) if kind == 'table' else []
         if kind == "table":
-            text = _pdf_table_text(item, doc)
+            text = _pdf_table_text(item, doc, characters)
         else:
             text = getattr(item, "text", "") or ""
         marker = getattr(item, "marker", None)
@@ -983,6 +1027,14 @@ def parse_pdf(path, _source, options, converter=None):
             kind = "paragraph"  # A numbered quotation lead is not a section.
         if kind == "heading" and text.rstrip().endswith("…"):
             kind = "paragraph"  # A sentence introducing examples is not a section.
+        if (kind == 'heading' and text.rstrip().endswith(':') and
+                not PDF_DECIMAL_HEADING.match(text) and not PDF_ROMAN_HEADING.match(text) and
+                not PDF_ANNEX_HEADING.match(text)):
+            following = next((node for node, _ in flow_items[flow_index + 1:]
+                              if str(getattr(node, 'label', '')).lower() not in
+                              {'footnote', 'page_header', 'page_footer'}), None)
+            if following is not None and 'list_item' in str(getattr(following, 'label', '')).lower():
+                kind = 'paragraph'  # A local list introduction must not become a persistent section.
         if kind in {"heading", "list_item", "paragraph"} and \
                 " ".join(_pdf_text(text).split()) in running_headers:
             kind = "paragraph"  # Repeated top-strip text is publisher furniture.
@@ -1000,7 +1052,7 @@ def parse_pdf(path, _source, options, converter=None):
         ref = getattr(item, "self_ref", None)
         parent_ref = getattr(getattr(item, "parent", None), "cref", None)
         if kind == "table" and not text.strip():
-            cells = _pdf_table_cells(item)
+            cells = _pdf_table_cells(item, characters)
             if cells:
                 rows = {}
                 for cell in cells:
@@ -1015,6 +1067,9 @@ def parse_pdf(path, _source, options, converter=None):
             warnings.append({"code": "multi_page_table", "ref": ref,
                              "message": "table omitted until its cells can be assigned to pages"})
             continue
+        if kind == 'table' and any(cell['alignment_uncertain'] for cell in _pdf_table_cells(item, characters)):
+            warnings.append({'code': 'table_cell_alignment_uncertain', 'ref': ref,
+                             'message': 'merged markers lack reliable glyph-to-column alignment; inspect the source table'})
         filename_only_footnote = kind == "footnote" and FILENAME_FOOTNOTE.match(text)
         key = add_block(kind, text, ref, parent_ref, prov, heading_stack,
                         evidence_role="structural" if kind == "figure" or filename_only_footnote else "authoritative",
@@ -1031,7 +1086,7 @@ def parse_pdf(path, _source, options, converter=None):
             for provenance in prov:
                 page = provenance.page_no
                 location = items[-1]["location"]
-                for cell in _pdf_table_cells(item):
+                for cell in _pdf_table_cells(item, characters):
                     row = cell["row"]
                     col = cell["column"]
                     cell_location = dict(location)
@@ -1061,4 +1116,5 @@ def parse_pdf(path, _source, options, converter=None):
     # A multi-page Docling node can be yielded before the previous page's
     # footnotes. Restore page order while retaining Docling's within-page order.
     items.sort(key=lambda item: item["location"]["page"])
+    items = repair_footnotes(items, {page: value.size.height for page, value in doc.pages.items()})
     return items, native, warnings

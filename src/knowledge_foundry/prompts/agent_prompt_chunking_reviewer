@@ -1,37 +1,60 @@
-Act as an independent reviewer of the saved chunking result in this repository. Review the chunks against the **saved original source files**, not just against the parser output or the automatic evaluator. Do not run parsing or chunking, and do not change source files, the manifest, parsed bundles, chunk bundles, per-document views, code, or tests. You may update the pre-created `chunking-review.json` and write the final policy evaluation report. Report defects with exact chunk IDs, source locations, and suggested corrections; do not implement fixes.
+Act as an independent reviewer of the saved chunking result in this repository. Review the chunks against the **saved original source files**, not just against the parser output or the automatic evaluator. Do not run parsing or chunking, and do not change source files, the manifest, parsed bundles, chunk bundles, per-document views, code, or tests. Create or update only the selected `chunking-review.json` and evaluation report; preserve existing judgments. Report defects with exact chunk IDs, source locations, and suggested corrections; do not implement fixes.
 
-Before using this prompt, run `scripts/run_parsing_chunking_auto_eval.sh` in a
-separate build session and copy its reported run ID. The reviewer must not run
-that script, parsing, or chunking. Replace only this value:
+Run initialization/reuse, source review and final evaluation as one agent task.
+Parsing and chunking must already be complete, either manually or through
+`scripts/run_parsing_chunking_auto_eval.sh`. The reviewer must not run that script,
+parsing or chunking. Set the completed build's run ID; set directories separately
+if their IDs differ. Preserve the original manifest, sample size, policy and
+reference selection when reusing an existing review/report:
 
 ```sh
 RUN_ID="YYYYMMDD-hhmmss"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 MANIFEST_PATH="data/manifest.json"
-REFERENCE_PATH="tests/fixtures/pilot_parsing_reference.json"
+REFERENCE_PATH=""  # optional; pilot fixture: tests/fixtures/pilot_parsing_reference.json
+REVIEW_POLICY="config/review-policy.json"  # selects chunking
+SAMPLE_PER_DOCUMENT=12  # default in config/pipeline.json; retain any original override
 EVALUATION_REPORT="$CHUNKED_DIR/chunking-evaluation-report.json"
 REVIEW_FILE="$CHUNKED_DIR/chunking-review.json"
 ```
 
-The build stage already ran parsing, chunking, schema validation, parsing evaluation, and the initial automatic chunking evaluation with the configured review sample size. Do not repeat any of them. Read `$EVALUATION_REPORT` to learn its automatic gate and findings. Use the same reference selection as that report: when `REFERENCE_PATH` is empty, omit `--reference-fixture` from the final command. An automatic pass is not expert approval.
+1. Read `doc/chunking.md` and `doc/chunking-evaluation.md`. Inspect any existing report before invoking evaluation, retaining its input selection. Initialize evaluation when the review file is absent; otherwise validate and reuse it without resetting judgments. Use the same arguments for initialization and final evaluation:
 
-1. Read `doc/chunking.md` and `doc/chunking-evaluation.md`. Inspect the manifest, chunk collection, per-document views, parsed bundles, `parse.json` sidecars, figure links, and the existing `$EVALUATION_REPORT`. Confirm that it describes the supplied build before beginning source review.
+```sh
+evaluate_chunking() {
+  if [ -n "$REFERENCE_PATH" ]; then
+    set -- --reference-fixture "$REFERENCE_PATH" "$@"
+  fi
+  .venv/bin/python scripts/evaluate_chunking.py \
+    --chunked-dir "$CHUNKED_DIR" \
+    --parsed-dir "$PARSED_DIR" \
+    --manifest "$MANIFEST_PATH" \
+    --review-policy "$REVIEW_POLICY" \
+    --sample-per-document "$SAMPLE_PER_DOCUMENT" \
+    --output "$EVALUATION_REPORT" "$@"
+}
+
+if [ -e "$REVIEW_FILE" ]; then
+  evaluate_chunking --review-file "$REVIEW_FILE"
+else
+  evaluate_chunking --initialize-review "$REVIEW_FILE"
+fi
+```
+
+Inspect the exit code and written report. Stop on exit 2, a stale build/policy or mismatched sample set, missing review/report, or `automatic_gate: fail`; report the failure without changing artifacts. Initial pending review returns 0; validating an existing pending or failed review can return 1. That exit 1 permits continuing source review only when artifact checks pass and the build, policy and samples are valid. Never replace an existing review with a new template or reset its judgments. An automatic pass is not expert approval. Do not repeat parsing or chunking.
+
+Inspect the manifest, chunk collection, per-document views, parsed bundles, `parse.json` sidecars, figure links, and `$EVALUATION_REPORT`. Confirm that it describes the supplied build before beginning source review.
 2. In the evaluation report, review **every chunk in every document's `review_sample`**. Use the sample's source file, full chunk text, evidence IDs, and native page, selector, line, or block locations to inspect the saved original source. For PDF evidence, inspect the cited page and relevant layout or figure crop when needed. If a source or location cannot be inspected, leave that sample `pending` and explain why; do not mark it `pass` by relying only on the chunk text.
 3. For each sample, check text fidelity, reading order, sentence and list-item integrity, table rows and headers, heading context, useful standalone meaning, exact duplicate handling, and whether the citation supports the whole chunk. Verify that genuine repeated text at distinct locations is retained. Table cells must not be treated as independent evidence. Auxiliary diagram labels must not become text claims; the linked image preserves visual information, and visual relationships require image review.
 4. Inspect additional high-risk chunks when the report or source suggests a problem, including short chunks, near-limit chunks, split elements, long sentences, split tables, figure-adjacent prose, and repeated wording. Record these findings separately in the final report; the standard review JSON covers only the evaluator's sampled chunk IDs. Distinguish a parser omission or bad parsed location from a chunking defect.
-5. Open the pre-created `$REVIEW_FILE`; preserve its current `build_id` and every sampled `chunk_id`. Record `reviewer` with `kind` (`human` or `agent`), your name and model when known; use `null` for an unknown model. Add this object if the review predates reviewer metadata; never infer an earlier reviewer's identity. Set each status to `pass`, `fail`, or `pending` after the source review. Give a concrete, source-located note for every failure and every pending item. A failure must also have one of these severities: `critical` for unsupported or materially incorrect text, citations, or table associations; `major` for missing governing conditions or context that can mislead a reader; `minor` for limited standalone-context or serialization defects that do not change meaning. Do not omit or substitute samples.
-6. Run the final policy evaluation only, after the source review:
+5. Open `$REVIEW_FILE`; preserve its current `build_id`, policy hash and every sampled `chunk_id`. Preserve existing judgments; only revise an assessed item when new source evidence warrants it, retaining the earlier finding and the reason for revision in its notes. Record `reviewer` with `kind` (`human` or `agent`), your name and model when known; use `null` for an unknown model. Add this object if the review predates reviewer metadata; never infer an earlier reviewer's identity, and retain prior reviewer attribution in notes when updating it. Set each status to `pass`, `fail`, or `pending` after the source review. Give a concrete, source-located note for every failure and every pending item. A failure must also have one of these severities: `critical` for unsupported or materially incorrect text, citations, or table associations; `major` for missing governing conditions or context that can mislead a reader; `minor` for limited standalone-context or serialization defects that do not change meaning. Do not omit or substitute samples.
+6. After recording source-review judgments, run final policy evaluation using the same arguments:
 
 ```sh
-.venv/bin/python scripts/evaluate_chunking.py \
-  --chunked-dir "$CHUNKED_DIR" \
-  --parsed-dir "$PARSED_DIR" \
-  --manifest "$MANIFEST_PATH" \
-  --reference-fixture "$REFERENCE_PATH" \
-  --review-file "$REVIEW_FILE"
+evaluate_chunking --review-file "$REVIEW_FILE"
 ```
 
-If `REFERENCE_PATH` is empty, remove the `--reference-fixture` line. This is the only evaluator invocation the reviewer performs. It records the final policy result after the human source review; it does not conduct the review. Report its exit code, automatic gate, review gate, and overall gate. A failed or pending gate is an honest result, not a reason to change the artifacts.
+The evaluator scores the recorded judgments; it does not conduct the source review. Report its exit code, automatic gate, review gate, and overall gate. A failed or pending gate is an honest result, not a reason to change the artifacts or thresholds.
 
 In your final response, give a concise verdict with: reviewer kind, name and model; document and chunk counts; samples reviewed and their pass/fail/pending counts; severity counts, review coverage, pass rate, weighted score, and gate results; prioritized findings with chunk IDs and source locations; the review JSON and evaluation report paths; and limits of the review. The policy decides the review gate; the score is a trend metric and cannot override a critical failure. State clearly that a sample review does not certify every chunk or the legal correctness of the source. Do not claim a pass for any item you could not verify against the original saved file.

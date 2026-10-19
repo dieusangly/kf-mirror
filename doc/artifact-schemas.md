@@ -72,17 +72,25 @@ version; builds may span documents.
 
 ```mermaid
 flowchart LR
-  Source --> Document --> Element --> Chunk --> Claim --> Topic
-  Element -. evidence .-> Chunk
-  Element -. evidence .-> Claim
-  Build --> Chunk
-  Build --> Claim
-  Build --> Topic
-  Document --> Build
+  Source --> Document --> Element --> Original[Original chunks]
+  Original -->|structural links| Structural[Structural chunks]
+  Structural -->|embeddings + cosine similarity| Semantic[Semantic clusters]
+  Semantic -->|claim generation: zero or many| Candidate[Candidate claims]
+  Candidate -->|topic classification| Claim[Classified claims]
+  Claim --> Topic[Topics]
+  Element -. exact evidence .-> Candidate
+  Element -. exact evidence .-> Claim
+  Document -. input .-> Build
+  Build -. output .-> Original
+  Build -. output .-> Claim
+  Build -. output .-> Topic
 ```
 
-The [record-link image](images/artifact-record-links-v1.0.0.svg) shows the full
-v1.0.0 contract, not an implemented parser/classifier.
+The [pipeline and record-lineage diagram](images/artifact-record-links-v1.0.0.svg)
+shows canonical bundle records and the separate structural chunks, semantic
+clusters and candidate claim artifacts. Unclassified candidate claims remain
+available. Derived memberships preserve original chunk IDs and exact evidence;
+they do not add record types to the v1.0.0 bundle.
 
 | Link | Required relationship |
 | --- | --- |

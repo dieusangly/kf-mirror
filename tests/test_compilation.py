@@ -66,8 +66,13 @@ class CompilationTests(unittest.TestCase):
             config_path, taxonomy_path = self._write_settings(root)
             generated, output = root / "generated", root / "compiled"
             generation_events, classification_events = [], []
-            generation_report = generate_claims(chunked, generated, config_path, fixture_path,
-                                                on_progress=generation_events.append)
+            with patch("knowledge_foundry.claim_generation_and_classification.time") as clock:
+                clock.monotonic.side_effect = [100, 112.3456]
+                generation_report = generate_claims(chunked, generated, config_path, fixture_path,
+                                                    on_progress=generation_events.append)
+            self.assertEqual(generation_report["duration_seconds"], 12.346)
+            saved_report = json.loads((generated / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved_report["duration_seconds"], 12.346)
             report = classify_claims(generated, output, config_path, taxonomy_path, fixture_path,
                                      on_progress=classification_events.append)
             self.assertEqual((generation_report["status"], generation_report["candidates"]), ("complete", 1))
@@ -129,6 +134,9 @@ class CompilationTests(unittest.TestCase):
             self.assertNotIn('token_counting', report)
             self.assertFalse((generated / "generation-checkpoint.json").exists())
             self.assertTrue((generated / "build-manifest.json").is_file())
+            audit = json.loads((generated / 'evidence-accounting.json').read_text())
+            self.assertEqual(audit['clusters'][0]['passages'], saved['evidence_accounting'])
+            self.assertEqual(report['evidence_accounting']['unaccounted_passages'], 0)
             classified = classify_claims(generated, root / "classified", config_path, taxonomy_path, empty_fixture)
             self.assertEqual(classified["status"], "complete")
 
@@ -520,10 +528,12 @@ class CompilationTests(unittest.TestCase):
             self.assertEqual(sent["sources"], context["sources"])
 
     def test_generation_schema_matches_documented_model_contract(self):
-        schema = json.loads((ROOT / "schemas/compilation-model-output-v1.json").read_text())
+        schema = json.loads((ROOT / "schemas/compilation-model-output-v2.json").read_text())
         from jsonschema import Draft202012Validator
         Draft202012Validator.check_schema(schema)
-        response = {"claims": [{"text": "Assertion.", "evidence": ["E1", "E2"]}]}
+        response = {"claims": [{"text": "Assertion.", "evidence": ["E1", "E2"]}], 'coverage': [
+            {'evidence_id': label, 'status': 'represented', 'claim_indices': [0],
+             'reason': 'The complete proposition and qualification are represented.'} for label in ['E1', 'E2']]}
         Draft202012Validator(schema).validate(response)
         Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
 

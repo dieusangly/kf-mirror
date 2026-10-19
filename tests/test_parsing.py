@@ -71,7 +71,7 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(_pdf_table_text(index, None),
                          "INTRODUCTION |  | 2\nLa mise en œuvre selon\nles risques |  |  | 6\nOui | Oui")
 
-    def test_pdf_table_splits_merged_header_labels_into_distinct_slots(self):
+    def test_pdf_table_does_not_guess_merged_headers_from_french_words(self):
         def cell(row, column, value, header=False, left=None):
             return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
                                    text=value, row_span=1, col_span=1,
@@ -84,12 +84,11 @@ class ParsingTests(unittest.TestCase):
             cell(1, 0, "Risque"), cell(1, 1, "x"), cell(1, 3, "x"),
         ]))
         self.assertEqual(_pdf_table_text(table, None),
-                         "Thématique | Les sociétés de domiciliation | Les agents sportifs | Le secteur du jeu | Critères concernant particulièrement les déclarants\nRisque | x |  | x")
+                         "Thématique | Les sociétés de domiciliation Les agents sportifs | Le secteur du jeu Critères concernant particulièrement les déclarants\nRisque | x |  | x")
         headers = [cell for cell in _pdf_table_cells(table) if cell["row"] == 0]
         self.assertEqual([(cell["column"], cell["text"]) for cell in headers], [
-            (0, "Thématique"), (1, "Les sociétés de domiciliation"),
-            (2, "Les agents sportifs"), (3, "Le secteur du jeu"),
-            (4, "Critères concernant particulièrement les déclarants"),
+            (0, "Thématique"), (1, "Les sociétés de domiciliation Les agents sportifs"),
+            (2, "Le secteur du jeu Critères concernant particulièrement les déclarants"),
         ])
 
     def test_filename_only_pdf_footnote_is_structural_but_meaningful_note_remains_evidence(self):

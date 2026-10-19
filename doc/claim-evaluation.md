@@ -77,6 +77,14 @@ Evaluation makes no embedding or generation calls.
 Missing candidate claims and null classifications need source review; they are not
 automatically wrong.
 
+For runs with `evidence-accounting.json`, automatic checks also validate its exact
+references, candidate links, cluster membership and report counts. Inspect
+unresolved dispositions around sampled passages and expand high-risk review when
+needed. A model's `represented` judgment is not source-review approval: a citing
+claim can still omit another proposition or qualification from the same passage.
+Older runs have no accounting field; their saved judgments remain valid for their
+original snapshot.
+
 Sampling selects available risks first, then spreads through reading order:
 
 | Dimension | Review unit and purpose |

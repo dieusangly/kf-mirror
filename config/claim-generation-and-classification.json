@@ -1,5 +1,5 @@
 {
-  "pipeline_version": "compilation-v10",
+  "pipeline_version": "compilation-v11",
   "steps": {
     "structural_chunks": {
       "version": "structural-chunks-v1"
@@ -24,7 +24,7 @@
       "max_refinements": 4
     },
     "claim_generation": {
-      "version": "claim-generation-v10",
+      "version": "claim-generation-v11",
       "provider": "openai",
       "model": "gpt-6-luna",
       "reasoning_effort": "medium",
@@ -33,14 +33,14 @@
         "context_window_tokens": 1050000,
         "reserved_output_tokens": 32768,
         "safety_margin_tokens": 4096,
-        "operational_input_cap_tokens": 24000,
+        "operational_input_cap_tokens": 32000,
         "verified_model": "gpt-6-luna",
         "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
         "verified_on": "2026-10-16"
       }
     },
     "topic_classification": {
-      "version": "topic-classification-v11",
+      "version": "topic-classification-v12",
       "provider": "openai",
       "model": "gpt-6-luna",
       "reasoning_effort": "medium",

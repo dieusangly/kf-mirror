@@ -49,7 +49,7 @@ class OpenAIToolsTests(unittest.TestCase):
             payload['instructions'] += ' retry feedback'
             counter.count(payload)
             self.assertEqual(send.call_count, 2)
-        self.assertEqual(usable_input_budget(config['steps']['claim_generation']['budget']), 24000)
+        self.assertEqual(usable_input_budget(config['steps']['claim_generation']['budget']), 32000)
 
     def test_provider_counter_failure_is_explicit_and_bounded(self):
         import tempfile
