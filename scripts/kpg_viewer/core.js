@@ -23,19 +23,11 @@
     const claimDocuments = new Map();
     graph.nodes.filter(node => node.group === "claim" || node.group === "candidate").forEach(claim => {
       const found = new Set();
-      const queue = [{id: claim.id, depth: 0}];
-      const seen = new Set([claim.id]);
-      while (queue.length) {
-        const current = queue.shift();
-        if (current.depth >= 8) continue;
-        (outgoing.get(current.id) || []).forEach(edge => {
-          const target = nodes.get(edge.target);
-          if (!target || seen.has(target.id)) return;
-          seen.add(target.id);
-          if (target.group === "document") found.add(target.id);
-          else if (["semantic_cluster", "structural_chunk", "chunk", "element"].includes(target.group)) queue.push({id: target.id, depth: current.depth + 1});
-        });
-      }
+      (claim.record?.evidence || []).forEach(item => { if (item.document_id) found.add(item.document_id); });
+      (claim.record?.chunk_ids || []).forEach(id => {
+        const chunk = nodes.get(id);
+        if (chunk?.record?.document_id) found.add(chunk.record.document_id);
+      });
       claimDocuments.set(claim.id, found);
     });
     return {graph, nodes, outgoing, incoming, neighbors, claimDocuments};
@@ -68,10 +60,67 @@
 
   KPG.localNeighborhood = function (index, rootId) {
     const visible = new Set();
+    const root = index.nodes.get(rootId);
+    const include = id => {
+      if (id && index.nodes.has(id)) visible.add(id);
+    };
+    if (root && ["claim", "candidate"].includes(root.group)) {
+      const record = root.record || {};
+      const originalChunkIds = new Set(record.chunk_ids || []);
+      include(rootId);
+
+      (index.incoming.get(rootId) || []).forEach(edge => {
+        if (edge.relation === "groups" || edge.relation === "classified as") include(edge.source);
+      });
+      (index.outgoing.get(rootId) || []).forEach(edge => {
+        const target = index.nodes.get(edge.target);
+        if (["semantic_cluster", "chunk", "element"].includes(target?.group)) include(target.id);
+        if (edge.relation === "classified as") include(edge.target);
+      });
+
+      const evidence = Array.isArray(record.evidence) ? record.evidence : [];
+      evidence.forEach(item => {
+        include(item.element_id);
+        include(item.document_id);
+        include(item.source_id);
+      });
+
+      [...visible].forEach(id => {
+        if (index.nodes.get(id)?.group !== "semantic_cluster") return;
+        (index.outgoing.get(id) || []).forEach(edge => {
+          const structural = index.nodes.get(edge.target);
+          const chunkIds = structural?.record?.original_chunk_ids || [];
+          if (structural?.group === "structural_chunk" && chunkIds.some(chunkId => originalChunkIds.has(chunkId))) {
+            include(structural.id);
+            chunkIds.filter(chunkId => originalChunkIds.has(chunkId)).forEach(include);
+          }
+        });
+      });
+
+      originalChunkIds.forEach(include);
+      [...visible].forEach(id => {
+        const node = index.nodes.get(id);
+        if (node?.group === "chunk" || node?.group === "element") {
+          (index.outgoing.get(id) || []).forEach(edge => {
+            const target = index.nodes.get(edge.target);
+            if (target?.group === "element" || target?.group === "document" || target?.group === "source") include(target.id);
+          });
+        }
+      });
+      [...visible].forEach(id => {
+        const node = index.nodes.get(id);
+        if (node?.group !== "document") return;
+        (index.outgoing.get(id) || []).forEach(edge => {
+          if (index.nodes.get(edge.target)?.group === "source") include(edge.target);
+        });
+      });
+      return visible;
+    }
+
     const queue = [rootId];
     visible.add(rootId);
-    while (queue.length) {
-      const id = queue.shift();
+    for (let position = 0; position < queue.length; position += 1) {
+      const id = queue[position];
       const nextIds = (index.outgoing.get(id) || []).map(edge => edge.target);
       nextIds.push(...(index.incoming.get(id) || []).filter(edge => edge.relation === "groups").map(edge => edge.source));
       nextIds.forEach(nextId => {

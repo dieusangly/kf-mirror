@@ -11,6 +11,8 @@
   const viewTitle = el("view-title");
   const summary = el("view-summary");
   const visibleCount = el("visible-count");
+  const mainLayout = el("main-layout");
+  const detailToggle = el("detail-toggle");
   const state = {mode: "topic", topic: "", document: "", selectedId: null, page: 0, fullConfirmed: false};
 
   function addOptions(select, firstLabel, values) {
@@ -40,6 +42,7 @@
     const node = index.nodes.get(id);
     if (node?.group === "topic") {
       state.mode = "topic"; controls.mode.value = "topic"; controls.topic.value = node.id;
+      state.page = 0;
     }
     if (node?.group === "document") {
       state.mode = "document"; controls.mode.value = "document"; controls.document.value = node.id;
@@ -116,11 +119,27 @@
   }
 
   controls.mode.addEventListener("change", () => { state.mode = controls.mode.value; state.page = 0; state.fullConfirmed = false; render(); });
+  detailToggle.addEventListener("click", () => {
+    const expanded = detailToggle.getAttribute("aria-expanded") === "true";
+    detailToggle.setAttribute("aria-expanded", String(!expanded));
+    detailToggle.textContent = expanded ? "Show details" : "Hide details";
+    mainLayout.classList.toggle("details-collapsed", expanded);
+  });
   [controls.topic, controls.document, controls.build, controls.review, controls.type].forEach(control => control.addEventListener("change", () => {
     state.page = 0;
+    state.fullConfirmed = false;
     if (control === controls.document && state.mode === "document" && control.value) state.selectedId = control.value;
     render();
   }));
+  let resizeFrame = 0;
+  window.addEventListener("resize", () => {
+    if (state.mode === "full") return;
+    window.cancelAnimationFrame(resizeFrame);
+    resizeFrame = window.requestAnimationFrame(() => {
+      resizeFrame = 0;
+      render();
+    });
+  });
   setUpControls();
   render();
 })(window.KPG = window.KPG || {});

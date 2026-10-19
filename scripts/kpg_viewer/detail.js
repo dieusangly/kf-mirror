@@ -1,7 +1,7 @@
 (function (KPG) {
   "use strict";
 
-  const panel = document.getElementById("detail");
+  const panel = document.getElementById("detail-content");
 
   function appendText(tag, className, text, parent) {
     const element = document.createElement(tag);
@@ -11,102 +11,162 @@
     return element;
   }
 
-  function isLong(value) {
-    return typeof value === "object" && value !== null;
-  }
-
-  function metadata(node) {
-    const record = {...(node.record || {})};
-    delete record.text;
-    delete record.evidence;
-    delete record.chunk_ids;
-    delete record.claim_ids;
-    delete record.original_chunk_ids;
-    delete record.structural_chunk_ids;
-    delete record.document_ids;
-    delete record.evidence_memberships;
+  function addSection(title, parent) {
     const section = document.createElement("section");
     section.className = "detail-section";
-    appendText("h3", "", "Record metadata", section);
-    const list = document.createElement("dl");
-    list.className = "metadata";
-    Object.entries(record).forEach(([key, value]) => {
-      const term = document.createElement("dt"); term.textContent = key;
-      const detail = document.createElement("dd");
-      if (isLong(value)) {
-        const pre = document.createElement("pre"); pre.textContent = JSON.stringify(value, null, 2); detail.append(pre);
-      } else detail.textContent = String(value ?? "");
-      list.append(term, detail);
-    });
-    section.append(list);
-    panel.append(section);
+    appendText("h3", "", title, section);
+    parent.append(section);
+    return section;
   }
 
-  function related(index, node, edges, label, onSelect) {
-    if (!edges.length) return;
-    const section = document.createElement("section"); section.className = "detail-section";
-    appendText("h3", "", label, section);
-    const list = document.createElement("div"); list.className = "related";
+  function appendRelated(index, node, edges, parent, onSelect) {
+    const list = document.createElement("div");
+    list.className = "related";
     edges.forEach(edge => {
       const nextId = edge.source === node.id ? edge.target : edge.source;
-      const other = index.nodes.get(nextId); if (!other) return;
+      const other = index.nodes.get(nextId);
+      if (!other) return;
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `${edge.relation} · ${other.group}: ${other.label}`;
+      button.textContent = `${edge.relation} · ${KPG.groupLabels[other.group] || other.group}: ${other.label}`;
       button.addEventListener("click", () => onSelect(other.id));
       list.append(button);
     });
-    section.append(list); panel.append(section);
+    parent.append(list);
+  }
+
+  function evidenceLabel(index, item, element) {
+    const documentNode = index.nodes.get(item.document_id || element?.record?.document_id);
+    const sourceNode = index.nodes.get(item.source_id || documentNode?.record?.source_id);
+    const page = element?.record?.location?.page;
+    return [...new Set([sourceNode?.label, documentNode?.label, page ? `Page ${page}` : ""].filter(Boolean))].join(" · ");
+  }
+
+  function evidenceExcerpt(index, item, element, claim) {
+    if (element?.record?.text?.trim()) return element.record.text.trim();
+    const chunk = (claim.chunk_ids || []).map(id => index.nodes.get(id)).find(candidate =>
+      candidate?.record?.evidence?.some(reference => reference.element_id === item.element_id));
+    return chunk?.record?.text?.trim() || "No extracted evidence text is stored for this location.";
+  }
+
+  function renderEvidence(index, node) {
+    const records = Array.isArray(node.record.evidence) ? node.record.evidence : [];
+    if (!records.length) return;
+    const section = addSection("Evidence", panel);
+    records.forEach((item, position) => {
+      const element = index.nodes.get(item.element_id);
+      const excerpt = appendText("blockquote", "evidence-excerpt", evidenceExcerpt(index, item, element, node.record), section);
+      excerpt.setAttribute("aria-label", `Evidence excerpt ${position + 1}`);
+      const caption = evidenceLabel(index, item, element);
+      if (caption) appendText("p", "evidence-location", caption, section);
+    });
+  }
+
+  function renderLocation(record) {
+    const location = record.location;
+    if (!location || typeof location !== "object") return;
+    const parts = [location.page ? `Page ${location.page}` : "", location.label, location.format]
+      .filter(Boolean);
+    if (parts.length) {
+      const section = addSection("Source location", panel);
+      appendText("p", "", parts.join(" · "), section);
+    }
+  }
+
+  function renderTechnicalMetadata(node, parent) {
+    const record = {...(node.record || {})};
+    delete record.text;
+    delete record.evidence;
+    const list = document.createElement("dl");
+    list.className = "metadata";
+    Object.entries({id: node.id, ...record}).forEach(([key, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = key;
+      const detail = document.createElement("dd");
+      if (typeof value === "object" && value !== null) {
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(value, null, 2);
+        detail.append(pre);
+      } else detail.textContent = String(value ?? "");
+      list.append(term, detail);
+    });
+    parent.append(list);
   }
 
   KPG.renderDetail = function (index, node, onSelect, onExplore) {
     panel.replaceChildren();
     if (!node) {
+      appendText("p", "eyebrow", "KNOWLEDGE RECORD");
       appendText("h2", "", "Choose a record");
       appendText("p", "muted", "Select a topic, claim, or provenance node to inspect its saved details.");
       return;
     }
+
+    appendText("p", "eyebrow", KPG.groupLabels[node.group] || node.group);
     appendText("h2", "", node.label);
-    appendText("p", "muted", node.meta);
     if (node.detail) appendText("p", "detail-text", node.detail);
-    const actions = document.createElement("div"); actions.className = "detail-actions";
+    renderEvidence(index, node);
+    renderLocation(node.record || {});
+
+    const actions = document.createElement("div");
+    actions.className = "detail-actions";
     if (["claim", "candidate"].includes(node.group)) {
-      const explore = document.createElement("button"); explore.type = "button"; explore.textContent = "Explore provenance";
-      explore.addEventListener("click", () => onExplore("claim", node.id)); actions.append(explore);
+      const explore = document.createElement("button");
+      explore.type = "button";
+      explore.textContent = "Explore provenance";
+      explore.addEventListener("click", () => onExplore("claim", node.id));
+      actions.append(explore);
     } else if (["semantic_cluster", "structural_chunk", "chunk", "element", "source"].includes(node.group)) {
-      const explore = document.createElement("button"); explore.type = "button"; explore.textContent = "Explore local graph";
-      explore.addEventListener("click", () => onExplore("claim", node.id)); actions.append(explore);
+      const explore = document.createElement("button");
+      explore.type = "button";
+      explore.textContent = "Explore local graph";
+      explore.addEventListener("click", () => onExplore("claim", node.id));
+      actions.append(explore);
     }
     if (node.group === "document") {
-      const explore = document.createElement("button"); explore.type = "button"; explore.textContent = "Explore derived knowledge";
-      explore.addEventListener("click", () => onExplore("document", node.id)); actions.append(explore);
+      const explore = document.createElement("button");
+      explore.type = "button";
+      explore.textContent = "Explore derived knowledge";
+      explore.addEventListener("click", () => onExplore("document", node.id));
+      actions.append(explore);
+    }
+    if (node.group === "source" && /^https?:\/\//.test(node.record.uri || "")) {
+      const link = document.createElement("a");
+      link.href = node.record.uri;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Open publisher source";
+      actions.append(link);
     }
     if (actions.childElementCount) panel.append(actions);
 
-    if (node.group === "source" && /^https?:\/\//.test(node.record.uri || "")) {
-      const link = document.createElement("a"); link.href = node.record.uri; link.target = "_blank"; link.rel = "noreferrer"; link.textContent = "Open publisher source"; panel.append(link);
-    }
-    if (node.record.location) {
-      const location = document.createElement("section"); location.className = "detail-section";
-      appendText("h3", "", "Source location", location);
-      appendText("p", "", JSON.stringify(node.record.location), location);
-      panel.append(location);
-    }
-    if (Array.isArray(node.record.evidence) && node.record.evidence.length) {
-      const evidence = document.createElement("section"); evidence.className = "detail-section";
-      appendText("h3", "", "Evidence references", evidence);
-      node.record.evidence.forEach((item, position) => {
-        const row = document.createElement("p"); row.className = "detail-text";
-        const element = index.nodes.get(item.element_id);
-        const location = element?.record?.location ? ` · ${JSON.stringify(element.record.location)}` : "";
-        row.textContent = `${position + 1}. ${item.element_id || "element unavailable"}${location}${item.span ? ` · span ${item.span.start}–${item.span.end}` : ""}`;
-        evidence.append(row);
-      });
-      panel.append(evidence);
-    }
-    metadata(node);
     const allEdges = [...(index.incoming.get(node.id) || []), ...(index.outgoing.get(node.id) || [])];
-    related(index, node, allEdges, "Connected records", onSelect);
-    const code = document.createElement("code"); code.textContent = node.id; panel.append(code);
+    if (allEdges.length) {
+      const connected = document.createElement("details");
+      connected.className = "detail-section disclosure";
+      const summary = document.createElement("summary");
+      summary.textContent = `Connected records (${allEdges.length})`;
+      connected.append(summary);
+      connected.addEventListener("toggle", () => {
+        if (connected.open && !connected.dataset.loaded) {
+          appendRelated(index, node, allEdges, connected, onSelect);
+          connected.dataset.loaded = "true";
+        }
+      });
+      panel.append(connected);
+    }
+
+    const technical = document.createElement("details");
+    technical.className = "detail-section disclosure";
+    const technicalSummary = document.createElement("summary");
+    technicalSummary.textContent = "Technical metadata";
+    technical.append(technicalSummary);
+    technical.addEventListener("toggle", () => {
+      if (technical.open && !technical.dataset.loaded) {
+        renderTechnicalMetadata(node, technical);
+        technical.dataset.loaded = "true";
+      }
+    });
+    panel.append(technical);
   };
 })(window.KPG = window.KPG || {});
