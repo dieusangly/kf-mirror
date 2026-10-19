@@ -30,13 +30,13 @@ text, chunks, exact evidence, generation metadata and generation-build ID.
 Classification consumes them without regenerating statements.
 
 `retrieved_on` is a capture date, not publication or legal effectiveness. The
-[source manifest](../data/manifest.json) records the pilot's saved files.
+[source manifest](../data/manifest.json) records the configured collection’s saved files.
 
 ## Stable IDs
 
-Source IDs are readable names such as `src:acpr-tracfin-joint-guidelines`, distinct
-from manifest label `A`; retain them across URL/edition changes. Topic IDs such as
-`topic:beneficial-ownership` are curated and stable across builds.
+Source IDs are readable names such as `src:maintenance-guide`, distinct
+from manifest label `GUIDE`; retain them across URL/edition changes. Topic IDs such as
+`topic:equipment-maintenance` are curated and stable across builds.
 
 `H(text)` is lowercase hexadecimal SHA-256 of UTF-8 text; `\n` is one newline.
 `content_sha256` hashes saved bytes, matches the examples' manifest `sha256`, and
@@ -104,14 +104,9 @@ they do not add record types to the v1.0.0 bundle.
 | Claim → evidence | Exact element ID/revision, document ID and source ID, resolved as for chunks. |
 | Claim ↔ topic | `topic_id` is the authoritative single assignment; `topic.claim_ids` is its exact inverse within the same build. |
 
-Manifest labels `A`/`L1` map to `src:acpr-tracfin-joint-guidelines`/
-`src:cmf-L561-2-2`. The validator matches manifest entries by URL/hash, then checks
-version and capture date.
-
-The PDF example follows `src:acpr-tracfin-joint-guidelines` → `doc:485e1794…` →
-`el:498756bd…` → `chunk:174ba9be…` → `claim:51e64529…` → `topic:guidelines-status`.
-`build:fcc1a570…` names inputs/outputs; evidence cites the element revision,
-which carries page/label.
+Manifest labels map to stable source IDs. The validator matches entries by
+URL/hash, then checks version and capture date. Builds name inputs/outputs;
+evidence resolves to the element revision and its native location.
 
 ## Locations and supporting passages
 
@@ -125,7 +120,7 @@ which carries page/label.
 Evidence names `source_id`, `document_id`, `element_id`, matching
 `element_revision`, and optional Unicode code-point span `[start, end)` where
 `0 <= start < end <= len(text)`. Multiple passages need multiple references.
-Locations/versions make evidence reviewable; map pilot locators after parsing.
+Locations/versions make evidence reviewable; preserve native locators after parsing.
 
 Claims may use multiple documents and an upstream chunk build. Their classification
 build must include all supporting documents, and each evidence reference must
@@ -143,11 +138,10 @@ Do not infer effective dates, exceptions or conflict resolutions from capture da
 
 ## Examples and validation
 
-The [PDF example](../examples/artifact-bundle-pdf.json) samples a paragraph, chunk,
-draft claim and topic from ACPR–Tracfin p.3 (A1), a 70-page file. The
-[HTML example](../examples/artifact-bundle-html.json) uses Légifrance L.561-2-2,
-clause 1° (L1a). Both hash saved bytes and illustrate the contract, not parser
-output or approved answer labels.
+The [PDF example](../examples/artifact-bundle-pdf.json) and
+[HTML example](../examples/artifact-bundle-html.json) are corpus-specific fixtures
+with illustrative passages, chunks, draft claims and topics. Both hash saved bytes
+and illustrate the contract, not parser output or approved answer labels.
 
 With `jsonschema` installed, run `python3 scripts/validate_artifact_examples.py`
 to check saved sources, schemas, IDs, references and spans. This does not measure
@@ -167,6 +161,10 @@ configuration, prompt/schema assumptions and exact semantic cluster plan.
 | `semantic-clusters.json` | Unique memberships, request hashes/counts and minimum similarity |
 | `report.json` | Sizes, refinement diagnostics and structural chunk and semantic cluster build telemetry |
 | `build-manifest.json` | File hashes, versions and frozen assumptions |
+
+Link reasons cover shared fragments, governing context, numbered/bulleted list
+introductions, adjacent sentence/table continuations and same-page note markers.
+The schema enumerates the accepted reasons; heuristic links require source review.
 
 Generation copies the frozen build and saves the candidate-claim-to-cluster mapping
 in `candidate-clusters.json`, preserving canonical evidence and original chunk IDs. Evidence

@@ -5,7 +5,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-from knowledge_foundry.pdf_structure import repair_footnotes, table_text_groups
+from knowledge_foundry.pdf_structure import repair_footnotes, restore_numeric_identifiers, table_text_groups
 
 
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
@@ -57,6 +57,16 @@ def _pdf_table_cells(item, characters=None):
             parts_by_cell[id(cell)] = [(value, getattr(box, 'l', None))]
     repaired_headers = any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
     header_slots = []
+    # Text cells delimit rows independently of the extractor's marker indices.
+    # Multi-row labels cannot establish a unique marker row.
+    row_anchors = []
+    for cell in raw:
+        box = getattr(cell, 'bbox', None)
+        if (box is not None and not getattr(cell, 'column_header', False)
+                and (getattr(cell, 'row_span', 1) or 1) == 1
+                and len(''.join(cell.text.split())) > 1
+                and not re.fullmatch(r'(\S)(?:\s+\1)+', cell.text.strip())):
+            row_anchors.append((cell.start_row_offset_idx, min(box.t, box.b), max(box.t, box.b)))
     normalized = []
     next_header_column = 0
     for cell in raw:
@@ -69,13 +79,24 @@ def _pdf_table_cells(item, characters=None):
             next_header_column = column + len(values)
         for offset, (value, left) in enumerate(values):
             slot = column + offset
+            marker = bool(re.fullmatch(r'[^\W\d_]|[✓✔●•+*]', value)) and not is_header
+            marker_row = row
+            uncertain = bool(re.fullmatch(r'(\S)(?:\s+\1)+', value)) and len(values) == 1
+            box = getattr(cell, 'bbox', None)
+            if marker and box is not None and row_anchors:
+                center = (box.t + box.b) / 2
+                matches = {index for index, top, bottom in row_anchors if top - 1 <= center <= bottom + 1}
+                if len(matches) == 1:
+                    marker_row = matches.pop()
+                else:
+                    uncertain = True
             if is_header:
                 if left is not None:
                     header_slots.append((slot, left))
             elif (repaired_headers or len(values) > 1 or len(value) == 1) and left is not None and header_slots:
                 slot = min(header_slots, key=lambda entry: abs(entry[1] - left))[0]
             normalized.append({
-                "row": row,
+                "row": marker_row,
                 "column": slot,
                 "text": value,
                 "row_span": getattr(cell, "row_span", 1) or 1,
@@ -83,7 +104,7 @@ def _pdf_table_cells(item, characters=None):
                 "header": bool(getattr(cell, "column_header", False) or
                                getattr(cell, "row_header", False)),
                 "bbox": getattr(cell, "bbox", None),
-                "alignment_uncertain": bool(re.fullmatch(r'(\S)(?:\s+\1)+', value)) and len(values) == 1,
+                "alignment_uncertain": uncertain,
             })
     positions = [(cell['row'], cell['column']) for cell in normalized]
     if len(positions) != len(set(positions)):
@@ -737,13 +758,13 @@ def parse_pdf(path, _source, options, converter=None):
     excluded_picture_refs = set()
     character_cache = {}
 
-    def table_characters(provenance):
+    def page_characters(provenance):
         if len(provenance) != 1 or not Path(path).is_file():
             return []
-        page = provenance[0].page_no
+        page = provenance[0]['page_no'] if isinstance(provenance[0], dict) else provenance[0].page_no
         if page not in character_cache:
             # PDFium is already required by Docling. The text layer supplies
-            # geometry only; OCR-only tables retain their recognised cells.
+            # geometry and literal identifiers; OCR-only input retains its text.
             import pypdfium2 as pdfium
 
             with pdfium.PdfDocument(path) as pdf:
@@ -813,6 +834,8 @@ def parse_pdf(path, _source, options, converter=None):
                 else:
                     box = bbox.to_top_left_origin(doc.pages[page].size.height)
                     location["bbox"] = [box.l, box.t, box.r, box.b]
+            if kind != 'table' and re.search(r'\b\d{3,}\b', piece):
+                piece = restore_numeric_identifiers(piece, location.get('bbox'), page_characters([part]))
             local_role = evidence_role
             annotation_figure = None
             if kind == "paragraph" and local_role == "authoritative":
@@ -1015,7 +1038,7 @@ def parse_pdf(path, _source, options, converter=None):
         else:
             kind = "paragraph"
         prov = getattr(item, "prov", []) or []
-        characters = table_characters(prov) if kind == 'table' else []
+        characters = page_characters(prov) if kind == 'table' else []
         if kind == "table":
             text = _pdf_table_text(item, doc, characters)
         else:

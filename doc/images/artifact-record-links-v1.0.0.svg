@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1360" height="940" viewBox="0 0 1360 940" role="img" aria-labelledby="title description">
   <title id="title">Knowledge Foundry pipeline and record lineage</title>
-  <desc id="description">Saved Source, Document and Element records provide immutable original chunks. Structural chunks assemble original chunks within a document using structural links. Embeddings support numerical semantic clustering across documents. Each final semantic cluster produces zero, one or multiple candidate claims. Topic classification preserves claim text and evidence; unclassified candidate claims remain available. Canonical Build records track input documents and output chunks, claims and topics. A separate frozen build stores structural memberships, vectors, semantic clusters, token budgets and integrity hashes. Exact source provenance is retained throughout.</desc>
+  <desc id="description">Saved Source, Document and Element records provide immutable original chunks. Structural chunks assemble original chunks within a document using structural links. Embeddings support numerical semantic clustering across documents. Each final semantic cluster produces zero, one or multiple candidate claims. Topic classification preserves claim text and evidence; unclassified candidate claims remain available. Canonical Build records track input documents and output chunks, claims and topics. A separate frozen build stores structural memberships, vectors, semantic clusters, token budgets and integrity hashes. E labels retain citable evidence text; C labels provide non-citable context. Source review assesses fidelity, completeness and topic choices. Exact source provenance is retained throughout.</desc>
   <defs>
     <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
       <path d="M0 0 L9 4.5 L0 9 Z" fill="#61758c"/>
@@ -21,7 +21,7 @@
   <rect width="1360" height="940" fill="#f6f8fc"/>
   <text x="36" y="50" class="heading">Knowledge Foundry pipeline</text>
   <text x="36" y="80" class="subheading">Canonical records and derived artifacts · original text and exact evidence preserved</text>
-  <text x="36" y="116" class="section">EXISTING SOURCE ARTIFACTS</text>
+  <text x="36" y="116" class="section">INGESTION → PARSING → ORIGINAL CHUNKING</text>
   <g transform="translate(36 136)">
     <rect width="190" height="130" rx="12" fill="#fff" stroke="#3a77ae" stroke-width="2"/>
   <text x="16" y="33" class="card-title">Source</text>
@@ -42,11 +42,11 @@
   </g>
   <path d="M226 201 H252" class="flow"/>
   <path d="M446 201 H472" class="flow"/>
-  <text x="716" y="172" class="panel-title">Use saved parsed/chunked artifacts</text>
-  <text x="716" y="204" class="panel-copy">No parsing or chunking changes in this build.</text>
-  <text x="716" y="235" class="panel-copy">Original IDs, text, spans and evidence stay unchanged.</text>
+  <text x="716" y="172" class="panel-title">Preserve source structure and evidence</text>
+  <text x="716" y="204" class="panel-copy">Parse text, tables and locations; review saved sources.</text>
+  <text x="716" y="235" class="panel-copy">Downstream stages preserve original IDs, text and spans.</text>
   <path d="M571 266 V298 H18 V461 H32" class="flow"/>
-  <text x="716" y="302" class="subheading">Each stage may contain many records.</text>
+  <text x="716" y="302" class="subheading">Claims and topic views remain drafts until reviewed.</text>
   <text x="36" y="344" class="section">STRUCTURAL ASSEMBLY → SEMANTIC CLUSTERING → CLAIM GENERATION → TOPIC CLASSIFICATION</text>
   <g transform="translate(36 376)">
     <rect width="190" height="180" rx="12" fill="#fff" stroke="#7b9b53" stroke-width="2"/>
@@ -100,8 +100,8 @@
   <path d="M666 461 H692" class="flow"/>
   <path d="M886 461 H912" class="flow"/>
   <path d="M1106 461 H1132" class="flow"/>
-  <text x="36" y="586" class="subheading">One generation request per final semantic cluster → zero, one or multiple candidate claims.</text>
-  <text x="36" y="614" class="subheading">One classification request per candidate claim; unclassified candidate claims remain available.</text>
+  <text x="36" y="586" class="subheading">Generation processes each final semantic cluster → zero, one or multiple candidate claims; retries may add calls.</text>
+  <text x="36" y="614" class="subheading">Classification preserves text and evidence; unclassified candidate claims remain available.</text>
   <rect x="36" y="646" width="630" height="156" rx="12" fill="#fff" stroke="#6d85ab" stroke-width="2"/>
   <rect x="696" y="646" width="630" height="156" rx="12" fill="#fff" stroke="#b58b46" stroke-width="2"/>
   <text x="56" y="683" class="panel-title">Frozen structural chunks and semantic clusters</text>

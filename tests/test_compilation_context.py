@@ -103,6 +103,41 @@ class CompilationContextTests(unittest.TestCase):
             self.assertEqual(entry, {'id': entry['id'], **expected})
         self.assertTrue(any(e.get('footnote_evidence') for e in payload['eligible_evidence']))
 
+    def test_citable_text_never_resolves_to_context_even_when_context_comes_first(self):
+        from knowledge_foundry.claim_generation_and_classification import _candidate_input
+        bundle = self.bundle([
+            ('paragraph', 'Operators must perform both checks:', 1),
+            ('list_item', '- Inspect the sensor.', 1)], [[(0,), 1], [0]])
+        elements = {e['id']: e for e in bundle['elements']}
+        records, _ = assemble_structural_chunks(bundle)
+        before = copy.deepcopy(bundle)
+        for reverse in [False, True]:
+            with self.subTest(reverse=reverse):
+                ordered = copy.deepcopy(records)
+                ordered[0]['evidence_memberships'].sort(
+                    key=lambda m: ('span' in m['reference']), reverse=reverse)
+                payload = json.loads(_candidate_input(bundle['chunks'], elements, bundle, ordered))
+                text = '\n'.join(r['text'] for r in payload['structural_chunks'])
+                label = next(e['id'] for e in payload['eligible_evidence']
+                             if e['reference']['element_id'] == bundle['elements'][0]['id'])
+                self.assertIn(f'[{label}]\nOperators must perform both checks:', text)
+                self.assertNotIn(f'[{label}] Voir [C', text)
+                self.assertEqual(text.count('Operators must perform both checks:'), 1)
+                self.assertTrue(payload['non_citable_context'])
+        self.assertEqual(bundle, before)
+
+    def test_partial_evidence_does_not_promote_full_context(self):
+        from knowledge_foundry.claim_generation_and_classification import _candidate_input
+        bundle = self.bundle([('paragraph', 'Check sensors. Replace defective units.', 1)], [[(0,), 0]])
+        bundle['chunks'][0]['evidence'][1]['span']['end'] = len('Check sensors.')
+        elements = {e['id']: e for e in bundle['elements']}
+        records, _ = assemble_structural_chunks(bundle)
+        payload = json.loads(_candidate_input(bundle['chunks'], elements, bundle, records))
+        text = '\n'.join(r['text'] for r in payload['structural_chunks'])
+        self.assertIn('[C1] Contexte non citable\nCheck sensors. Replace defective units.', text)
+        self.assertIn('[E1]\nCheck sensors.', text)
+        self.assertEqual(len(payload['eligible_evidence']), 1)
+
     def test_shared_passages_render_once_but_distinct_locations_retain_equal_text(self):
         from knowledge_foundry.claim_generation_and_classification import _candidate_input
         bundle = self.bundle([('paragraph', 'Identical wording.', 1),

@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 from knowledge_foundry.chunking import _chunk_document
 from knowledge_foundry.parsers import _pdf_table_cells, _pdf_table_text, parse_pdf
-from knowledge_foundry.pdf_structure import repair_footnotes
+from knowledge_foundry.pdf_structure import repair_footnotes, restore_numeric_identifiers
 from knowledge_foundry.parsing import ROOT, _normalize
 
 
@@ -84,6 +84,52 @@ class PdfStructureTests(unittest.TestCase):
             SimpleNamespace(start_row_offset_idx=0, start_col_offset_idx=0, text='x x')]))
         self.assertTrue(_pdf_table_cells(table)[0]['alignment_uncertain'])
         self.assertEqual(_pdf_table_text(table, None), 'x x')
+
+    def test_sparse_markers_follow_text_row_geometry_not_wrong_native_row_indices(self):
+        def cell(row, col, text, left, top, right, bottom, header=False):
+            return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=col,
+                text=text, row_span=1, col_span=1, column_header=header, row_header=False,
+                bbox=SimpleNamespace(l=left, r=right, t=top, b=bottom))
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 0, 'Action', 0, 0, 70, 10, True),
+            cell(0, 1, 'North lab', 100, 0, 145, 10, True),
+            cell(0, 2, 'South lab', 160, 0, 205, 10, True),
+            cell(1, 0, 'Inspect', 0, 20, 70, 35),
+            cell(2, 0, 'Replace', 0, 40, 70, 60),
+            cell(1, 1, 'x', 110, 25, 115, 30),
+            # Extractor attached the second-row marker to the first row.
+            cell(1, 2, 'x', 170, 48, 175, 53)]))
+        self.assertEqual(_pdf_table_text(table, None),
+                         'Action | North lab | South lab\nInspect | x\nReplace |  | x')
+        self.assertFalse(any(c['alignment_uncertain'] for c in _pdf_table_cells(table)))
+
+    def test_overlapping_row_anchors_flag_uncertainty_without_guessing(self):
+        cells = [SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=col,
+                    text=text, row_span=1, col_span=1, column_header=False,
+                    bbox=SimpleNamespace(l=left, r=left + 10, t=top, b=bottom))
+                 for row, col, text, left, top, bottom in [
+                     (1, 0, 'Inspect', 0, 20, 45), (2, 0, 'Replace', 0, 40, 60),
+                     (1, 1, 'x', 30, 41, 43)]]
+        marker = next(c for c in _pdf_table_cells(SimpleNamespace(data=SimpleNamespace(table_cells=cells)))
+                      if c['text'] == 'x')
+        self.assertEqual(marker['row'], 1)
+        self.assertTrue(marker['alignment_uncertain'])
+
+    def test_numeric_identifier_separators_require_unambiguous_local_source_glyphs(self):
+        def glyphs(text, left=0):
+            return [{'text': char, 'index': i, 'bbox': [left + i, 0, left + i + 1, 1]}
+                    for i, char in enumerate(text)]
+        self.assertEqual(restore_numeric_identifiers('Rule 73582 applies.', [0, 0, 100, 10],
+                                                    glyphs('Rule 73-\n582 applies.')),
+                         'Rule 73-582 applies.')
+        self.assertEqual(restore_numeric_identifiers('Rule 73582 applies.', [0, 0, 100, 10], []),
+                         'Rule 73582 applies.')
+        self.assertEqual(restore_numeric_identifiers('Rule 73582 applies.', [0, 0, 100, 10],
+                                                    glyphs('73-582 735-82')),
+                         'Rule 73582 applies.')
+        self.assertEqual(restore_numeric_identifiers('Rule 73582 applies.', [0, 0, 100, 10],
+                                                    glyphs('73-582', left=200)),
+                         'Rule 73582 applies.')
 
     def test_wrapped_vertical_header_remains_one_column(self):
         cell = SimpleNamespace(start_row_offset_idx=0, start_col_offset_idx=0,

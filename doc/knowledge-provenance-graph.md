@@ -13,12 +13,11 @@ CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 .venv/bin/python scripts/render_knowledge_graph.py \
   --bundle "$CLASSIFIED_DIR/artifact-bundle.json" \
   --claim-generation-dir "$CANDIDATES_DIR" \
-  --output "$CLASSIFIED_DIR/knowledge-provenance-graph.html" \
-  --force
+  --output "$CLASSIFIED_DIR/knowledge-provenance-graph.html"
 ```
 
-Open the HTML in a browser. `--force` replaces only that file; omit it/use a new
-name to preserve an existing view. No model calls or claim artifact edits occur.
+Open the HTML in a browser. Add `--force` only to replace an existing viewer,
+or choose a new output name to preserve it. No model calls or claim artifact edits occur.
 
 ## What is included
 

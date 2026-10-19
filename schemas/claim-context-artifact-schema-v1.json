@@ -197,8 +197,10 @@
             "shared_element_fragments",
             "governing_context_reference",
             "ordered_list_introduction",
+            "unordered_list_introduction",
             "nested_list_introduction",
             "adjacent_table_continuation",
+            "adjacent_sentence_continuation",
             "same_page_unique_note_marker"
           ]
         },

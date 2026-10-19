@@ -83,7 +83,7 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
         graph = build_graph(self.bundle, candidates)
         candidate_node = next(node for node in graph["nodes"] if node["id"] == candidate["id"])
         self.assertEqual(candidate_node["group"], "candidate")
-        self.assertEqual(candidate_node["meta"], "unclassified candidate claim · draft")
+        self.assertEqual(candidate_node["meta"], "candidate claim · status unavailable")
         edges = {(edge["source"], edge["target"], edge["evidence"]) for edge in graph["edges"]}
         self.assertIn((candidate["id"], chunk["id"], False), edges)
         self.assertIn((candidate["id"], chunk["evidence"][0]["element_id"], True), edges)

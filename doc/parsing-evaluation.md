@@ -1,8 +1,8 @@
 # Parsing evaluation
 
 Check normalized elements against Docling output/source-verified landmarks and
-validate bundles. Save findings in `parsing-evaluation-report.json`; pilot
-[manifest](../data/manifest.json).
+validate bundles against the configured [manifest](../data/manifest.json).
+Save findings in `parsing-evaluation-report.json`.
 
 ## Run
 
@@ -22,10 +22,9 @@ PARSED_DIR="artifacts/parsed-${RUN_ID}"
 | Omit `--output` | Print the report to stdout. |
 | `--additional-input-dir PATH` | Include subset reruns; select the newest valid outcome per manifest source. |
 | `--source-root PATH` | Resolve saved source paths against another root (default: repository root). |
-| `--reference PATH` | Opt into source-checked landmarks for the selected corpus; use `tests/fixtures/pilot_parsing_reference.json` for the pilot. |
+| `--reference PATH` | Opt into source-checked landmarks matching the selected corpus; omit when no matching fixture exists. |
 
-Write the report before exit: `0` pass, `1` fail. Record mixed runs; `report.json`
-aliases the latest parsing run while dated reports retain subsets.
+Write the report before exit: `0` pass, `1` fail. When combining runs, record the input directories and selected source outcomes.
 
 ## Checks and acceptance
 
@@ -36,8 +35,8 @@ coverage is claimed. Missing canonical text/
 figure images are errors. Unresolved flow means `partial`; documented graphics/
 OCR, furniture and uncertain labels may remain warnings on `parsed` outcomes.
 
-The pilot [reference fixture](../tests/fixtures/pilot_parsing_reference.json)
-contains draft source-checked locators, not expert-approved legal labels. Checks cover:
+Reference fixtures contain source-checked locators, not approved domain labels.
+Use only fixtures that match the selected source versions. Checks cover:
 
 - **Coverage:** substantive Docling text (at least five normalized words and 30
   alphanumeric characters), including picture-contained prose. Short picture text

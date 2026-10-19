@@ -7,13 +7,14 @@ curated topics or explicit null outcomes without changing candidate text or evid
 
 ## Normal case
 
-Load `OPENAI_API_KEY`; see [setup](ingestion.md). From the repository root, select
-reviewed chunks and fresh output directories. Run each command only after the
-previous one succeeds.
+Load `OPENAI_API_KEY`; see [setup](ingestion.md). From the repository root, replace
+the placeholders with a reviewed chunking run ID and a fresh claim run ID.
+Run each command only after the previous one succeeds.
 
 ```sh
-RUN_ID="$(TZ=Europe/Paris date +%Y%m%d-%H%M%S)"
-CHUNKED_DIR=artifacts/chunked-20261016-195407
+INPUT_RUN_ID="your-reviewed-chunking-run-id"
+RUN_ID="your-new-claim-run-id"
+CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
 CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${RUN_ID}"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
@@ -37,6 +38,7 @@ partial generation before making model calls. A complete subset is classifiable.
 Then invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer)
 with this `RUN_ID`: it initializes or reuses the review, inspects saved sources and
 runs final evaluation. For manual review commands, see [claim evaluation](claim-evaluation.md).
+Then create the [knowledge provenance graph](knowledge-provenance-graph.md) for inspection.
 
 Preparation can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,
@@ -147,9 +149,10 @@ splits. Completed checks can include an oversized cluster awaiting refinement.
 
 ## Structure, evidence and completeness
 
-Structural chunks join document-local fragments/context, list introductions,
-table continuations and same-page note hints. Heuristic links require source
-review; headings alone do not join chunks. Only identical evidence spans are
+Structural chunks join document-local fragments/context, numbered or bulleted
+list introductions, table continuations and same-page note hints. Adjacent incomplete
+sentences may join across a table boundary when same-page geometry supports continuity.
+Heuristic links require source review; headings alone do not join chunks. Only identical evidence spans are
 deduplicated; repeated wording at distinct locations remains.
 
 Semantic clusters can span documents. Each original/structural chunk belongs to
@@ -158,11 +161,17 @@ deterministic but order-sensitive. Similarity does not establish actor identity,
 agreement, legal scope or effective dates.
 
 Each generation request covers one cluster. Temporary E labels cite exact evidence;
-C labels identify non-citable context. The [response contract](../schemas/compilation-model-output-v2.json)
+C labels identify non-citable context. Independently citable passages always
+retain their E text; matching C context refers to that E passage, never the reverse.
+The [response contract](../schemas/compilation-model-output-v2.json)
 requires `claims` and one coverage disposition per E passage: `represented`,
 `non_substantive`, `insufficient_context` or `ambiguous`, with a reason. Runtime
 derives claim links from citations. Missing/duplicate E labels, unknown evidence
 and contradictory dispositions are rejected through bounded retries.
+
+An attempt such as `2/3` or `3/3` repeats the same work unit after a
+provider error or rejected response. Validation feedback can guide the next response.
+Retries add usage/cost; a successful retry still requires source review.
 
 `evidence-accounting.json` preserves exact references and candidate IDs; checkpoints,
 classification and evaluation validate its lineage. Accounting and citations do not
@@ -186,7 +195,9 @@ clusters. `usable_input_tokens` records the request cap;
 unknown costs stay null. Subset projections include whole-input embedding cost.
 
 Embedding caches require matching text/model/settings and validate hashes. Failed
-preparation leaves `failure.json`; rerun into fresh output with the same cache.
+preparation leaves `failure.json`; validate saved outputs before deciding whether
+a rebuild is needed. If rebuilding, use fresh output with the same cache. The cache
+can be regenerated; preserve the frozen preparation needed for generation and resume.
 Parser/chunker changes require new [parsing](parsing.md), [chunking](chunking.md),
 source reviews and downstream runs. Generation prompt/schema/request/budget changes
 require fresh preparation and generation; unchanged embeddings remain reusable.

@@ -21,8 +21,8 @@ Topics group claims across sources; claims retain passages and review status.
 | 7. Repeat builds | 3–5 | Cache/resume stages; invalidate affected chunks/claims/topics after source/settings changes. Test additions, updates, removals, conflicts and stale-artifact cleanup; retain prior editions. |
 
 Keep parser adapters small and parsed artifacts rebuildable. Compare alternatives
-when required formats expose limits. Pilot topics include beneficial ownership
-and ongoing vigilance; verify synthesis against full context.
+when required formats expose limits. Configure topics for the selected domain
+and verify synthesis against full context.
 
 **Milestone:** one reproducible command builds a traceable knowledge base from
 mixed documents and handles collection changes.

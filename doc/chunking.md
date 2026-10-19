@@ -16,7 +16,7 @@ CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 ```
 
 Defaults: `--input-dir artifacts/parsed`, `--output-dir artifacts/chunked`.
-`manifest_ids` resolves short IDs such as `A` through `data/manifest.json`. Supply
+`manifest_ids` resolves short source selectors through `data/manifest.json`. Supply
 exactly one parsed document/selected source, no extras; folders use document IDs
 without `doc:`. Missing sidecars, invalid schemas/links or missing/mismatched
 figure assets stop the build.
@@ -40,10 +40,10 @@ edition in `data/manifest.json`, then parse only that selector:
 
 ```sh
 .venv/bin/python scripts/parse.py \
-  --config config/pipeline.json --output-dir "$PARSED_DIR" --source A
+  --config config/pipeline.json --output-dir "$PARSED_DIR" --source MANIFEST_ID
 ```
 
-Only `A` is reparsed. Changed bytes create a **new** folder; after success, move
+Replace `MANIFEST_ID` with the selected source selector; only that source is reparsed. Changed bytes create a **new** folder; after success, move
 the old folder outside the active inputs:
 
 ```sh
@@ -63,7 +63,7 @@ reference fixtures only while their passages apply.
 
 ## Configuration and version IDs
 
-- `chunking.max_tokens` must be at least 32; the default/pilot value is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
+- `chunking.max_tokens` must be at least 32; the default is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
 - Build version `chunking-v1` and chunker version `structural-v4` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
 - Outputs have no timestamps; identical inputs and settings produce identical bytes.
 

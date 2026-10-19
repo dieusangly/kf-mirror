@@ -241,6 +241,13 @@ def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
             element = element_map[ref['element_id']]
             span = ref.get('span', {'start': 0, 'end': len(element['text'])})
             text_key = canonical({**ref, 'span': span})
+            # If this context has an independently citable exact counterpart,
+            # render the text at that E passage, even when C is encountered first.
+            # Never make an E label depend on a non-citable C label's text.
+            counterpart = labels.get(text_key)
+            if label.startswith('C') and counterpart is not None:
+                parts.append(f'[{label}] Contexte non citable. Voir [{counterpart}] (même passage source).')
+                continue
             if text_key in emitted:
                 parts.append(f'[{label}] Voir [{emitted[text_key]}] (même passage source).')
             else:

@@ -354,7 +354,9 @@ class CompilationTests(unittest.TestCase):
         expected = elements[ref["element_id"]]["text"][ref["span"]["start"]:ref["span"]["end"]]
         self.assertNotIn('text', payload['eligible_evidence'][0])
         self.assertEqual(payload['structural_chunks'][0]['text'].count(expected), 1)
-        self.assertIn('[E1] Voir [C1]', payload['structural_chunks'][0]['text'])
+        self.assertIn('[C1] Contexte non citable. Voir [E1]', payload['structural_chunks'][0]['text'])
+        self.assertIn('[E1]\n' + expected, payload['structural_chunks'][0]['text'])
+        self.assertNotIn('[E1] Voir [C1]', payload['structural_chunks'][0]['text'])
         self.assertNotIn(chunk['text'], payload['structural_chunks'][0]['text'])
         record = _candidate_record("build:test", {"text": "Assertion.", "evidence": ["E1"]},
                                    {"method": "manual", "version": "test"}, choices)

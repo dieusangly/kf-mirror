@@ -7,14 +7,16 @@ After [generation/classification](claim-generation-and-classification.md), selec
 the repository root; set directories separately if stage run IDs differ:
 
 ```sh
-RUN_ID="your-claim-run-id"
+RUN_ID="your-completed-run-id"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 ```
 
-For the saved subset, use `RUN_ID=20261016-subset`; the full run uses
-`RUN_ID=20261016-full-01`. Structural chunks and semantic clusters are shared from
-`artifacts/structural-chunks-and-semantic-clusters-20261016`.
+Replace the placeholder with the completed run's ID. Prepared generation runs
+include their frozen structural/semantic context in `CANDIDATES_DIR/preparation`.
+Evaluation uses the selected candidate/classification folders and saved original
+sources; it does not need superseded claim runs or the original context-build
+folder. Keep the latest review and evaluation report with their classified run.
 
 ## One agent-review task
 
@@ -29,7 +31,7 @@ To invoke the reviewer by path without copying the full prompt, send the agent:
 ```text
 Read AGENTS.md and .agents/AGENTS.md, then follow
 src/knowledge_foundry/prompts/agent_prompt_claim_reviewer
-for RUN_ID="your-run-id".
+for RUN_ID="your-completed-run-id".
 
 Complete initialization/reuse, source review, and final evaluation.
 Preserve existing review judgments and report the final results.

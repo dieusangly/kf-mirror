@@ -5,9 +5,8 @@ Evaluation leaves inputs unchanged and makes no legal judgment.
 
 ## Build and review sessions
 
-Complete parsing and chunking first. Optionally use
-`scripts/run_parsing_chunking_auto_eval.sh` in the build session: it parses,
-evaluates parsing, chunks, initialises evaluation and prints the run ID.
+Complete [parsing](parsing.md), [parsing evaluation](parsing-evaluation.md) and
+[chunking](chunking.md) first, using their individual commands in the build session.
 
 For an agent, invoke the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer)
 with the completed run ID. It handles initialization (or validation/reuse of an
@@ -27,8 +26,8 @@ Use the manual steps below for human review or explicit CLI control.
 
 ## Initialise evaluation manually
 
-Skip if the build script created the report/review. From the repository root,
-select matching saved runs; set directories separately if IDs differ:
+Skip if a review already exists; validate and reuse it instead. From the repository
+root, select matching saved runs; set directories separately if IDs differ:
 
 ```sh
 RUN_ID="your-build-run-id"
@@ -53,7 +52,7 @@ Optional arguments apply to both evaluation steps:
 
 | Argument | Use |
 | --- | --- |
-| `--reference-fixture PATH` | Check source-verified passages. For the pilot, use `tests/fixtures/pilot_parsing_reference.json`; omit for sources without a fixture. Use the same selection in both steps. |
+| `--reference-fixture PATH` | Check source-verified passages. Use a fixture matching the selected sources and versions; omit when none exists. Use the same selection in both steps. |
 | `--sample-per-document N` | Override `evaluation.chunking.sample_per_document` in `config/pipeline.json` (default: 12). |
 | `--review-policy PATH` | Override `config/review-policy.json`; selects subject `chunking`. |
 | `--output PATH` | Choose another report location. |
@@ -68,8 +67,7 @@ corpus needs matching manifest, parse and chunk artifacts.
 Checks cover schemas/links, matching sources, ordered authoritative-text coverage,
 exact spans, token/section/list/table boundaries, figures and document views.
 Auxiliary/structural text cannot become independent evidence. Reference fixtures
-check passages/pages; the pilot’s eight passages are draft source-checked locators,
-not approved legal labels.
+check source-specific passages/pages; they are not approved domain labels.
 
 Findings have codes/counts and ≤5 examples; metrics cover sizes, split tables/lists
 and corpus totals. Reports are deterministic. Passing does not establish standalone

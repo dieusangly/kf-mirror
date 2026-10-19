@@ -109,3 +109,25 @@ def table_text_groups(box, characters):
         group['text'] = ''.join(c['text'] for c in characters if c['index'] in indices or
                                first <= c['index'] <= last and not c['text'].strip())
     return groups
+
+
+def restore_numeric_identifiers(text, box, characters):
+    """Restore separators dropped by extraction only when local glyphs prove them.
+
+    Do not guess a separator from a digit pattern, another block, or an ambiguous
+    pair of source identifiers with the same concatenated digits.
+    """
+    if not box or not characters:
+        return text
+    local = ''.join(c['text'] for c in characters
+                    if box[0] - 1 <= (c['bbox'][0] + c['bbox'][2]) / 2 <= box[2] + 1
+                    and box[1] - 1 <= (c['bbox'][1] + c['bbox'][3]) / 2 <= box[3] + 1)
+    candidates = defaultdict(set)
+    for match in re.finditer(r'(?<!\w)\d+(?:[-‐‑]\s*\d+)+(?!\w)', local):
+        value = re.sub(r'\s+', '', match[0])
+        candidates[re.sub(r'[-‐‑]', '', value)].add(value)
+    for compact, values in candidates.items():
+        if len(values) == 1:
+            text = re.sub(r'(?<![\w-])' + re.escape(compact) + r'(?![\w-])',
+                          lambda _: next(iter(values)), text)
+    return text

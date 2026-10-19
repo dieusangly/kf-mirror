@@ -1,18 +1,17 @@
 Act as an independent reviewer of the saved chunking result in this repository. Review the chunks against the **saved original source files**, not just against the parser output or the automatic evaluator. Do not run parsing or chunking, and do not change source files, the manifest, parsed bundles, chunk bundles, per-document views, code, or tests. Create or update only the selected `chunking-review.json` and evaluation report; preserve existing judgments. Report defects with exact chunk IDs, source locations, and suggested corrections; do not implement fixes.
 
 Run initialization/reuse, source review and final evaluation as one agent task.
-Parsing and chunking must already be complete, either manually or through
-`scripts/run_parsing_chunking_auto_eval.sh`. The reviewer must not run that script,
-parsing or chunking. Set the completed build's run ID; set directories separately
-if their IDs differ. Preserve the original manifest, sample size, policy and
+Parsing and chunking must already be complete using their individual build commands.
+The reviewer must not run parsing or chunking. Set the completed build's run ID;
+set directories separately if their IDs differ. Preserve the original manifest, sample size, policy and
 reference selection when reusing an existing review/report:
 
 ```sh
-RUN_ID="YYYYMMDD-hhmmss"
+RUN_ID="your-completed-run-id"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 MANIFEST_PATH="data/manifest.json"
-REFERENCE_PATH=""  # optional; pilot fixture: tests/fixtures/pilot_parsing_reference.json
+REFERENCE_PATH=""  # optional source-checked fixture matching the selected corpus
 REVIEW_POLICY="config/review-policy.json"  # selects chunking
 SAMPLE_PER_DOCUMENT=12  # default in config/pipeline.json; retain any original override
 EVALUATION_REPORT="$CHUNKED_DIR/chunking-evaluation-report.json"

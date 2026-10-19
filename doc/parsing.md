@@ -31,8 +31,9 @@ PARSED_DIR="artifacts/parsed-${RUN_ID}"
 ```
 
 `--config` is required; output defaults to `artifacts/parsed`. `manifest_ids`
-selects/orders sources; add `--source A --source L1` for a subset in a fresh
-directory. Progress/time go to stderr, JSON to stdout.
+selects/orders sources; add `--source MANIFEST_ID` for a subset in a fresh directory.
+Replace `MANIFEST_ID` with a configured source selector; repeat the option for more
+sources. Progress/time go to stderr, JSON to stdout.
 
 Continue after failures. Exits: `0` all parsed, `1` any failed/partial, `2` invalid
 config/manifest. Missing OCR dependencies fail only affected PDFs.
@@ -46,7 +47,7 @@ Set `parsing` in [config/pipeline.json](../config/pipeline.json). Defaults are:
 
 - **PDF:** Docling `docling_parse`, table recognition on, `accurate` mode, `artifacts_path: null`.
 - **OCR:** Tesseract `mode: auto`, `languages: ["fra", "eng"]`, `scale: 3.0`, `psm: 3`, `tesseract_cmd: "tesseract"`, `tessdata_path: null`. `auto` OCRs raster regions; `force` OCRs full pages; `off` disables OCR.
-- **HTML:** `content_selector: "main"`; the pilot overrides this for Légifrance. Per-source overrides may set `content_selector` or `article_id`. A selector must match exactly one element.
+- **HTML:** `content_selector: "main"`. Per-source overrides may set `content_selector` or `article_id`. A selector must match exactly one element.
 - **Markdown / DOCX:** Pipe tables enabled; DOCX headers and footers excluded.
 
 ## Read the output
@@ -89,11 +90,13 @@ references. No cross-page note attachment is inferred.
 
 Table repairs use PDF glyph positions rather than language-specific header words.
 Wrapped header lines stay together; merged vertical labels and repeated markers
-are separated only when the text and geometry agree. Row spans retain their
-governing cell text. Unresolved marker alignment produces
+are separated only when the text and geometry agree. Marker rows are reassigned
+only when glyph positions uniquely identify the row.
+Row spans retain their governing cell text. Unresolved marker alignment produces
 `table_cell_alignment_uncertain` and requires source inspection; OCR-only tables
 do not gain invented coordinates. The sidecar records `adapter_version`.
 
+Numeric identifiers retain separators when local PDF glyphs prove their presence.
 Cleanup removes control characters and joins layout-hyphenated words. Exclude running
 headers, sparse furniture, figure labels and filename-only notes as authoritative
 prose. Warnings locate graphics, corrupt OCR, furniture, uncertain labels and
@@ -107,5 +110,5 @@ before chunking a revised edition.
 
 `partial` PDFs may lack page provenance/crops or contain unresolved text/multi-page
 tables. DOCX tracked changes/page numbers are unsupported. Figures preserve layout,
-not relationships; Docling may omit element-level OCR origins. The pilot lacks a
-real scan; see [evaluation](parsing-evaluation.md).
+not relationships; Docling may omit element-level OCR origins. Validate OCR on
+representative scans; see [evaluation](parsing-evaluation.md).

@@ -21,7 +21,7 @@ without package installation; dependencies include validation’s `jsonschema`.
 
 In [config/pipeline.json](../config/pipeline.json), `root` is relative to the
 configuration file; `manifest_file` and source `local_path` values are relative
-to `root`. `manifest_ids` selects/orders short source IDs, such as `["A", "T"]`.
+to `root`. `manifest_ids` selects/orders the short IDs defined in the manifest.
 
 [Manifest entries](../data/manifest.json) hold short `manifest_id`, stable `source_id`,
 title, class, publisher version and file metadata. Retain `source_id` across
@@ -35,6 +35,9 @@ v1.0.0 source/document records; failures contain an error and no document.
 document records. A read file with a mismatching hash also reports the manifest
 hash as `error.expected_sha256`, even when size mismatch was reported first;
 matching hashes omit this field.
+
+Embedding, generation and classification commands also require `OPENAI_API_KEY`
+in the environment.
 
 This inventory is not an artifact bundle. Continue with [parsing](parsing.md).
 For development, run the tests and artifact validator:

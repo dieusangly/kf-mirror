@@ -63,6 +63,31 @@ class ClaimContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already exists'):
             prepare_claim_context(self.chunked, directory, self.config)
 
+    def test_preparation_round_trips_bulleted_lists_and_box_continuations_through_schema(self):
+        from test_compilation_context import CompilationContextTests
+        from jsonschema import Draft202012Validator, ValidationError
+
+        bundle = CompilationContextTests().bundle([
+            ('paragraph', 'Operators must perform these checks:', 1),
+            ('list_item', '- Inspect the sensor.', 1),
+            ('table', 'Requirement | Operators must retain the', 2),
+            ('paragraph', 'calibration record.', 2)], [[0], [1], [2], [3]])
+        bundle['elements'][2]['location']['bbox'] = [40, 40, 400, 150]
+        bundle['elements'][3]['location']['bbox'] = [40, 155, 395, 165]
+        (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
+        # Exercise serialization and the same post-build loader that rejected
+        # real outputs, rather than checking assembler output in isolation.
+        directory = prepare_fixture(self.chunked, self.config)
+        prepared = load_preparation(directory)
+        links = [json.loads(line) for line in (directory / 'structural-links.jsonl').read_text().splitlines()]
+        self.assertEqual({link['reason'] for link in links},
+                         {'unordered_list_introduction', 'adjacent_sentence_continuation'})
+        self.assertEqual(len(prepared['structural_chunks']), 2)
+        schema = json.loads((ROOT / 'schemas/claim-context-artifact-schema-v1.json').read_text())
+        validator = Draft202012Validator(schema['$defs']['structural_link'])
+        with self.assertRaises(ValidationError):
+            validator.validate({**links[0], 'reason': 'unknown_link_reason'})
+
     def test_progress_announces_assembly_then_completed_generation_budget_checks(self):
         bundle = json.loads((self.chunked / 'artifact-bundle.json').read_text())
         records, _ = assemble_structural_chunks(bundle)

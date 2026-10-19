@@ -94,14 +94,44 @@ def assemble_structural_chunks(bundle):
     for i, intro in enumerate(flow):
         if intro['kind'] not in {'paragraph', 'list_item'} or not intro['text'].rstrip().endswith(':'):
             continue
+        family = None
         for item in flow[i + 1:]:
-            if item['document_id'] != intro['document_id'] or item['location'].get('article_id') != intro['location'].get('article_id') or item['kind'] != 'list_item' or not re.match(
-                    r'^[a-z][.)]\s', item['text'], re.I):
+            marker = re.match(r'^\s*(?:([-–—•▪*])|([\w]+)[.)°])\s+', item['text'])
+            item_family = ('bullet' if marker and marker[1] else
+                           'number' if marker and marker[2].isdigit() else 'letter')
+            a, b = intro['location'], item['location']
+            if (item['document_id'] != intro['document_id'] or b.get('article_id') != a.get('article_id')
+                    or item['kind'] != 'list_item' or marker is None
+                    or (family is not None and family != item_family)
+                    or (a.get('bbox') and b.get('bbox') and b['bbox'][0] < a['bbox'][0] - 2)):
                 break
-            link_elements(intro['id'], item['id'], 'ordered_list_introduction')
+            family = item_family
+            link_elements(intro['id'], item['id'],
+                          'unordered_list_introduction' if family == 'bullet' else 'ordered_list_introduction')
             if i and flow[i - 1]['document_id'] == intro['document_id'] and \
                     flow[i - 1]['kind'] == 'list_item' and flow[i - 1]['text'].rstrip().endswith(':'):
                 link_elements(flow[i - 1]['id'], intro['id'], 'nested_list_introduction')
+    # A sentence can be split between a table/box and a body-text block on the
+    # same page. Require adjacent source flow, unfinished syntax and matching
+    # geometry; never join across a heading or figure just because wording fits.
+    continuation_flow = sorted((e for e in bundle['elements'] if e['kind'] not in {'footnote', 'table_cell'}),
+                               key=lambda e: (e['document_id'], e['ordinal'], e['id']))
+    for previous, current in zip(continuation_flow, continuation_flow[1:]):
+        a, b = previous['location'], current['location']
+        left, right = previous['text'].rstrip(), current['text'].lstrip()
+        if (previous['document_id'] != current['document_id'] or previous['kind'] not in {'paragraph', 'table'}
+                or current['kind'] != 'paragraph' or a['format'] != 'pdf' or b['format'] != 'pdf'
+                or a['page'] != b['page'] or not a.get('bbox') or not b.get('bbox')
+                or not left or left.endswith(('.', ';', ':', '!', '?', '…')) or not right or not right[0].islower()):
+            continue
+        ab, bb = a['bbox'], b['bbox']
+        # A table's enclosing box may include border/padding below its last text
+        # cell. Allow a continuation line to overlap that edge, but not to sit
+        # wholly inside the table or overlap an ordinary prose block.
+        minimum_gap = -(bb[3] - bb[1]) if previous['kind'] == 'table' and bb[3] >= ab[3] else 0
+        if (ab[0] - 2 <= bb[0] < bb[2] <= ab[2] + 2
+                and minimum_gap <= bb[1] - ab[3] <= max(12, (bb[3] - bb[1]) * 1.5)):
+            link_elements(previous['id'], current['id'], 'adjacent_sentence_continuation')
     for previous, current in zip(flow, flow[1:]):
         a, b = previous['location'], current['location']
         if previous['kind'] != 'table' or current['kind'] != 'table' or \
