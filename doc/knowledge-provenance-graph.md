@@ -21,8 +21,9 @@ or choose a new output name to preserve it. No model calls or claim artifact edi
 
 Add `--summary-dir "artifacts/summaries-${RUN_ID}"` to include the independent
 [summary branch](summaries.md). It verifies and loads the frozen summary run and
-its preparation. The summary and claim preparations must match when both are
-provided. To view summaries before any claims exist, use the summary run's
+its structural chunk and semantic cluster build outputs. When both branches
+are provided, their structural chunks and semantic clusters must match.
+To view summaries before any claims exist, use the summary run's
 `preparation/artifact-bundle.json` as `--bundle`, pass `--summary-dir`, and omit
 `--claim-generation-dir`. Original bundle records must match the summary inputs.
 

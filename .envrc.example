@@ -2,6 +2,5 @@
 # Model calls:
 export OPENAI_API_KEY="replace-with-your-openai-api-key"
 
-# Local PostgreSQL (the password must match the URL):
-export POSTGRES_PASSWORD="replace-with-a-local-password"
-export KF_DATABASE_URL="postgresql://knowledge_foundry:replace-with-a-local-password@127.0.0.1:55432/knowledge_foundry"
+# Existing PostgreSQL with pgvector installed:
+export KF_DATABASE_URL="postgresql://knowledge_foundry:replace-with-a-local-password@127.0.0.1:5432/knowledge_foundry"

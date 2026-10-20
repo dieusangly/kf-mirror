@@ -157,7 +157,8 @@ parsing or retrieval quality.
 
 [Structural chunks and semantic clusters build manifest v2](../schemas/claim-context-artifact-schema-v2.json) is separate
 from the canonical chunk, candidate claim and claim schemas. It pins the original bundle,
-configuration, prompt/schema assumptions and exact semantic cluster plan.
+configuration, prompt/schema assumptions and exact semantic cluster plan. Live split
+configs are resolved before freezing; saved artifacts need no external config files.
 
 | File | Purpose |
 | --- | --- |
@@ -179,9 +180,10 @@ tree represents a section spanning many structural chunks without merging it.
 See the [INTRODUCTION/paragraph 7 example](chunking.md#structural-assembly-after-original-chunking).
 
 The [v1 manifest schema](../schemas/claim-context-artifact-schema-v1.json) and
-frozen v1/v2 assembly remain supported for reading existing preparations and claim
-lineage. New builds require `structural-chunks-v3` and manifest v2; migrate by
-creating a fresh preparation, optionally passing matching `--parsed-dir` sidecars
+frozen v1/v2 assembly remain supported for reading existing structural chunks,
+semantic clusters and claim lineage. New builds require `structural-chunks-v3`
+and manifest v2; migrate by creating a fresh build, optionally passing matching
+`--parsed-dir` sidecars
 for old chunking runs. Original bundle/chunk IDs and claim/candidate schemas do
 not change. Changed derived memberships require fresh downstream claim runs.
 
@@ -192,7 +194,8 @@ source evidence. IDs include content and generation identity; `review_status`
 does not affect identity. Summary evidence is inherited provenance, separate from
 verified claim grounding. See [summary artifacts and levels](summaries.md).
 
-Generation copies the frozen build and saves the candidate-claim-to-cluster mapping
-in `candidate-clusters.json`, preserving canonical evidence and original chunk IDs. Evidence
-spans use zero-based character offsets: start inclusive, end exclusive. See
+Generation copies the frozen structural chunk and semantic cluster build outputs
+and saves candidate-to-cluster links in `candidate-clusters.json`, preserving canonical evidence
+and original chunk IDs. Evidence spans use zero-based character offsets:
+start inclusive, end exclusive. See
 [claim generation and classification](claim-generation-and-classification.md) for cache keys, compatibility and resume rules.

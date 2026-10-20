@@ -17,6 +17,58 @@ from knowledge_foundry.document_structure import (assemble_document_hierarchy, s
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def load_settings(path):
+    """Resolve live split configs; frozen artifacts keep self-contained settings."""
+    path = Path(path).resolve()
+    value = _json(path)
+    build_steps = {'structural_chunks', 'embeddings', 'semantic_clusters'}
+    claim_steps = {'claim_generation', 'topic_classification'}
+
+    def reference(parent, value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('configuration reference must be a nonempty path')
+        target = (parent.parent / value).resolve()
+        if not target.is_file():
+            raise ValueError('referenced configuration does not exist: ' + str(target))
+        return target
+
+    # Existing combined live configs and offline fixtures remain supported.
+    if isinstance(value, dict) and {'request_sizing', 'structural_build_config'}.isdisjoint(value):
+        validate_settings(value)
+        return value
+    if not isinstance(value, dict):
+        raise ValueError('configuration must be an object')
+    if 'request_sizing' in value:
+        build, build_path = value, path
+        sizing = build.get('request_sizing')
+        if not isinstance(sizing, dict) or set(sizing) != {'claim_config'}:
+            raise ValueError('request_sizing must explicitly select claim_config')
+        claim_path = reference(build_path, sizing['claim_config'])
+        claim = _json(claim_path)
+    else:
+        claim, claim_path = value, path
+        build_path = reference(claim_path, claim.get('structural_build_config'))
+        build = _json(build_path)
+    if not isinstance(claim, dict) or set(claim) != {
+            'pipeline_version', 'steps', 'pricing', 'structural_build_config'}:
+        raise ValueError('invalid split claim configuration shape')
+    if not isinstance(build, dict) or set(build) != {'steps', 'request_sizing'}:
+        raise ValueError('invalid structural chunk and semantic cluster build configuration shape')
+    sizing = build['request_sizing']
+    if not isinstance(sizing, dict) or set(sizing) != {'claim_config'}:
+        raise ValueError('request_sizing must explicitly select claim_config')
+    if reference(claim_path, claim['structural_build_config']) != build_path or \
+            reference(build_path, sizing['claim_config']) != claim_path:
+        raise ValueError('build and request-sizing configurations must reference each other')
+    if not isinstance(build['steps'], dict) or set(build['steps']) != build_steps or \
+            not isinstance(claim['steps'], dict) or set(claim['steps']) != claim_steps:
+        raise ValueError('split configurations must own their respective steps without overlap')
+    resolved = {'pipeline_version': claim['pipeline_version'],
+                'steps': {**build['steps'], **claim['steps']}, 'pricing': claim['pricing']}
+    validate_settings(resolved)
+    return resolved
+
+
 def execution_settings(config, stage='claim_generation'):
     """Only output-affecting settings participate in execution/cache identity."""
     names = ('topic_classification',) if stage == 'topic_classification' else (
@@ -201,7 +253,7 @@ def request_for_members(members, structural, bundle, config, prompt, schema):
     return generation_payload(config, text, prompt, schema), ids
 
 
-def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/claim-generation-and-classification.json',
+def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/structural-chunks-and-semantic-clusters.json',
                           cache_dir=None, fixture_path=None, on_progress=None, parsed_dir=None):
     from knowledge_foundry.claim_generation_and_classification import _config, _prompt, CANDIDATE_SCHEMA
     from scripts.validate_artifact_examples import check

@@ -13,7 +13,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--chunked-dir', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--config', type=Path, default=ROOT / 'config/claim-generation-and-classification.json')
+    parser.add_argument('--config', type=Path, default=ROOT / 'config/structural-chunks-and-semantic-clusters.json',
+                        help='build settings, with an explicit claim request-sizing configuration reference')
     parser.add_argument('--cache-dir', type=Path)
     parser.add_argument('--fixture', type=Path, help='offline embedding vectors keyed by exact-text hash')
     parser.add_argument('--parsed-dir', type=Path, help='matching saved parsing run for legacy chunks without document-structure.json')

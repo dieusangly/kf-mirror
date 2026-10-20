@@ -95,7 +95,7 @@ Chunking does not resolve parser OCR/layout warnings. Heading context appears as
 
 ## Structural assembly after original chunking
 
-The structural/semantic preparation command in [claim generation](claim-generation-and-classification.md)
+The [structural chunk and semantic cluster build command](structural-chunks-and-semantic-clusters.md)
 reads the original bundle and `document-structure.json`. It saves
 `document-hierarchy.json`: one record per element with `element_id`,
 `parent_element_id` (nullable), `role` and `basis`. Parents precede their children

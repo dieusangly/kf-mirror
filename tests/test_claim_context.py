@@ -7,12 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from knowledge_foundry.claim_generation_and_classification import generate_claims as generate_prepared, ROOT
-from knowledge_foundry.claim_context import prepare_claim_context, load_preparation
+from knowledge_foundry.claim_context import prepare_claim_context, load_preparation, load_settings
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 
 
 def fixture_settings():
-    config = json.loads((ROOT / 'config/claim-generation-and-classification.json').read_text())
+    config = load_settings(ROOT / 'config/claim-generation-and-classification.json')
     config['steps']['claim_generation']['provider'] = 'fixture'
     config['steps']['topic_classification']['provider'] = 'fixture'
     config['pricing']['providers']['fixture'] = copy.deepcopy(config['pricing']['providers']['openai'])

@@ -76,13 +76,16 @@ Repeat this review when the original build changes; reuse its valid pass otherwi
 
 ## 4. Structural chunks and semantic clusters
 
+See [structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md) for settings,
+artifacts and rebuild rules. Both claims and summaries consume this output.
+
 ```sh
 .venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
   --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" \
   --output-dir "$CONTEXT_DIR" --cache-dir artifacts/embeddings-and-token-counts
 ```
 
-**Gate:** exit 0 and complete, validated preparation. The command checks hierarchy,
+**Gate:** exit 0 and complete, validated build. The command checks hierarchy,
 lineage, unique membership and request budgets. Oversized semantic clusters are
 partitioned without splitting structural chunks or truncating evidence.
 There is no separate structural agent-review stage. Both output branches start here.
@@ -145,4 +148,4 @@ Do not edit frozen artifacts or thresholds to manufacture a pass.
 
 Interrupted claims/classification support `--resume`; finalized partial generation
 uses `--retry-failed-from` into a fresh directory. See [claim reruns](claim-generation-and-classification.md).
-Preparation and summaries need fresh output directories; retain their caches.
+The build and summaries need fresh output directories; retain their caches.

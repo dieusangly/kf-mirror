@@ -14,9 +14,9 @@ from jsonschema import Draft202012Validator, ValidationError
 from knowledge_foundry.claim_context import (
     execution_settings,
     load_preparation,
+    load_settings,
     pricing_for_step,
     request_for_members,
-    validate_settings,
 )
 from knowledge_foundry.evidence import claim_evidence_references
 from knowledge_foundry.generation_context import RequestCounter, footnote_links, generation_payload
@@ -103,9 +103,7 @@ def _prompt(name):
 
 
 def _config(path):
-    value = _read_json(path)
-    validate_settings(value)
-    return value
+    return load_settings(path)
 
 
 def _taxonomy(path):

@@ -2,7 +2,12 @@
 
 The assistant consumes validated, frozen artifacts. It uses Haystack, PostgreSQL
 with pgvector, and Streamlit. Run commands from the repository root with Python
-3.11+ (tested on 3.12), Docker Compose v2, one `.venv` and one `.envrc`.
+3.11+ (tested on 3.12), one `.venv` and one `.envrc`.
+
+Use a running PostgreSQL server with pgvector installed. Create a database and
+role, then set `KF_DATABASE_URL` in `.envrc` to their connection URL. The role
+needs permission to create tables in that database. An administrator must enable
+`CREATE EXTENSION IF NOT EXISTS vector;` there, or allow the migration role to do so.
 
 ## Start locally
 
@@ -12,7 +17,6 @@ test -d .venv || python3.12 -m venv .venv
 test -f .envrc || cp .envrc.example .envrc
 # Set local values in .envrc; URL-encode special characters in the database URL.
 source .envrc
-docker compose -p knowledge-foundry-rag -f deploy/compose.yaml up -d --wait
 .venv/bin/python scripts/index_artifacts.py migrate
 .venv/bin/python scripts/index_artifacts.py import --corpus aml-cft-pilot --run 20261019
 # Replace the ID below with snapshot_id from the import output.
@@ -25,9 +29,7 @@ excerpts without API calls. Vector queries, new embeddings and generated answers
 require `OPENAI_API_KEY`. `.envrc` is ignored by Git; direnv users can load it with
 `direnv allow`.
 
-PostgreSQL data stays in a Docker volume. Use the same Compose project name and
-`stop` to retain it. Keep the matching database credentials: changing
-`POSTGRES_PASSWORD` does not update an existing database. `down -v` deletes data.
+Database installation, storage and backups are managed separately from this repository.
 
 ## Import and query
 
@@ -40,8 +42,8 @@ PostgreSQL data stays in a Docker volume. Use the same Compose project name and
 ```
 
 - `config/retrieval-corpora.json` selects saved runs, questions and graph links.
-  The pilot uses the preparation frozen in `generated-claims-20261019/preparation`,
-  matching both optional branches. Claims and summaries are not required.
+  The pilot uses the structural chunk and semantic cluster build outputs frozen
+  in `generated-claims-20261019/preparation`, matching both optional branches. Claims and summaries are not required.
 - `--build-id` selects a chunk build. `--snapshot-id` pins a published snapshot;
   otherwise each request pins the active one. Repeat `--source-id` or
   `--document-id` to filter queries.
@@ -97,8 +99,8 @@ versioned migrations. The chat app and CLIs call `DocumentAssistant`.
 ```sh
 export KF_TEST_DATABASE_URL="$KF_DATABASE_URL"
 PYTHONPATH=src:.:tests .venv/bin/python -m pytest tests -q
-.venv/bin/python scripts/evaluate_retrieval.py --corpus aml-cft-pilot --cases config/retrieval-pilot-smoke.json --output artifacts/retrieval-evaluation/passage-smoke.json
-.venv/bin/python scripts/evaluate_retrieval.py --corpus aml-cft-pilot --cases config/retrieval-pilot-smoke.json --methods keyword --modes claim summary --output artifacts/retrieval-evaluation/navigation-smoke.json
+.venv/bin/python scripts/evaluate_retrieval.py --corpus aml-cft-pilot --cases tests/fixtures/retrieval-pilot-smoke.json --output artifacts/retrieval-evaluation/passage-smoke.json
+.venv/bin/python scripts/evaluate_retrieval.py --corpus aml-cft-pilot --cases tests/fixtures/retrieval-pilot-smoke.json --methods keyword --modes claim summary --output artifacts/retrieval-evaluation/navigation-smoke.json
 ```
 
 Model tests use deterministic fixtures. Database tests create disposable schemas
@@ -109,7 +111,7 @@ unset. See [results and limitations](retrieval-rag-evaluation.md).
 
 | Problem | Action |
 | --- | --- |
-| Database unavailable | Start Compose, check its health, then run migrations. |
+| Database unavailable | Check PostgreSQL, `KF_DATABASE_URL` and pgvector, then run migrations. |
 | Artifact hash/lineage mismatch | Select compatible frozen branches; validation can take several minutes. |
 | No published snapshot | Import, inspect the result, then publish its ID. |
 | Missing/incompatible vectors | Use keyword search, match the embedding profile, or explicitly embed missing records. |

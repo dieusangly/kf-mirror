@@ -19,9 +19,9 @@ Saved source
         |→ level-one summaries → clusters of summaries → higher-level summaries ↻
 ```
 
-Original chunks remain immutable. Structural preparation preserves hierarchy
-across focused chunks and bounds clusters to request budgets. Claims and summaries
-are independent outputs; higher-level summaries recursively combine earlier ones.
+Original chunks remain immutable. The structural chunk and semantic cluster build
+preserves hierarchy across focused chunks and bounds clusters to request budgets.
+Claims and summaries are independent outputs; higher-level summaries combine earlier ones.
 Both retain provenance, while claims also follow grounding/classification review.
 
 | Task | Working days | Deliverable / completion criteria |
@@ -31,7 +31,7 @@ Both retain provenance, while claims also follow grounding/classification review
 | 3. Ingestion | 2–3 | Package, config and CLI; inventory files, detect formats, hash bytes and record every source outcome. |
 | 4. Parsing/normalization | 4–7 | Existing parser for PDF/Markdown/HTML/DOCX and tested OCR scans; preserve hierarchy, tables, available locations and metadata origins; measure reference fidelity. |
 | 5. Cleanup/chunking | 3–5 | Conservative cleanup/exact deduplication; focused original chunks with tables, parent context, token limits and resolvable evidence. |
-| 6. Structural preparation and semantic clustering | 2–4 | Explicit section/list hierarchy across chunks, bounded structural assembly and conservative links. Cache embeddings, cluster by all-member similarity and partition oversized requests; preserve immutable originals and exact lineage. |
+| 6. Structural chunk and semantic cluster build | 2–4 | Explicit section/list hierarchy across chunks, bounded structural assembly and conservative links. Cache embeddings, cluster by all-member similarity and partition oversized requests; preserve immutable originals and exact lineage. |
 | 7. Claim generation, classification and export | 4–7 | Evidence-linked candidate claims and LLM topic/null classification across documents. Separate versions and grounding/classification reviews; export JSON/JSONL, topic views and manifests with validated links. |
 | 8. Recursive summaries | 2–4 | Summarize each semantic cluster independently of claims, then cluster/summarize earlier summaries within similarity, member, token and level limits. Export stable IDs, transitive provenance, draft status and model/runtime metadata. |
 | 9. Repeat builds | 3–5 | Cache/resume stages; invalidate affected chunks, clusters, claims, summaries and topics after source/settings changes. Test additions, updates, removals, conflicts and stale-artifact cleanup; retain prior editions. |
@@ -77,7 +77,8 @@ scope and measured limits.
 ## Dependencies and execution
 
 - Define scope/schemas before shared interfaces; ingest/parse and chunk before
-  structural preparation. Claims and summaries then run independently from clusters.
+  the structural chunk and semantic cluster build. Claims and summaries then run
+  independently from clusters.
 - Validate the chosen inputs before downstream use. Retrieval, graph and dataset
   views can use passages, claims or summaries independently, or combine them.
 - Give agents bounded tasks and acceptance criteria; parallelize adapters/exporters

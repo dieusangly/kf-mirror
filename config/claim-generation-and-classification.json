@@ -1,28 +1,6 @@
 {
   "pipeline_version": "compilation-v13",
   "steps": {
-    "structural_chunks": {
-      "version": "structural-chunks-v3"
-    },
-    "embeddings": {
-      "provider": "openai",
-      "model": "text-embedding-3-small",
-      "dimensions": 1536,
-      "expected_dimensions": 1536,
-      "tokenizer": "cl100k_base",
-      "max_input_tokens": 8192,
-      "max_request_inputs": 32,
-      "max_request_tokens": 32000,
-      "timeout_seconds": 90,
-      "retries": 2,
-      "preprocessing_version": "structural-evidence-text-v1"
-    },
-    "semantic_clusters": {
-      "version": "all-members-v1",
-      "minimum_similarity": 0.8,
-      "refinement_step": 0.05,
-      "max_refinements": 4
-    },
     "claim_generation": {
       "version": "claim-generation-v13",
       "provider": "openai",
@@ -94,5 +72,6 @@
         }
       }
     }
-  }
+  },
+  "structural_build_config": "structural-chunks-and-semantic-clusters.json"
 }

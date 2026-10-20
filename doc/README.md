@@ -15,9 +15,10 @@ agent reviews, pass gates and safe reruns.
 | 8. Parsing evaluation | [Parsing evaluation](parsing-evaluation.md) | Checks and acceptance. |
 | 9. Chunking | [Chunking](chunking.md) | CLI, evidence rules, outputs. |
 | 10. Chunk evaluation | [Chunking evaluation](chunking-evaluation.md) | Automatic checks and source review. |
-| 11. Claim generation and classification | [Claim generation and classification](claim-generation-and-classification.md) | Structural chunks, semantic clusters, models, CLI, review and exports. |
-| 12. Claim evaluation | [Claim evaluation](claim-evaluation.md) | Review and acceptance. |
-| 13. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |
-| 14. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
-| 15. Downstream uses | [Claims versus summaries](downstream-uses.md) | Graphs, RAG, candidate training data and reasoning-task uses. |
-| 16. Document assistant | [Retrieval/RAG and PostgreSQL](retrieval-rag.md) | Frozen artifact imports, publication, querying, chatbot, evaluation and limits. |
+| 11. Structural chunk and semantic cluster build | [Structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md) | Shared inputs for claims and summaries, budgets and reruns. |
+| 12. Claim generation and classification | [Claim generation and classification](claim-generation-and-classification.md) | Models, CLI, review and exports. |
+| 13. Claim evaluation | [Claim evaluation](claim-evaluation.md) | Review and acceptance. |
+| 14. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |
+| 15. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
+| 16. Downstream uses | [Claims versus summaries](downstream-uses.md) | Graphs, RAG, candidate training data and reasoning-task uses. |
+| 17. Document assistant | [Retrieval/RAG and PostgreSQL](retrieval-rag.md) | Frozen artifact imports, publication, querying, chatbot, evaluation and limits. |

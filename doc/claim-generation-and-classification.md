@@ -1,39 +1,28 @@
 # Claim generation and classification
 
-`original chunks → structural chunks → semantic clusters → candidate claims → topics`
+`prepared semantic clusters → candidate claims → topics`
 
 Generation extracts draft, evidence-linked candidate claims. Classification assigns
 curated topics or explicit null outcomes without changing candidate text or evidence.
-Semantic clusters also feed an independent [recursive summary path](summaries.md).
+Start with the [structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md).
+Its semantic clusters also feed an independent [recursive summary path](summaries.md).
 Summaries do not consume claims, and do not replace claim generation, classification
 or its grounding/classification review statuses.
 
 ## Normal case
 
-Load `OPENAI_API_KEY`; see [setup](ingestion.md). From the repository root, replace
-the placeholders with a reviewed chunking run ID and a fresh claim run ID.
-Run each command only after the previous one succeeds.
+Load `OPENAI_API_KEY`; see [setup](ingestion.md). Use the completed structural
+chunk and semantic cluster build outputs and a fresh claim run ID. Continue
+only after each command succeeds.
 
 ```sh
-INPUT_RUN_ID="your-reviewed-chunking-run-id"
+CONTEXT_RUN_ID="your-completed-build-run-id"
 RUN_ID="your-new-claim-run-id"
-CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
-PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
-CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${RUN_ID}"
+CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 printf 'RUN_ID=%s\n' "$RUN_ID"
 
-.venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
-  --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" --output-dir "$CONTEXT_DIR" \
-  --cache-dir artifacts/embeddings-and-token-counts
-```
-
-Preparation validates hierarchy, lineage, membership and request budgets.
-After it succeeds, continue with generation; there is no separate structural
-agent-review stage. Pilot source checks remain regression tests.
-
-```sh
 .venv/bin/python scripts/generate_claims.py \
   --context-dir "$CONTEXT_DIR" --output-dir "$CANDIDATES_DIR"
 
@@ -51,9 +40,9 @@ runs final evaluation. For manual review commands, see [claim evaluation](claim-
 Then create the [knowledge provenance graph](knowledge-provenance-graph.md) for inspection.
 For prospective RAG and training consumers, see [downstream uses](downstream-uses.md).
 
-Preparation can be shared across full/subset runs. Generation accepts optional
+The build can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,
-one-based). Subsets still require full-input preparation and do not guarantee
+one-based). Subsets still require a full-input build and do not guarantee
 source/topic coverage. `--subset-batches`/`--batch-numbers` remain aliases.
 
 ## Optional: retry failed generation clusters
@@ -132,56 +121,27 @@ support have no saved intermediate results.
 
 ## Configuration and context limits
 
-[Configuration](../config/claim-generation-and-classification.json) separates
-structural assembly, embeddings, clustering, generation and classification.
-Each model step has its own settings; pricing is a separate provider/model snapshot.
-Pricing-only changes preserve embedding caches and generation checkpoints;
-classification-only settings preserve prepared context.
+[Configuration](../config/claim-generation-and-classification.json) owns claim
+generation, classification and the shared pricing catalogue. Its
+`structural_build_config` reference selects the separate
+[structural chunk and semantic cluster build config](../config/structural-chunks-and-semantic-clusters.json).
+Paths resolve relative to the config file. The build's `request_sizing.claim_config`
+must point back to this claim config so cluster sizing uses matching requests.
+
+Each model step has its own settings. Pricing-only changes preserve embedding
+caches and generation checkpoints; classification-only changes preserve build outputs.
 
 | Setting | Default |
 | --- | --- |
-| Embeddings | `text-embedding-3-small`, 1,536 dimensions, `cl100k_base` |
-| Embedding limits | 8,192 tokens/input; 32 inputs and 32,000 tokens/request |
-| Clustering | Every-member cosine similarity ≥0.80 |
 | Generation/classification | `gpt-6-luna`, medium reasoning |
 | Generation input budget | `min(1,050,000 − 32,768 − 4,096, 32,000) = 32,000` |
 
-Generation input counts include instructions, schema, metadata, text and evidence;
-output/reasoning reserves are separate. Exact provider counts check each structural
-chunk before embeddings, then complete cluster requests and retry feedback.
-Embedding limits are checked separately. Oversized clusters are refined/partitioned;
-structural chunks remain indivisible. For an oversized singleton, inspect links or
-verify a larger budget, then rebuild context. Evidence is never truncated to fit.
-The operational cap is not an evaluated optimum. Verify model limits before changing
-models; the configuration records documentation links and verification dates.
-
-Progress reports assembly, completed individual/cluster checks and oversized-cluster
-splits. Completed checks can include an oversized cluster awaiting refinement.
+Generation input counts include instructions, schema, metadata, text, evidence
+and retry feedback; output/reasoning reserves are separate. Evidence is never
+truncated to fit. See [structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md)
+for embedding limits, cluster refinement, caches and rebuild rules.
 
 ## Structure, evidence and completeness
-
-Structural chunks preserve [explicit document hierarchy](chunking.md#structural-assembly-after-original-chunking)
-and keep original chunks focused. Bounded adjacent fragments and supported
-sentence/table continuations may join. Section/list parents, repeated context
-and same-page note hints are non-merging relationships. Ancestor and note text
-is supplied as non-citable context. Only identical evidence spans are deduplicated;
-repeated wording at distinct locations remains. Heuristic links require source review.
-
-Semantic clusters can span documents. Each original/structural chunk belongs to
-one final cluster. Greedy grouping requires similarity to every member; it is
-deterministic but order-sensitive. Similarity does not establish actor identity,
-agreement, legal scope or effective dates.
-
-New preparation uses `structural-chunks-v3`, `compilation-v13` and manifest/schema
-v2. For existing chunking runs without `document-structure.json`, add
-`--parsed-dir artifacts/parsed-YOUR_RUN` to preparation to snapshot the matching
-`parse.json` sidecars. With neither metadata source, source-flow/numbering fallback
-is explicit in the report and cannot recover all heading depths.
-Use a fresh preparation/output directory: structural IDs, semantic memberships
-and claim request hashes change. Original chunk IDs and bundle schemas remain
-unchanged. Frozen v1/v2 preparations/candidates remain readable and evaluable with
-their original algorithm; new generation under the current configuration requires
-fresh v3 preparation. Existing classified claim views remain supported.
 
 Each generation request covers one cluster. Temporary E labels cite exact evidence;
 C labels identify non-citable context. Independently citable passages always
@@ -203,31 +163,19 @@ against originals. Legacy fixtures are unassessed; older artifacts remain readab
 
 ## Artifacts, reports and reruns
 
-Preparation saves the original bundle, structural memberships/links, embeddings,
-cluster plan, report and integrity manifest. Generation adds candidate JSONL,
-cluster mappings and evidence accounting. Classification exports bundle/JSONL and
-topic views. Existing compatibility names, including `compilation_scope` and
-`compilation-review.json`, remain unchanged.
+Generation adds candidate JSONL, cluster mappings and evidence accounting to
+the frozen structural chunk and semantic cluster build outputs. Classification
+exports bundle/JSONL and topic views. Compatibility names, including
+`compilation_scope` and `compilation-review.json`, remain unchanged.
 
-Reports separate embedding, token-counting, generation and classification usage.
-`duration_seconds` measures the current invocation, rounded to milliseconds.
-Distribution fields count members per group; `singletons` counts one-member
-clusters. `usable_input_tokens` records the request cap;
-`claim_generation_request_token_counting` records counting/cache activity, and
-`oversized_cluster_splits` records refinements. Cache hits are not new API calls;
-unknown costs stay null. Subset projections include whole-input embedding cost.
-
-Embedding caches require matching text/model/settings and validate hashes. Failed
-preparation leaves `failure.json`; validate saved outputs before deciding whether
-a rebuild is needed. If rebuilding, use fresh output with the same cache. The cache
-can be regenerated; preserve the frozen preparation needed for generation and resume.
-Parser/chunker changes require new [parsing](parsing.md), [chunking](chunking.md),
-source reviews and downstream runs. Generation prompt/schema/request/budget changes
-require fresh preparation and generation; unchanged embeddings remain reusable.
-A budget-only change does not require repeating parsing/chunking reviews.
+Reports separate generation and classification usage. `duration_seconds` covers
+the current invocation; cache hits are not new API calls and unknown costs stay
+null. Subset projections include whole-input embedding cost. Preserve frozen
+structural chunks, semantic clusters and checkpoints for resume. See
+[cache and rebuild rules](structural-chunks-and-semantic-clusters.md#outputs-and-reruns).
 
 Before a full run, test affected subsets and controls across documents/layouts.
-Use cluster numbers from the new preparation, compare common original chunk IDs,
+Use cluster numbers from the new build, compare common original chunk IDs,
 and assess source fidelity, omissions, topic choices and costs. Fixture tests
 validate mechanics; source review assesses model quality. Keep old runs/reviews
 as baselines; never copy judgments to a different snapshot.

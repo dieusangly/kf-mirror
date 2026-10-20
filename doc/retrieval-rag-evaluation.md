@@ -9,7 +9,7 @@ Five source editions produced 791 passages, 1,280 draft claims, 369 draft
 summaries and 3,867 evidence projections. All 791 passage vectors were reused;
 imports made no model calls. The evaluated snapshot is
 `snapshot:6873e80ac3197d6e4ca7bc6504a1cd61446bd5f04e02cf4f5d05d40dc02f3d60`.
-Its claim and summary branches share preparation manifest
+Its claim and summary branches share the structural chunk and semantic cluster build manifest
 `bc95df02b81f6f5e60fc99926973819fd3dd2cae36b6fe1a15e66d74e7fd827a`.
 
 Eight draft pilot questions compared methods with the same snapshot, top five
