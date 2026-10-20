@@ -20,3 +20,4 @@ agent reviews, pass gates and safe reruns.
 | 13. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |
 | 14. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
 | 15. Downstream uses | [Claims versus summaries](downstream-uses.md) | Graphs, RAG, candidate training data and reasoning-task uses. |
+| 16. Document assistant | [Retrieval/RAG and PostgreSQL](retrieval-rag.md) | Frozen artifact imports, publication, querying, chatbot, evaluation and limits. |

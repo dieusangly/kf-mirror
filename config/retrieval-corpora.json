@@ -1,0 +1,18 @@
+{
+  "aml-cft-pilot": {
+    "title": "French AML/CFT pilot",
+    "suggested_questions": [
+      "Les lignes directrices ACPR–Tracfin ont-elles un caractère contraignant ?",
+      "Une COSI exige-t-elle un soupçon, comme une déclaration de soupçon ?",
+      "Qui peut être bénéficiaire effectif au sens du code ?"
+    ],
+    "runs": {
+      "20261019": {
+        "preparation_dir": "artifacts/generated-claims-20261019/preparation",
+        "claims_dir": "artifacts/classified-claims-20261019",
+        "summaries_dir": "artifacts/summaries-20261019",
+        "graph_url": "http://localhost:8502/classified-claims-20261019/knowledge-provenance-graph.html"
+      }
+    }
+  }
+}
