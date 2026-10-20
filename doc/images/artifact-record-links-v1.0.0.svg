@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1210" viewBox="0 0 1360 1210" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1060" viewBox="0 0 1360 1060" role="img" aria-labelledby="title description">
   <title id="title">Knowledge Foundry pipeline and record lineage</title>
-  <desc id="description">Saved Source, Document and Element records provide immutable original chunks. Structural chunks assemble original chunks within a document using structural links. Embeddings support numerical semantic clustering across documents. Each final semantic cluster independently produces candidate claims and a level-one summary. Earlier summaries are clustered and summarized recursively with complete source lineage. Element hierarchy records retain section and numbered-paragraph parents across focused structural chunks. Topic classification preserves claim text and evidence; unclassified candidate claims remain available. Canonical Build records track input documents and output chunks, claims and topics. A separate frozen build stores structural memberships, vectors, semantic clusters, token budgets and integrity hashes. E labels retain citable evidence text; C labels provide non-citable context. Source review assesses fidelity, completeness and topic choices. Exact source provenance is retained throughout.</desc>
+  <desc id="description">The first six records run left to right across the shared pipeline, then semantic clusters branch into independent claims and summaries below. Saved Source, Document and Element records provide immutable original chunks. Structural chunks assemble original chunks within a document using structural links. Embeddings support numerical semantic clustering across documents. Each final semantic cluster independently produces candidate claims and a level-one summary. Earlier summaries are clustered and summarized recursively with complete source lineage. Element hierarchy records retain section and numbered-paragraph parents across focused structural chunks. Topic classification preserves claim text and evidence; unclassified candidate claims remain available. Canonical Build records track input documents and output chunks, claims and topics. A separate frozen build stores structural memberships, vectors, semantic clusters, token budgets and integrity hashes. E labels retain citable evidence text; C labels provide non-citable context. Source review assesses fidelity, completeness and topic choices. Exact source provenance is retained throughout.</desc>
   <defs>
     <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
-      <path d="M0 0 L9 4.5 L0 9 Z" fill="#61758c"/>
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#61758c" />
     </marker>
   </defs>
   <style>
@@ -13,134 +13,144 @@
     .section { font-size: 13px; font-weight: 700; letter-spacing: 1.1px; fill: #42526e; }
     .card-title { font-size: 22px; font-weight: 700; fill: #172b4d; }
     .id { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; font-weight: 700; fill: #0747a6; }
-    .card-copy { font-size: 15px; }
+    .card-copy { font-size: 14px; }
     .panel-title { font-size: 22px; font-weight: 700; fill: #172b4d; }
     .panel-copy { font-size: 16px; }
     .flow { fill: none; stroke: #61758c; stroke-width: 2.5; marker-end: url(#arrow); }
+      .connector { fill: none; stroke: #61758c; stroke-width: 2.5; }
   </style>
-  <rect width="1360" height="1210" fill="#f6f8fc"/>
+  <rect width="1360" height="1060" fill="#f6f8fc" />
   <text x="36" y="50" class="heading">Knowledge Foundry pipeline</text>
-  <text x="36" y="80" class="subheading">Canonical records and derived artifacts · original text and exact evidence preserved</text>
-  <text x="36" y="116" class="section">INGESTION → PARSING → ORIGINAL CHUNKING</text>
+  <text x="36" y="80" class="subheading">Shared source records, then independent claims and summaries · exact evidence preserved</text>
+  <text x="36" y="116" class="section">SHARED PIPELINE · STRUCTURAL CHUNK AND SEMANTIC CLUSTER BUILD</text>
   <g transform="translate(36 136)">
-    <rect width="190" height="130" rx="12" fill="#fff" stroke="#3a77ae" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Source</text>
-  <text x="16" y="68" class="id">src:…</text>
-  <text x="16" y="101" class="card-copy">Publisher + edition</text>
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#3a77ae" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Source</text>
+    <text x="16" y="91" class="id">src:…</text>
+    <text x="16" y="125" class="card-copy">Publisher + edition</text>
   </g>
+  <path d="M226 226 H252" class="flow" />
   <g transform="translate(256 136)">
-    <rect width="190" height="130" rx="12" fill="#fff" stroke="#4c8fae" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Document</text>
-  <text x="16" y="68" class="id">doc:…</text>
-  <text x="16" y="101" class="card-copy">Saved file + hash</text>
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#4c8fae" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Document</text>
+    <text x="16" y="91" class="id">doc:…</text>
+    <text x="16" y="125" class="card-copy">Saved file + hash</text>
   </g>
+  <path d="M446 226 H472" class="flow" />
   <g transform="translate(476 136)">
-    <rect width="190" height="130" rx="12" fill="#fff" stroke="#5a9b88" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Element</text>
-  <text x="16" y="68" class="id">el:…</text>
-  <text x="16" y="101" class="card-copy">Text + location</text>
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#5a9b88" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Element</text>
+    <text x="16" y="91" class="id">el:…</text>
+    <text x="16" y="125" class="card-copy">Text + location</text>
   </g>
-  <path d="M226 201 H252" class="flow"/>
-  <path d="M446 201 H472" class="flow"/>
-  <text x="716" y="172" class="panel-title">Preserve source structure and evidence</text>
-  <text x="716" y="204" class="panel-copy">Parse text, tables and locations; review saved sources.</text>
-  <text x="716" y="235" class="panel-copy">Downstream stages preserve original IDs, text and spans.</text>
-  <path d="M571 266 V298 H18 V461 H32" class="flow"/>
-  <text x="716" y="302" class="subheading">Claims and topic views remain drafts until reviewed.</text>
-  <text x="36" y="344" class="section">STRUCTURAL ASSEMBLY → SEMANTIC CLUSTERING → CLAIM GENERATION → TOPIC CLASSIFICATION</text>
-  <g transform="translate(36 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#7b9b53" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Original</text>
-  <text x="16" y="60" class="card-title">chunks</text>
-  <text x="16" y="91" class="id">chunk:…</text>
-  <text x="16" y="125" class="card-copy">Immutable records</text>
-  <text x="16" y="149" class="card-copy">Exact evidence</text>
+  <path d="M666 226 H692" class="flow" />
+  <g transform="translate(696 136)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#7b9b53" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Original</text>
+    <text x="16" y="60" class="card-title">chunks</text>
+    <text x="16" y="91" class="id">chunk:…</text>
+    <text x="16" y="125" class="card-copy">Immutable records</text>
+    <text x="16" y="149" class="card-copy">Exact evidence</text>
   </g>
-  <g transform="translate(256 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5"/>
-  <text x="16" y="33" class="card-title">Structural</text>
-  <text x="16" y="60" class="card-title">chunks</text>
-  <text x="16" y="91" class="id">structural:…</text>
-  <text x="16" y="125" class="card-copy">Within one document</text>
-  <text x="16" y="149" class="card-copy">Hierarchy + local links</text>
+  <path d="M886 226 H912" class="flow" />
+  <g transform="translate(916 136)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Structural</text>
+    <text x="16" y="60" class="card-title">chunks</text>
+    <text x="16" y="91" class="id">structural:…</text>
+    <text x="16" y="125" class="card-copy">Within one document</text>
+    <text x="16" y="149" class="card-copy">Hierarchy + local links</text>
   </g>
-  <g transform="translate(476 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#6978b5" stroke-width="2" stroke-dasharray="7 5"/>
-  <text x="16" y="33" class="card-title">Semantic</text>
-  <text x="16" y="60" class="card-title">clusters</text>
-  <text x="16" y="91" class="id">semantic:…</text>
-  <text x="16" y="125" class="card-copy">Embedding similarity</text>
-  <text x="16" y="149" class="card-copy">Across documents</text>
+  <path d="M1106 226 H1132" class="flow" />
+  <g transform="translate(1136 136)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#6978b5" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Semantic</text>
+    <text x="16" y="60" class="card-title">clusters</text>
+    <text x="16" y="91" class="id">semantic:…</text>
+    <text x="16" y="125" class="card-copy">Embedding similarity</text>
+    <text x="16" y="149" class="card-copy">Across documents</text>
   </g>
-  <g transform="translate(696 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#b58b46" stroke-width="2" stroke-dasharray="7 5"/>
-  <text x="16" y="33" class="card-title">Candidate</text>
-  <text x="16" y="60" class="card-title">claims</text>
-  <text x="16" y="91" class="id">candidate:…</text>
-  <text x="16" y="125" class="card-copy">Atomic propositions</text>
-  <text x="16" y="149" class="card-copy">Exact citations</text>
+  <path d="M1231 316 V354 H131" class="connector" />
+  <path d="M131 354 V382" class="connector" />
+  <circle cx="131" cy="354" r="4" fill="#61758c" />
+  <path d="M791 354 V382" class="connector" />
+  <circle cx="791" cy="354" r="4" fill="#61758c" />
+  <rect x="24" y="382" width="654" height="330" rx="12" fill="#fbf7f0" stroke="#eadcc8" stroke-width="2" />
+  <rect x="684" y="382" width="654" height="330" rx="12" fill="#f1f7f5" stroke="#d1e4db" stroke-width="2" />
+  <path d="M131 382 V420" class="flow" />
+  <path d="M791 382 V420" class="flow" />
+  <text x="155" y="407" class="section">CLAIMS</text>
+  <text x="815" y="407" class="section">SUMMARIES</text>
+  <g transform="translate(36 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#b58b46" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Candidate</text>
+    <text x="16" y="60" class="card-title">claims</text>
+    <text x="16" y="91" class="id">candidate:…</text>
+    <text x="16" y="125" class="card-copy">Atomic propositions</text>
+    <text x="16" y="149" class="card-copy">Exact citations</text>
   </g>
-  <g transform="translate(916 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#a98452" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Classified</text>
-  <text x="16" y="60" class="card-title">claims</text>
-  <text x="16" y="91" class="id">claim:…</text>
-  <text x="16" y="125" class="card-copy">Text + evidence kept</text>
-  <text x="16" y="149" class="card-copy">Topic assigned</text>
+  <path d="M226 514 H252" class="flow" />
+  <g transform="translate(256 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#a98452" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Classified</text>
+    <text x="16" y="60" class="card-title">claims</text>
+    <text x="16" y="91" class="id">claim:…</text>
+    <text x="16" y="125" class="card-copy">Text + evidence kept</text>
+    <text x="16" y="149" class="card-copy">Topic assigned</text>
   </g>
-  <g transform="translate(1136 376)">
-    <rect width="190" height="180" rx="12" fill="#fff" stroke="#8869aa" stroke-width="2"/>
-  <text x="16" y="33" class="card-title">Topics</text>
-  <text x="16" y="91" class="id">topic:…</text>
-  <text x="16" y="125" class="card-copy">Curated classification</text>
-  <text x="16" y="149" class="card-copy">Claim membership</text>
+  <path d="M446 514 H472" class="flow" />
+  <g transform="translate(476 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#8869aa" stroke-width="2" />
+    <text x="16" y="33" class="card-title">Topics</text>
+    <text x="16" y="91" class="id">topic:…</text>
+    <text x="16" y="125" class="card-copy">Curated classification</text>
+    <text x="16" y="149" class="card-copy">Claim membership</text>
   </g>
-  <path d="M226 461 H252" class="flow"/>
-  <path d="M446 461 H472" class="flow"/>
-  <path d="M666 461 H692" class="flow"/>
-  <path d="M886 461 H912" class="flow"/>
-  <path d="M1106 461 H1132" class="flow"/>
-  <text x="696" y="586" class="card-copy">Claims retain exact evidence and separate classification/review.</text>
-  <text x="36" y="630" class="section">INDEPENDENT SUMMARY PATH FROM SEMANTIC CLUSTERS</text>
-  <path d="M571 556 V646 H156 V662" class="flow"/>
-  <g transform="translate(36 666)">
-    <rect width="300" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5"/>
-    <text x="16" y="33" class="card-title">Level-one summaries</text>
-    <text x="16" y="76" class="id">summary:…</text>
-    <text x="16" y="116" class="card-copy">One per semantic cluster</text>
-    <text x="16" y="146" class="card-copy">No claims required</text>
+  <g transform="translate(696 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Level-one</text>
+    <text x="16" y="60" class="card-title">summaries</text>
+    <text x="16" y="91" class="id">summary:…</text>
+    <text x="16" y="125" class="card-copy">One per cluster</text>
+    <text x="16" y="149" class="card-copy">No claims required</text>
   </g>
-  <g transform="translate(436 666)">
-    <rect width="370" height="180" rx="12" fill="#fff" stroke="#6978b5" stroke-width="2" stroke-dasharray="7 5"/>
-    <text x="16" y="33" class="card-title">Clusters of summaries</text>
-    <text x="16" y="76" class="id">summary-cluster:…</text>
-    <text x="16" y="116" class="card-copy">Bounded all-members similarity</text>
-    <text x="16" y="146" class="card-copy">Unmerged summaries carry forward</text>
+  <path d="M886 514 H912" class="flow" />
+  <g transform="translate(916 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#6978b5" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Clusters of</text>
+    <text x="16" y="60" class="card-title">summaries</text>
+    <text x="16" y="91" class="id">summary-cluster:…</text>
+    <text x="16" y="125" class="card-copy">Summary embeddings</text>
+    <text x="16" y="149" class="card-copy">All-members similarity</text>
   </g>
-  <g transform="translate(906 666)">
-    <rect width="420" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5"/>
-    <text x="16" y="33" class="card-title">Higher-level summaries</text>
-    <text x="16" y="76" class="id">summary:…</text>
-    <text x="16" y="116" class="card-copy">Direct inputs + transitive source provenance</text>
-    <text x="16" y="146" class="card-copy">Repeat within similarity/budget/level limits</text>
+  <path d="M1106 514 H1132" class="flow" />
+  <g transform="translate(1136 424)">
+    <rect width="190" height="180" rx="12" fill="#fff" stroke="#388a70" stroke-width="2" stroke-dasharray="7 5" />
+    <text x="16" y="33" class="card-title">Higher-level</text>
+    <text x="16" y="60" class="card-title">summaries</text>
+    <text x="16" y="91" class="id">summary:…</text>
+    <text x="16" y="125" class="card-copy">Prior summary inputs</text>
+    <text x="16" y="149" class="card-copy">Source lineage kept</text>
   </g>
-  <path d="M336 756 H432" class="flow"/>
-  <path d="M806 756 H902" class="flow"/>
-  <path d="M1116 846 V866 H621 V850" class="flow"/>
-  <text x="36" y="891" class="card-copy">Draft synthesis for navigation and retrieval; follow input summaries and source chunks to review support.</text>
-  <rect x="36" y="916" width="630" height="156" rx="12" fill="#fff" stroke="#6d85ab" stroke-width="2"/>
-  <rect x="696" y="916" width="630" height="156" rx="12" fill="#fff" stroke="#b58b46" stroke-width="2"/>
-  <text x="56" y="953" class="panel-title">Frozen structural chunks and semantic clusters</text>
-  <text x="56" y="988" class="panel-copy">Structural links → embeddings → numerical clustering</text>
-  <text x="56" y="1018" class="panel-copy">Unique membership · vectors · request budgets · hashes</text>
-  <text x="56" y="1048" class="panel-copy">Oversized clusters are refined; structural chunks stay whole.</text>
-  <text x="716" y="953" class="panel-title">Exact source provenance</text>
-  <text x="716" y="988" class="panel-copy">Claims and summaries retain original chunk IDs.</text>
-  <text x="716" y="1018" class="panel-copy">Evidence cites source, document and element ID + revision.</text>
-  <text x="716" y="1048" class="panel-copy">Character span [start, end): zero-based, end exclusive.</text>
-  <rect x="36" y="1094" width="1290" height="65" rx="12" fill="#eaf0fa" stroke="#6d85ab" stroke-width="2"/>
-  <text x="56" y="1134" class="panel-title">Build records</text>
-  <text x="248" y="1134" class="id">build:…</text>
-  <text x="370" y="1134" class="panel-copy">Input documents → output original chunks, claims and topics (by stage)</text>
-  <text x="36" y="1193" class="subheading">Solid border: canonical bundle record · Dashed border: derived artifact or candidate claim · See schema guide for exact fields.</text>
+  <text x="44" y="649" class="card-copy">Draft claims retain exact evidence through classification and review.</text>
+  <text x="44" y="680" class="card-copy">Unclassified candidates remain available; source review is required.</text>
+  <path d="M1231 604 V630 H1011 V608" class="flow" />
+  <text x="925" y="655" class="card-copy">Repeat within similarity, budget and level limits</text>
+  <text x="704" y="684" class="card-copy">Unmerged summaries carry forward; synthesis remains draft.</text>
+  <rect x="36" y="740" width="630" height="156" rx="12" fill="#fff" stroke="#6d85ab" stroke-width="2" />
+  <rect x="696" y="740" width="630" height="156" rx="12" fill="#fff" stroke="#b58b46" stroke-width="2" />
+  <text x="56" y="777" class="panel-title">Frozen structural chunks and semantic clusters</text>
+  <text x="56" y="812" class="panel-copy">Structural links → embeddings → numerical clustering</text>
+  <text x="56" y="842" class="panel-copy">Unique membership · vectors · request budgets · hashes</text>
+  <text x="56" y="872" class="panel-copy">Oversized clusters are refined; structural chunks stay whole.</text>
+  <text x="716" y="777" class="panel-title">Exact source provenance</text>
+  <text x="716" y="812" class="panel-copy">Claims and summaries retain original chunk IDs.</text>
+  <text x="716" y="842" class="panel-copy">Evidence cites source, document and element ID + revision.</text>
+  <text x="716" y="872" class="panel-copy">Character span [start, end): zero-based, end exclusive.</text>
+  <rect x="36" y="918" width="1290" height="65" rx="12" fill="#eaf0fa" stroke="#6d85ab" stroke-width="2" />
+  <text x="56" y="958" class="panel-title">Build records</text>
+  <text x="248" y="958" class="id">build:…</text>
+  <text x="370" y="958" class="panel-copy">Input documents → output original chunks, claims and topics (by stage)</text>
+  <text x="36" y="1013" class="card-copy">E labels: citable evidence · C labels: non-citable governing context · Source review checks fidelity and completeness.</text>
+  <text x="36" y="1043" class="card-copy">Solid border: canonical bundle record · Dashed border: derived artifact or candidate claim · See schema guide for exact fields.</text>
 </svg>
