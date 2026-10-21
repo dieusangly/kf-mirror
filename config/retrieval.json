@@ -1,17 +1,19 @@
 {
   "version": "retrieval-v1",
   "search": {
-    "method": "keyword",
+    "method": "combined",
     "mode": "passage",
     "language": "french",
     "top_k": 5,
     "candidate_k": 30,
     "minimum_vector_similarity": 0.25,
     "minimum_keyword_score": 0.0,
+    "minimum_keyword_coverage": 0.25,
     "rrf_constant": 60,
     "max_context_evidence": 24,
     "max_context_depth": 4,
-    "followup_turns": 2
+    "followup_turns": 2,
+    "rerank": true
   },
   "budget": {
     "tokenizer": "cl100k_base",
@@ -23,7 +25,7 @@
     "history_tokens": 1500
   },
   "answer": {
-    "provider": "extractive",
+    "provider": "openai",
     "model": "gpt-6-luna",
     "reasoning_effort": "low",
     "timeout_seconds": 90,
@@ -50,6 +52,8 @@
     "timeout_seconds": 90,
     "retries": 0
   },
-  "embedding_pricing": {"usd_per_million_input_tokens": 0.02},
+  "embedding_pricing": {
+    "usd_per_million_input_tokens": 0.02
+  },
   "cache_dir": "artifacts/embeddings-and-token-counts/embeddings"
 }

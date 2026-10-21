@@ -1,71 +1,94 @@
-# Retrieval/RAG evaluation — 2026-10-19
+# RAG validation — 2026-10-20
 
-The local functional demo passes. Retrieval quality remains below the pilot's
-provisional target. [Setup and commands](retrieval-rag.md).
-
-## Inputs and retrieval results
-
-Five source editions produced 791 passages, 1,280 draft claims, 369 draft
-summaries and 3,867 evidence projections. All 791 passage vectors were reused;
-imports made no model calls. The evaluated snapshot is
+[Setup and commands](retrieval-rag.md). Results use published snapshot
 `snapshot:6873e80ac3197d6e4ca7bc6504a1cd61446bd5f04e02cf4f5d05d40dc02f3d60`.
-Its claim and summary branches share the structural chunk and semantic cluster build manifest
-`bc95df02b81f6f5e60fc99926973819fd3dd2cae36b6fe1a15e66d74e7fd827a`.
+Frozen pipeline artifacts and passage vectors were reused; no upstream rebuild,
+reimport or migration was needed for these changes.
 
-Eight draft pilot questions compared methods with the same snapshot, top five
-passages and context budgets. A hit means the annotated source/page appeared in
-non-context evidence admitted to the request; HTML cases match source identity.
-These are location-overlap smoke metrics, not approved relevance or answer-support
-labels. The provisional target is 7/8; no tuning used these questions.
+## Scope and findings
 
-| Navigation | Search | Hits / 8 | Median latency, cached queries |
-| --- | --- | ---: | ---: |
-| Passage baseline | Keyword | 2 | 0.372 s |
-| Passage | Vector | 6 | 0.387 s |
-| Passage | Combined | 3 | 0.499 s |
-| Claim → passages | Keyword | 4 | 0.504 s |
-| Summary → passages | Keyword | 2 | 0.574 s |
+The [original eight questions](french-aml-cft-pilot-sources-and-evaluation.md) have
+**draft annotations, not reviewed ground truth**. Four additional questions cover
+risk-management scope, information updates, representatives and digital documents
+([fixture](../tests/fixtures/retrieval-additional-smoke.json)). Their text anchors
+were recorded from saved passages before running retrieval. All twelve are now
+development smoke cases; none constitute independent acceptance testing.
 
-No method met 7/8. A2 and T1 were missed by all passage methods; combined search
-performed below vector search. Keyword excerpts may not answer the question.
-Claim/summary vector comparisons were not run: those projections have no vectors.
-Final evaluation reused cached query embeddings. No upstream stage was rerun.
+Search alone sometimes preferred generic reporting material or another numbered
+case. A bounded model reranker now selects relevant candidates without language
+patterns, source aliases or identifier-specific filters. A list split across
+structural passages also lost its final clause; context now completes bounded
+lists through saved direct governing relationships. Headings consistently supply
+scope; body passages supply citations. Active answer prompt: `rag-answer-v2`.
 
-## Answers, citations and live usage
+## Measured retrieval
 
-Two live A1 answers, one CLI and one streamed through the chat app, used
-`gpt-6-luna` with vector retrieval. Each citation resolved exactly to edition
-2025-04 of the ACPR–Tracfin guidelines, page 3, paragraph 1 (**1/1 per answer**).
-Inspection supports the narrow nonbinding-status proposition. Semantic support
-remains unscored; this smoke check is not independent domain review. Both answers
-remain draft. End-to-end latencies were 4.076 s and 8.205 s.
+Top five results, candidate pool 30, identical snapshot/budgets. Cells show
+**locator hits / cases; complete text-anchor hits / cases**. Anchor presence is
+separate from semantic answer support. All comparisons used cached query vectors.
 
-| Live calls | Requests | Usage | Estimated USD |
-| --- | ---: | --- | ---: |
-| Query embeddings | 8 | 162 input tokens | 0.000003240 |
-| Answers | 2 | 6,296 input; 109 output tokens | 0.000479675 |
-| Total | 10 | Includes 3,145 cache-write and 3,145 cached-input tokens | 0.000482915 |
+| Passage retrieval | Original eight | Four additional |
+| --- | --- | --- |
+| Keyword, no reranker | 4/8; 3/8 | 4/4; 4/4 |
+| Vector, no reranker | 6/8; 5/8 | 3/4; 0/4 |
+| Combined, no reranker | 6/8; 5/8 | 3/4; 3/4 |
+| Combined + model reranker | 8/8; 8/8 | 4/4; 4/4 |
 
-Costs use dated Standard rates, including cache writes, and are not invoices.
-Detailed retrieval reports and answer audits are in the ignored
-`artifacts/retrieval-evaluation/` directory. Source-preview QA replayed a recorded
-answer without another model call.
+The reranker was called live once per question. Final context checks replayed
+those recorded selections after completing cross-passage lists. Deterministic
+excerpt anchors matched the final retrieval anchors in every row. This measures
+these cases only; it does not establish reliability on arbitrary questions.
+Live median retrieval latency, including reranking: **2.36 s** for the original
+set and **3.69 s** for the additional set. One ranking request admitted 28/30
+complete candidates because of its input budget; the others admitted all 30.
 
-## Validation and remaining work
+Optional navigation, keyword without reranking: claims → passages reached 3/8
+locators and 2/8 complete anchors; summaries → passages reached 3/8 for both.
+Claim/summary vectors were unavailable, so their vector retrieval was not run.
 
-- Full suite with real PostgreSQL/pgvector: **283 passed, 11 skipped, 80 subtests
-  passed**, including all 24 retrieval/storage tests. Skips were existing optional
-  pipeline checks. Model tests use deterministic fixtures.
-- Coverage includes import idempotency/rollback, publication and snapshot isolation,
-  lineage, vector compatibility, bounded context, citation rejection, insufficient
-  evidence, session isolation, follow-up retrieval, history, reset and feedback.
-- Playwright checked the chat app at 1440×1000 and 390×844; the Browser plugin was
-  unavailable. Chat, citation previews, feedback, follow-ups, reload and reset
-  passed without console/page errors. The provenance graph returned HTTP 200.
-- Tested stack: Python 3.12, PostgreSQL 17, pgvector 0.8.2, Haystack 3.4.0 and
-  Streamlit 1.66.0. Dependency, compilation and whitespace checks passed.
+## Answers, generality and usage
 
-Next: approve evidence-level labels, investigate retrieval misses and combined
-ranking on a separate reviewed set, and budget auxiliary-vector evaluation.
-Production still requires authentication/access controls, concurrency protection,
-retention/backups and deployment hardening.
+Final generated checks covered case 16, information updates and representatives.
+Case 16 includes all four steps; its **4/4 citations resolve exactly**. The other
+two answers each resolve **3/3 citations**. Their narrow propositions were
+inspected against the saved text; broader semantic entailment remains unscored.
+A diagnostic answer before list completion omitted the final step. Earlier
+unranked checks also missed relevant evidence; those results are retained in the
+ignored reports rather than described as successful answers.
+
+Two live rewrite checks separated a standalone topic change from a French
+follow-up. Automated tests additionally cover new validated equipment,
+horticulture and transport documents in English, French and German through all
+three search methods, ranking and citation resolution. Fixture vectors and model
+responses are deterministic oracles: these tests prove mechanics, not real-model
+semantic quality across those languages. Japanese follow-up rewriting is also
+fixture-tested. Unsupported questions, unknown citation IDs, missing evidence,
+rewrite failures and request budgets have deterministic coverage.
+
+This revision used **21 bounded Responses calls** (12 rankings, two rewrites,
+seven answer checks): 121,898 input, 1,069 output and 121,431 cache-write tokens;
+estimated **USD 0.015760075** under the configured 2026-10-19 rate card.
+One embedding request covered four new questions: **101 tokens, USD 0.00000202**.
+All other embeddings were cached. Earlier diagnostic work used five answer calls
+(USD 0.002002125), separately recorded. Estimates are not invoices.
+Reports: ignored `artifacts/retrieval-evaluation/generic-*.json` and earlier
+`regressions-*.json`; the latter describe superseded implementations.
+
+## Validation and remaining limits
+
+- Full suite with real PostgreSQL/pgvector: **330 passed, 11 skipped, 80 subtests passed**.
+- Coverage includes idempotent imports, snapshot/session isolation, original lineage,
+  source filters, list completion, complete budgets, fail-closed citations, model
+  fixtures, offline fallback and rendered Streamlit interactions.
+- Playwright/Chrome at `http://127.0.0.1:8503`, desktop 1440×1000 and mobile
+  390×844: page identity, content, no framework overlay, citation links, feedback,
+  reset and history restoration passed; no console errors or warnings. Screenshots
+  were inspected. Browser plugin unavailable; recorded model responses and cached
+  embeddings kept browser QA free of external model calls.
+- Compilation and `git diff --check` passed. No commit was created.
+- Generated answers remain drafts. Exact citations do not prove that their text
+  supports every assertion. The reranker can miss evidence outside its candidate
+  pool/budget; unranked/offline retrieval has the measured gaps above.
+- New corpora need reviewed questions, negative cases and independent answer-support
+  assessment. Production authentication, access control and deployment hardening
+  remain outside this local demo.

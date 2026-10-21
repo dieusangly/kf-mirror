@@ -20,8 +20,14 @@ def load_config(path=None):
             raise ValueError('budget must be positive: ' + key)
     if value['budget']['input_tokens'] + value['budget']['output_tokens'] + value['budget']['safety_tokens'] > value['budget']['context_window_tokens']:
         raise ValueError('request budget exceeds configured model window')
+    if type(value['search'].get('rerank', False)) is not bool:
+        raise ValueError('rerank must be a boolean')
+    if type(value['search']['followup_turns']) is not int or value['search']['followup_turns'] < 0:
+        raise ValueError('followup_turns must be a nonnegative integer')
     if value['answer']['provider'] not in {'extractive', 'openai'}:
         raise ValueError('answer provider must be extractive or openai')
+    if not 0 <= value['search'].get('minimum_keyword_coverage', .25) <= 1:
+        raise ValueError('minimum_keyword_coverage must be between zero and one')
     return value
 
 

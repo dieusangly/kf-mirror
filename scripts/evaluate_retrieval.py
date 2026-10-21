@@ -21,10 +21,12 @@ def main(argv=None):
     parser.add_argument('--methods', nargs='+', choices=['keyword', 'vector', 'combined'], default=['keyword', 'vector', 'combined'])
     parser.add_argument('--modes', nargs='+', choices=['passage', 'claim', 'summary'], default=['passage'])
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--sequence', action='store_true', help='run in one conversation; OpenAI mode may call the query rewriter')
+    parser.add_argument('--check-excerpts', action='store_true', help='audit deterministic excerpts without answer-model calls')
     args = parser.parse_args(argv)
     report = evaluate(DocumentAssistant(PostgresStore(), load_config(args.config)), args.corpus,
                       json.loads(args.cases.read_text()), methods=args.methods, modes=args.modes,
-                      snapshot_id=args.snapshot_id)
+                      snapshot_id=args.snapshot_id, sequential=args.sequence, check_excerpts=args.check_excerpts)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(report['metrics'], indent=2))

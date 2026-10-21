@@ -1,6 +1,6 @@
-# Copy to .envrc, set local values, then source .envrc or run direnv allow.
-# Model calls:
-export OPENAI_API_KEY="replace-with-your-openai-api-key"
+# Copy to .envrc, set local values, then run direnv allow.
+# Optional model calls; leave empty for keyword/source-excerpt mode:
+export OPENAI_API_KEY=""
 
 # Existing PostgreSQL with pgvector installed:
-export KF_DATABASE_URL="postgresql://knowledge_foundry:replace-with-a-local-password@127.0.0.1:5432/knowledge_foundry"
+export KF_DATABASE_URL="postgresql://knowledge_foundry:replace-with-a-local-password@127.0.0.1:5432/knowledge_foundry_db"

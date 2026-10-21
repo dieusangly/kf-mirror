@@ -1,5 +1,24 @@
 """Separate retrieval smoke metrics from mechanical answer and support checks."""
+import copy
 import time
+
+from haystack.core.errors import PipelineRuntimeError
+
+from knowledge_foundry.retrieval.answering import generate
+
+
+def matches_locator(evidence, case):
+    return (evidence['source']['id'] == case['source_id']
+            and (not case.get('pages') or evidence['location'].get('page') in case['pages'])
+            and (not case.get('evidence_ids') or evidence['id'] in case['evidence_ids']))
+
+
+def matches_anchors(evidence, case):
+    """Exact text checks complement draft page locators; they are not entailment."""
+    if not case.get('text_anchors'):
+        return None
+    text = ' '.join(' '.join(e['text'].lower().split()) for e in evidence if matches_locator(e, case))
+    return all(' '.join(anchor.lower().split()) in text for anchor in case['text_anchors'])
 
 
 def audit_answer(answer, store):
@@ -17,42 +36,61 @@ def audit_answer(answer, store):
 
 
 def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combined'),
-             modes=('passage',), snapshot_id=None):
+             modes=('passage',), snapshot_id=None, sequential=False, check_excerpts=False):
     snapshot = assistant.store.snapshot(corpus, snapshot_id)
     rows = []
     for mode in modes:
         for method in methods:
+            history = []
             for case in cases:
                 started = time.monotonic()
                 try:
-                    result = assistant.retrieve(corpus, case['question'], snapshot_id=snapshot['id'], method=method, mode=mode)
+                    result = assistant.retrieve(corpus, case['question'], snapshot_id=snapshot['id'], method=method, mode=mode,
+                                                history=case.get('history', history if sequential else []))
                     matches = []
                     for e in result['evidence']:
-                        if e['source']['id'] != case['source_id'] or e['is_context']:
-                            continue
-                        if case.get('pages') and e['location'].get('page') not in case['pages']:
-                            continue
-                        # Optional reviewed exact evidence IDs permit stricter evaluation.
-                        if case.get('evidence_ids') and e['id'] not in case['evidence_ids']:
+                        if not matches_locator(e, case) or e['is_context']:
                             continue
                         matches.append(e['id'])
-                    rows.append({'id': case['id'], 'mode': mode, 'method': method,
+                    row = {'id': case['id'], 'mode': mode, 'method': method,
                                  'hit': bool(matches), 'matched_evidence_ids': matches,
+                                 'text_anchor_hit': matches_anchors(result['evidence'], case),
                                  'passage_ids': result['passage_ids'],
+                                 'query': result['query'], 'history_used': result.get('history_used'),
+                                 'warnings': result['warnings'],
                                  'embedding_usage': result['embedding_usage'],
-                                 'latency_seconds': round(time.monotonic() - started, 3)})
-                except ValueError as exc:
+                                 'query_rewrite': result.get('query_rewrite'), 'ranking': result.get('ranking'),
+                                 'latency_seconds': round(time.monotonic() - started, 3)}
+                    if check_excerpts:
+                        config = copy.deepcopy(assistant.config)
+                        config['answer']['provider'] = 'extractive'
+                        answer = list(generate(config, result['payload'], result['evidence']))[-1]['answer']
+                        answer['snapshot_id'] = snapshot['id']
+                        row['excerpts'] = {'status': answer['status'], 'text': answer['text'],
+                            'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
+                            'text_anchor_hit': matches_anchors(answer['citations'], case),
+                            'citation_audit': audit_answer(answer, assistant.store)}
+                    rows.append(row)
+                except (ValueError, PipelineRuntimeError) as exc:
                     rows.append({'id': case['id'], 'mode': mode, 'method': method, 'error': str(exc)})
+                if sequential:
+                    history.append(case['question'])
     metrics = []
     for mode in modes:
         for method in methods:
             subset = [r for r in rows if r['mode'] == mode and r['method'] == method]
             completed = [r for r in subset if 'hit' in r]
+            anchored = [r for r in completed if r['text_anchor_hit'] is not None]
             metrics.append({'mode': mode, 'method': method, 'completed': len(completed), 'cases': len(subset),
                             'hits': sum(r['hit'] for r in completed),
+                            'text_anchor_cases': len(anchored),
+                            'text_anchor_hits': sum(r['text_anchor_hit'] for r in anchored) if anchored else None,
+                            'excerpt_anchor_hits': sum(r['excerpts']['text_anchor_hit'] for r in anchored)
+                                if check_excerpts and anchored else None,
                             'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None})
     return {'snapshot_id': snapshot['id'], 'top_k': assistant.config['search']['top_k'],
             'label_status': 'draft smoke locators; source/page overlap is not semantic relevance',
-            'answer_support': 'not measured by this retrieval-only evaluation',
-            'citation_correctness': 'not measured by this retrieval-only evaluation',
+            'sequential': sequential,
+            'answer_support': 'unscored; exact text anchors and page overlap do not establish semantic support',
+            'citation_correctness': 'mechanical resolution only when check_excerpts is enabled',
             'metrics': metrics, 'rows': rows}

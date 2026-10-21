@@ -8,11 +8,18 @@ from knowledge_foundry.structural_chunks import stable_hash
 from scripts.validate_artifact_examples import check, digest, canonical_evidence
 
 
-def bundle():
+def bundle(passages=None, source_name=None):
     b = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
     b['elements'], b['chunks'], b['claims'], b['topics'] = [], [], [], []
     doc, build = b['documents'][0], b['builds'][0]
-    for i, (kind, text) in enumerate([
+    if source_name:
+        source = next(s for s in b['sources'] if s['id'] == doc['source_id'])
+        source.update(id='src:' + source_name, title=source_name, uri='https://example.org/' + source_name)
+        doc.update(source_id=source['id'], content_sha256=digest(json.dumps(passages)))
+        doc['id'] = 'doc:' + digest(doc['source_id'] + '\n' + doc['content_sha256'])
+        build['input_document_ids'] = [doc['id']]
+        build['id'] = 'build:' + digest(build['pipeline_version'] + '\n' + build['config_sha256'] + '\n' + doc['id'])
+    for i, (kind, text) in enumerate(passages or [
         ('paragraph', 'Rest requirements apply only to tired dogs.'),
         ('paragraph', 'Dogs must rest after exercise. [1]'),
         ('footnote', '1 Except emergency rescue dogs while on duty.'),
@@ -58,7 +65,8 @@ def artifacts():
 
 def config(tmp_path):
     c = copy.deepcopy(load_config())
-    c['search'].update(method='keyword', language='english', top_k=1)
+    c['search'].update(method='keyword', language='english', top_k=1, rerank=False)
+    c['answer']['provider'] = 'extractive'
     c['embedding'].update(provider='fixture', model='fixture-v1', dimensions=3, expected_dimensions=3)
     c['cache_dir'] = str(tmp_path / 'cache')
     return c

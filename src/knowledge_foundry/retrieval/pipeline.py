@@ -2,6 +2,7 @@
 from haystack import Document, Pipeline, component
 
 from knowledge_foundry.retrieval.context import assemble_context
+from knowledge_foundry.retrieval.ranking import enabled, rank_candidates
 
 
 def document(row):
@@ -19,9 +20,27 @@ class SnapshotRetriever:
     @component.output_types(documents=list[Document])
     def run(self, query: str, method: str, mode: str, vector: list[float] | None = None,
             source_ids: list[str] | None = None, document_ids: list[str] | None = None):
-        rows = self.store.search(self.snapshot, query, mode, method, self.config['search'], vector,
+        search = dict(self.config['search'])
+        if enabled(self.config):
+            search['top_k'] = search['candidate_k']
+        rows = self.store.search(self.snapshot, query, mode, method, search, vector,
                                  source_ids, document_ids)
-        return {'documents': [document(r) for r in rows]}
+        docs = [document(r) for r in rows]
+        titles = {s['id']: s['title'] for s in self.snapshot['identity'].get('sources', [])}
+        for doc in docs:
+            doc.meta['source_titles'] = [titles[s] for s in doc.meta['source_ids'] if s in titles]
+        return {'documents': docs}
+
+
+@component
+class CandidateRanker:
+    def __init__(self, config, stream=None):
+        self.config, self.stream = config, stream
+
+    @component.output_types(documents=list[Document], telemetry=dict | None)
+    def run(self, documents: list[Document], query: str):
+        selected, telemetry = rank_candidates(documents, query, self.config, self.stream)
+        return {'documents': selected, 'telemetry': telemetry}
 
 
 @component
@@ -54,16 +73,18 @@ class ContextAssembler:
 
     @component.output_types(context=dict)
     def run(self, documents: list[Document], question: str, history: list[str],
-            source_ids: list[str] | None = None, document_ids: list[str] | None = None):
+            source_ids: list[str] | None = None, document_ids: list[str] | None = None, query: str | None = None):
         return {'context': assemble_context(self.store, self.snapshot['id'], documents, question,
-                                            history, self.config, source_ids, document_ids)}
+                                            history, self.config, source_ids, document_ids, query=query)}
 
 
-def retrieval_pipeline(store, snapshot, config):
+def retrieval_pipeline(store, snapshot, config, ranking_stream=None):
     pipeline = Pipeline()
     pipeline.add_component('retrieve', SnapshotRetriever(store, snapshot, config))
+    pipeline.add_component('rank', CandidateRanker(config, ranking_stream))
     pipeline.add_component('resolve', EvidenceResolver(store, snapshot, config))
     pipeline.add_component('context', ContextAssembler(store, snapshot, config))
-    pipeline.connect('retrieve.documents', 'resolve.documents')
+    pipeline.connect('retrieve.documents', 'rank.documents')
+    pipeline.connect('rank.documents', 'resolve.documents')
     pipeline.connect('resolve.documents', 'context.documents')
     return pipeline

@@ -66,7 +66,9 @@ def test_conversations_feedback_followups_and_retrieval_are_isolated(store, publ
     c, sid = published
     token, other = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     session = store.new_session(sid, token)
-    assistant = DocumentAssistant(store, c)
+    def rewrite(payload, config):
+        yield {'type': 'delta', 'text': json.dumps({'query': 'Dogs rest exercise exceptions', 'uses_history': True})}
+    assistant = DocumentAssistant(store, c, query_stream=rewrite)
     answer = assistant.ask('animals', 'Dogs rest exercise', token=token, session_id=session)
     assert answer['citations'][0]['reference']['element_id']
     from knowledge_foundry.retrieval.evaluation import audit_answer
@@ -82,7 +84,7 @@ def test_conversations_feedback_followups_and_retrieval_are_isolated(store, publ
     assert store.sessions(sid, other) == []
     followup = assistant.ask('animals', 'What about exceptions?', token=token, session_id=session)
     assert 'Dogs rest exercise' in followup['retrieval']['query']
-    assert 'What about exceptions?' in followup['retrieval']['query']
+    assert 'exceptions' in followup['retrieval']['query']
     assert followup['retrieval']['passage_ids']
     assert len(store.history(session, token)) == 4
     new = store.new_session(sid, token)
@@ -168,3 +170,110 @@ def test_auxiliary_resolution_rejects_shared_evidence_outside_original_chunks(st
     store.publish('animals', sid)
     result = DocumentAssistant(store, c).retrieve('animals', 'Canine recovery proposition', mode='claim')
     assert result['passage_ids'] == [target['id']]
+
+
+def test_topic_change_retrieves_again_without_old_question(store, published):
+    c, sid = published
+    result = DocumentAssistant(store, c).retrieve('animals', 'Cats play outdoors', history=['Dogs rest exercise'])
+    assert not result['history_used']
+    assert result['query'] == 'Cats play outdoors'
+    assert any(e['text'] == 'Cats may play outdoors.' for e in result['evidence'])
+    assert not any(e['text'].startswith('Dogs must') for e in result['evidence'])
+    def rewrite(payload, config):
+        yield {'type': 'delta', 'text': json.dumps({'query': 'Cats play indoors', 'uses_history': True})}
+    followup = DocumentAssistant(store, c, query_stream=rewrite).retrieve('animals', 'What about indoors?',
+                                                   history=['Dogs rest exercise', 'Cats play outdoors'])
+    assert followup['history_used']
+    assert followup['query'] == 'Cats play indoors'
+
+
+def test_repeated_table_words_cannot_outvote_precise_evidence(store, tmp_path):
+    c = config(tmp_path)
+    records, evidence, identity = projection()
+    target = next(r for r in records if r['text'].startswith('Dogs must'))
+    header = copy.deepcopy(next(e for e in evidence if e['id'] == target['evidence_ids'][0]))
+    header.update(id='ev:header', text='| Professions | Groups |', element_kind='table', context_ids=[])
+    header['reference']['element_id'] = 'el:header'
+    target['evidence_ids'].insert(0, header['id'])
+    trap = copy.deepcopy(target)
+    repeated = copy.deepcopy(header)
+    repeated.update(id='ev:repeated', text='exercise ' * 500)
+    repeated['reference']['element_id'] = 'el:repeated'
+    trap.update(id='structural:repeated', text=repeated['text'], evidence_ids=[repeated['id']])
+    records.append(trap)
+    evidence.extend([header, repeated])
+    sid = store.import_snapshot('animals', identity, records, evidence, profile(c['embedding']), 'english')['snapshot_id']
+    store.publish('animals', sid)
+    assistant = DocumentAssistant(store, c)
+    result = assistant.retrieve('animals', 'Dogs rest exercise')
+    assert result['passage_ids'][0] == target['id']
+    from knowledge_foundry.retrieval.answering import generate
+    answer = list(generate(c, result['payload'], result['evidence']))[-1]['answer']
+    assert answer['citations'][0]['text'].startswith('Dogs must rest')
+    assert 'Professions' not in answer['text']
+    assert any('Except emergency' in e['text'] for e in result['evidence'])
+
+
+def test_source_filters_are_explicit_and_question_tokens_do_not_change_scope(store, published):
+    c, sid = published
+    assistant = DocumentAssistant(store, c)
+    result = assistant.retrieve('animals', 'ALPHA n°9999 dogs rest exercise')
+    assert result['source_ids'] is None
+    assert result['query'] == 'ALPHA n°9999 dogs rest exercise'
+    assert result['evidence']
+    assert not assistant.retrieve('animals', 'dogs rest exercise', source_ids=['missing'])['evidence']
+
+
+def test_textual_section_numbers_do_not_invent_artifact_relationships(store, tmp_path):
+    c = config(tmp_path)
+    records, evidence, identity = projection()
+    target = next(r for r in records if r['text'].startswith('Dogs must'))
+    seed = next(e for e in evidence if e['id'] == target['evidence_ids'][0])
+    seed['text'] = target['text'] = 'Dogs must rest; see the recovery rules (2.1).'
+    def extra(name, kind, text, context_ids, doc=None):
+        e = copy.deepcopy(seed)
+        e.update(id='ev:' + name, element_kind=kind, text=text, context_ids=context_ids, origin='artifact')
+        e['reference']['element_id'] = 'el:' + name
+        if doc:
+            e['reference']['document_id'] = doc
+            e['document']['id'] = doc
+        return e
+    heading = extra('section', 'heading', '2.1. Recovery rules', [])
+    paragraph = extra('section-body', 'paragraph', 'Rest includes water and quiet; further material (9.9).', [heading['id']])
+    other_heading = extra('other-heading', 'heading', '2.1. Recovery rules', [], 'doc:other')
+    decoy = extra('other-body', 'paragraph', 'Wrong source scope.', [other_heading['id']], 'doc:other')
+    remote_heading = extra('remote-heading', 'heading', '9.9. Unrelated section', [])
+    remote = extra('remote-body', 'paragraph', 'Unrelated material.', [remote_heading['id']])
+    evidence.extend([heading, paragraph, other_heading, decoy, remote_heading, remote])
+    sid = store.import_snapshot('animals', identity, records, evidence, profile(c['embedding']), 'english')['snapshot_id']
+    store.publish('animals', sid)
+    result = DocumentAssistant(store, c).retrieve('animals', 'Dogs rest recovery')
+    ids = {e['id'] for e in result['evidence']}
+    assert paragraph['id'] not in ids
+    assert decoy['id'] not in ids and remote['id'] not in ids
+
+
+def test_lists_split_across_passages_are_complete_and_atomic(store, tmp_path):
+    c = config(tmp_path)
+    records, evidence, identity = projection()
+    target = next(r for r in records if r['text'].startswith('Dogs must'))
+    seed = next(e for e in evidence if e['id'] == target['evidence_ids'][0])
+    seed['element_kind'] = 'list_item'
+    sibling = copy.deepcopy(seed)
+    sibling.update(id='ev:continuation', text='2 Provide fresh water after the rest period.')
+    sibling['reference']['element_id'] = 'el:continuation'
+    evidence.append(sibling)
+    other_document = copy.deepcopy(sibling)
+    other_document.update(id='ev:other-document', text='Unrelated list with the same parent ID.')
+    other_document['document']['id'] = other_document['reference']['document_id'] = 'doc:other'
+    evidence.append(other_document)
+    sid = store.import_snapshot('animals', identity, records, evidence, profile(c['embedding']), 'english')['snapshot_id']
+    store.publish('animals', sid)
+    assistant = DocumentAssistant(store, c)
+    result = assistant.retrieve('animals', 'Dogs rest exercise')
+    assert any(e['id'] == sibling['id'] for e in result['evidence'])
+    assert not any(e['id'] == other_document['id'] for e in result['evidence'])
+    c['search']['max_context_evidence'] = 3
+    result = assistant.retrieve('animals', 'Dogs rest exercise')
+    assert not result['evidence']  # two clauses + parent + exception must fit together
+    assert any('budget' in w for w in result['warnings'])

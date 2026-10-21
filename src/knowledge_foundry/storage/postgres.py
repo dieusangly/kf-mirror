@@ -12,6 +12,27 @@ from psycopg.types.json import Jsonb
 from knowledge_foundry.structural_chunks import stable_hash
 
 
+# Rank distinct query-term coverage, weighted by evidence frequency. Repeating a
+# common term throughout a large table must not outrank a precise paragraph.
+# Documents and q are supplied by the two callers, with bound parameters only.
+LEXICAL_SCORES = """
+, words AS (SELECT unnest(tsvector_to_array(q.vector)) AS word FROM q)
+, weights AS MATERIALIZED (
+    SELECT word, ln(1.0 + (SELECT count(*) + 1 FROM documents) /
+        (1.0 + (SELECT count(*) FROM documents d WHERE d.terms @@ quote_literal(word)::tsquery))) AS weight
+    FROM words
+)
+, scores AS MATERIALIZED (
+    SELECT d.id,
+        coalesce(sum(w.weight) FILTER (WHERE d.terms @@ quote_literal(w.word)::tsquery) /
+            nullif(sum(w.weight), 0), 0) AS score,
+        ts_rank_cd(d.terms, q.terms, 2) AS density
+    FROM documents d CROSS JOIN q CROSS JOIN weights w
+    GROUP BY d.id, d.terms, q.terms
+)
+"""
+
+
 def vector_literal(vector):
     from knowledge_foundry.semantic_clusters import normalized
     normalized(vector)
@@ -130,12 +151,32 @@ class PostgresStore:
         lists = []
         with self.connection() as conn:
             if method in {'keyword', 'combined'}:
-                # Natural-language OR baseline after PostgreSQL language stemming.
-                # quote_literal applies to DB-produced lexemes, not SQL fragments.
-                rows = conn.execute("WITH q AS (SELECT coalesce((SELECT string_agg(quote_literal(t),' | ') FROM unnest(tsvector_to_array(to_tsvector(%s::regconfig,%s))) t),'')::tsquery AS terms) "
-                    'SELECT r.*,ts_rank_cd(r.terms,q.terms,32) AS score FROM kf_records r CROSS JOIN q WHERE ' + scope +
-                    ' AND r.terms @@ q.terms AND ts_rank_cd(r.terms,q.terms,32)>%s ORDER BY score DESC,r.id LIMIT %s',
-                    [language, query, *args, search['minimum_keyword_score'], search['candidate_k']]).fetchall()
+                rows = conn.execute("""WITH q0 AS (SELECT to_tsvector(%s::regconfig,%s) AS vector),
+                    q AS (SELECT vector, coalesce((SELECT string_agg(quote_literal(t),' | ')
+                        FROM unnest(tsvector_to_array(vector)) t),'')::tsquery AS terms FROM q0),
+                    candidates AS MATERIALIZED (SELECT r.* FROM kf_records r CROSS JOIN q WHERE """ + scope + """
+                        AND r.terms @@ q.terms),
+                    memberships AS MATERIALIZED (
+                        SELECT id AS record_id, unnest(evidence_ids) AS evidence_id FROM candidates
+                        WHERE kind='passage'),
+                    documents AS MATERIALIZED (
+                        SELECT DISTINCT e.id, to_tsvector(%s::regconfig,e.payload->>'text') AS terms
+                        FROM kf_evidence e JOIN memberships m ON e.id=m.evidence_id
+                        WHERE e.snapshot_id=%s
+                        UNION ALL SELECT id,terms FROM candidates
+                    )""" + LEXICAL_SCORES + """,
+                    span_scores AS (SELECT m.record_id, max(s.score) AS score, max(s.density) AS density
+                        FROM memberships m JOIN scores s ON s.id=m.evidence_id GROUP BY m.record_id),
+                    ranked AS (SELECT r.id, (b.score + coalesce(s.score,b.score))/2 AS score,
+                        greatest(b.score,coalesce(s.score,b.score)) AS coverage,
+                        coalesce(s.density,b.density) AS density
+                        FROM candidates r JOIN scores b ON b.id=r.id
+                        LEFT JOIN span_scores s ON s.record_id=r.id)
+                    SELECT r.*, ranked.score::float8 AS score FROM candidates r JOIN ranked USING(id)
+                    WHERE ranked.coverage >= %s AND ranked.score > %s
+                    ORDER BY ranked.score DESC, ranked.density DESC, r.id LIMIT %s""",
+                    [language, query, *args, language, sid, search.get('minimum_keyword_coverage', .25),
+                     search['minimum_keyword_score'], search['candidate_k']]).fetchall()
                 lists.append(rows)
             if method in {'vector', 'combined'}:
                 if vector is None or not snapshot['embedding_profile'] or len(vector) != snapshot['embedding_profile']['dimensions']:
@@ -157,6 +198,44 @@ class PostgresStore:
                 rows[key] = row
                 scores[key] = scores.get(key, 0.) + 1 / (search['rrf_constant'] + rank)
         return [{**rows[k], 'score': scores[k]} for k in sorted(scores, key=lambda k: (-scores[k], k))[:search['top_k']]]
+
+    def list_siblings(self, snapshot_id, seeds, limit):
+        """Complete bounded lists using saved direct governing relationships."""
+        parents = self.evidence(snapshot_id, sorted({k for seed in seeds for k in seed['context_ids']}))
+        groups, memberships = {}, {}
+        for seed in seeds:
+            governing = [parents[k] for k in seed['context_ids'] if k in parents
+                         and parents[k]['element_kind'] in {'heading', 'paragraph'}]
+            if len(governing) == 1:
+                memberships[seed['id']] = (seed['document']['id'], governing[0]['id'])
+        with self.connection() as conn:
+            for doc_id, parent in sorted(set(memberships.values())):
+                rows = conn.execute("""SELECT payload FROM kf_evidence WHERE snapshot_id=%s
+                    AND payload->'reference'->>'document_id'=%s
+                    AND payload->>'element_kind'='list_item' AND payload->>'origin'='artifact'
+                    AND (payload->'context_ids') ? %s ORDER BY id LIMIT %s""",
+                    (snapshot_id, doc_id, parent, limit + 1)).fetchall()
+                groups[(doc_id, parent)] = [r['payload'] for r in rows]
+        return {seed_id: groups[key] for seed_id, key in memberships.items()}
+
+    def rank_evidence(self, snapshot_id, query, evidence):
+        """Order exact spans with the same lexical normalization as retrieval."""
+        if not evidence:
+            return []
+        with self.connection() as conn:
+            language = conn.execute('SELECT identity->>\'language\' AS language FROM kf_snapshots WHERE id=%s',
+                                    (snapshot_id,)).fetchone()['language']
+            rows = conn.execute("""WITH q0 AS (SELECT to_tsvector(%s::regconfig,%s) AS vector),
+                q AS (SELECT vector, coalesce((SELECT string_agg(quote_literal(t),' | ')
+                    FROM unnest(tsvector_to_array(vector)) t),'')::tsquery AS terms FROM q0),
+                documents AS (SELECT id,to_tsvector(%s::regconfig,text) AS terms
+                    FROM unnest(%s::text[],%s::text[]) AS input(id,text))""" + LEXICAL_SCORES + """
+                SELECT id,score,density FROM scores ORDER BY score DESC,density DESC,id""",
+                (language, query, language, [e['id'] for e in evidence],
+                 [e['text'] for e in evidence])).fetchall()
+            by_id = {e['id']: e for e in evidence}
+            ranked = [{**by_id[r['id']], 'lexical_score': float(r['score'])} for r in rows]
+        return ranked
 
     def supporting_passages(self, snapshot_id, evidence_ids, original_chunk_ids, query, limit,
                             language, source_ids=None, document_ids=None):

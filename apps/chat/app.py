@@ -55,7 +55,7 @@ def render_answer(message, store, session_id, token):
             with st.expander(f"{e['label']} provenance"):
                 st.json({'evidence_id': e['id'], 'reference': e['reference'],
                          'original_chunk_ids': e['original_chunk_ids'], 'location': e['location']})
-        for warning in answer.get('retrieval', {}).get('warnings', []):
+        for warning in answer.get('retrieval', {}).get('warnings', []) + answer.get('warnings', []):
             st.warning(warning)
         with st.expander('Request and retrieval details'):
             st.json({'telemetry': telemetry, 'retrieval': {k: v for k, v in answer.get('retrieval', {}).items() if k != 'evidence'}})
@@ -72,6 +72,10 @@ def main():
     st.title('Document assistant')
     st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
     config = load_config(os.environ.get('KF_RETRIEVAL_CONFIG'))
+    if config['answer']['provider'] == 'openai' and not os.environ.get('OPENAI_API_KEY'):
+        config['answer']['provider'] = 'extractive'
+        config['search']['method'] = 'keyword'
+        st.info('OPENAI_API_KEY is not configured. Using keyword search and source excerpts.')
     store = PostgresStore()
     try:
         snapshots = [s for s in store.snapshots() if s['status'] == 'published']
@@ -94,8 +98,14 @@ def main():
         st.write('Snapshot: ' + selected_id)
     st.sidebar.caption('Publication selects an index version; it does not approve source content or draft claims.')
     method = st.sidebar.selectbox('Search', ['keyword', 'vector', 'combined'],
-                                   index=['keyword', 'vector', 'combined'].index(config['search']['method']))
+        index=['keyword', 'vector', 'combined'].index(config['search']['method']),
+        help='Vector and combined search use query embeddings and require OPENAI_API_KEY.')
     mode = st.sidebar.selectbox('Retrieve via', ['passage', 'claim', 'summary'])
+    config['answer']['provider'] = st.sidebar.selectbox('Answer mode', ['extractive', 'openai'],
+        index=['extractive', 'openai'].index(config['answer']['provider']),
+        format_func=lambda p: 'Source excerpts' if p == 'extractive' else 'Generated answer (OpenAI)')
+    if config['answer']['provider'] == 'openai':
+        st.sidebar.caption('Generated answers require OPENAI_API_KEY and may incur API costs.')
     source_map = {s['id']: s['title'] + ' · ' + s['version'] for s in snapshot['identity'].get('sources', [])}
     source_ids = st.sidebar.multiselect('Source filter', list(source_map), format_func=lambda s: source_map[s])
     graph = snapshot['identity'].get('graph_url')
@@ -108,8 +118,7 @@ def main():
     st.sidebar.caption('This local demo uses a private history token in the URL. Keep the URL private to retain your history.')
     conversation_key = 'conversation-' + selected_id
     if st.sidebar.button('New conversation / reset'):
-        store.new_session(selected_id, token)
-        st.session_state.pop(conversation_key, None)
+        st.session_state[conversation_key] = store.new_session(selected_id, token)
         st.rerun()
     sessions = store.sessions(selected_id, token)
     if not sessions:
