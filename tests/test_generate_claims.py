@@ -8,6 +8,18 @@ from scripts.generate_claims import _print_progress, main
 
 
 class GenerateClaimsCliTests(unittest.TestCase):
+    def test_unknown_cost_does_not_fail_after_generation(self):
+        def generate(*args, **kwargs):
+            kwargs['on_progress']({'phase': 'complete', 'state': 'complete',
+                                   'telemetry': {'requests': 1, 'estimated_cost_usd': None}})
+            return {'status': 'complete', 'projected_full_generation': {'estimated_cost_usd': None},
+                    'compilation_scope': {'selected_cluster_numbers': [1], 'total_semantic_clusters': 2}}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch('scripts.generate_claims.generate_claims', side_effect=generate), redirect_stdout(stdout), redirect_stderr(stderr):
+            self.assertEqual(main(['--context-dir', 'prepared', '--output-dir', 'generated']), 0)
+        self.assertEqual(json.loads(stdout.getvalue())['status'], 'complete')
+        self.assertEqual(stderr.getvalue().count('unknown'), 2)
+
     def test_cli_prints_coarse_progress_and_summary_to_stderr(self):
         report = {"status": "complete", "candidates": 1}
         captured = {}

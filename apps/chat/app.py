@@ -11,8 +11,15 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
 from knowledge_foundry.retrieval.config import corpora, load_config
+from knowledge_foundry.retrieval.provenance import graph_path
 from knowledge_foundry.retrieval.service import DocumentAssistant
 from knowledge_foundry.storage.postgres import PostgresStore
+
+
+@st.dialog('Provenance graph', width='large')
+def show_graph(path):
+    st.caption('Artifact provenance · draft claims and classifications are not verified evidence.')
+    st.iframe(path, height=700, alt='Knowledge provenance graph')
 
 
 def render_answer(message, store, session_id, token):
@@ -20,20 +27,27 @@ def render_answer(message, store, session_id, token):
     labels = {e['label'] for e in answer.get('citations', [])}
     # Extractive source text is displayed literally; generated Markdown links are
     # constructed only for labels already resolved by application code.
-    if answer.get('status') == 'extractive':
+    if answer.get('status') == 'inventory':
+        st.text(message['content'])
+        st.caption('Document inventory from the selected snapshot metadata, with the current source filter.')
+    elif answer.get('status') == 'extractive':
         st.text(message['content'])
         st.markdown(' · '.join(f'[{label}](#evidence-{mid}-{label})' for label in sorted(labels)))
     else:
         text = re.sub(r'\[(E\d+)\]', lambda m: f'[{m[1]}](#evidence-{mid}-{m[1]})' if m[1] in labels else m[0], message['content'])
         st.markdown(text)
-    st.caption('Exact source excerpts · no generated synthesis' if answer.get('status') == 'extractive' else
-               'Draft answer · review the cited passages before relying on it')
+    if answer.get('status') != 'inventory':
+        st.caption('Exact source excerpts · no generated synthesis' if answer.get('status') == 'extractive' else
+                   'Draft answer · review the cited passages before relying on it')
     telemetry = answer.get('telemetry', {})
     st.caption(f"Model: {telemetry.get('model', 'unknown')} · {telemetry.get('total_latency_seconds', '?')} s · "
                f"Estimated answer cost: {telemetry.get('estimated_cost_usd')} USD")
-    with st.expander('Sources and exact passages', expanded=True):
+    with st.expander('Documents and snapshot' if answer.get('status') == 'inventory' else 'Sources and exact passages', expanded=True):
         citations = answer.get('citations', [])
-        if not citations:
+        if answer.get('status') == 'inventory':
+            st.dataframe(answer['documents'], hide_index=True, width='stretch',
+                         column_config={'uri': st.column_config.LinkColumn('Source')})
+        elif not citations:
             st.info('No supporting citations were available or citation validation failed.')
         for e in citations:
             anchor = f'evidence-{mid}-{e["label"]}'
@@ -101,6 +115,10 @@ def main():
         index=['keyword', 'vector', 'combined'].index(config['search']['method']),
         help='Vector and combined search use query embeddings and require OPENAI_API_KEY.')
     mode = st.sidebar.selectbox('Retrieve via', ['passage', 'claim', 'summary'])
+    coverage = store.vector_coverage(selected_id).get(mode, {'records': 0, 'vectors': 0})
+    st.sidebar.caption(f"{mode.title()}: {coverage['records']} records · {coverage['vectors']} with vectors")
+    if method != 'keyword' and coverage['vectors'] < coverage['records']:
+        st.sidebar.warning('Vector coverage is incomplete. Reimport with --embed-missing, or use keyword search.')
     config['answer']['provider'] = st.sidebar.selectbox('Answer mode', ['extractive', 'openai'],
         index=['extractive', 'openai'].index(config['answer']['provider']),
         format_func=lambda p: 'Source excerpts' if p == 'extractive' else 'Generated answer (OpenAI)')
@@ -108,9 +126,9 @@ def main():
         st.sidebar.caption('Generated answers require OPENAI_API_KEY and may incur API costs.')
     source_map = {s['id']: s['title'] + ' · ' + s['version'] for s in snapshot['identity'].get('sources', [])}
     source_ids = st.sidebar.multiselect('Source filter', list(source_map), format_func=lambda s: source_map[s])
-    graph = snapshot['identity'].get('graph_url')
-    if graph and urlparse(graph).scheme in {'http', 'https'}:
-        st.sidebar.link_button('Open provenance graph', graph)
+    graph = graph_path(snapshot, definitions.get(corpus, {}))
+    if graph and st.sidebar.button('Open provenance graph'):
+        show_graph(graph)
     token = st.query_params.get('chat_token')
     if not token or len(token) < 32:
         token = secrets.token_urlsafe(32)
@@ -130,7 +148,9 @@ def main():
             'Claims and summaries only help locate original passages.')
     if config['answer']['provider'] == 'extractive':
         st.caption('Extractive demo: answers show exact source excerpts. Configure the OpenAI provider for generated answers.')
-    pending = None
+    pending, intent = None, None
+    if st.button('Documents in corpus'):
+        pending, intent = 'Documents in corpus', 'document_inventory'
     suggestions = definitions.get(corpus, {}).get('suggested_questions', [])
     if suggestions:
         with st.expander('Suggested questions', expanded=True):
@@ -154,7 +174,7 @@ def main():
             def chunks():
                 for event in assistant.stream(corpus, question, token=token, session_id=session_id,
                                               snapshot_id=selected_id, method=method, mode=mode,
-                                              source_ids=source_ids or None):
+                                              source_ids=source_ids or None, intent=intent):
                     if event['type'] == 'delta':
                         yield event['text']
 

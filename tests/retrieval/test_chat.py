@@ -54,6 +54,10 @@ def test_generated_mode_uses_resolved_citations_without_a_live_model(store, publ
         selected = next(e for e in evidence if e['text'].startswith('Dogs must'))
         yield {'type': 'delta', 'text': 'Dogs rest after exercise [' + selected['label'] + '].'}
     monkeypatch.setattr('knowledge_foundry.retrieval.answering.openai_stream', stream)
+    def route(payload, config):
+        question = json.loads(payload['input'])['question']
+        yield {'type': 'delta', 'text': json.dumps({'query': question, 'uses_history': False, 'intent': 'evidence_question'})}
+    monkeypatch.setattr('knowledge_foundry.retrieval.query.openai_stream', route)
     app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
     assert next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').value == 'openai'
     next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').select('openai').run()
@@ -62,6 +66,20 @@ def test_generated_mode_uses_resolved_citations_without_a_live_model(store, publ
     assert any('Draft answer' in item.value for item in app.caption)
     assert any('Dogs must rest' in item.value for item in app.code)
     assert any('evidence-' in item.value and 'Dogs rest' in item.value for item in app.markdown)
+
+
+def test_inventory_button_uses_metadata_without_models(store, published, tmp_path, monkeypatch):
+    c, _ = published
+    path = tmp_path / 'retrieval.json'
+    path.write_text(json.dumps(c))
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
+    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    next(b for b in app.button if b.label == 'Documents in corpus').click().run()
+    assert not app.exception
+    assert len(app.dataframe) == 1
+    assert any('snapshot metadata' in c.value for c in app.caption)
+    assert not any('No supporting citations' in i.value for i in app.info)
 
 
 def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, monkeypatch):

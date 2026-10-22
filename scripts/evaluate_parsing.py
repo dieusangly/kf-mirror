@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 from knowledge_foundry.parsers import (  # noqa: E402
-    _pdf_text, FILENAME_FOOTNOTE,
+    _pdf_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
 )
 
@@ -76,7 +76,8 @@ def audit_document(outcome, elements, sidecar, folder):
     """Compare retrievable elements with the saved Docling source when available."""
     metrics = {key: 0 for key in METRIC_KEYS}
     metrics["heading_depth_distribution"] = dict(sorted(Counter(
-        str(len(detail.get("heading_path") or [])) for element, detail in zip(elements, sidecar)
+        str(len(detail.get("heading_path", element['location'].get('heading_path')) or []))
+        for element, detail in zip(elements, sidecar)
         if element["kind"] == "heading").items()))
     findings = {}
 
@@ -165,12 +166,13 @@ def audit_document(outcome, elements, sidecar, folder):
             metrics["malformed_parents"] += 1
             flag("MALFORMED_PARENT", "error", {"element_id": element["id"],
                                                "parent_element_id": None})
-        path = detail.get("heading_path")
+        path = detail.get("heading_path", element['location'].get('heading_path'))
         if element["kind"] == "heading" and (not isinstance(path, list) or
                                               not path or normalized(path[-1]) != value):
             flag("BROKEN_HEADING_PATH", "error", {"element_id": element["id"]})
-        if parent_id in details and path and details[parent_id].get("heading_path") and not auxiliary:
-            parent_path = details[parent_id]["heading_path"]
+        parent_path = (details[parent_id].get('heading_path', ids[parent_id]['location'].get('heading_path'))
+                       if parent_id in details and parent_id in ids else None)
+        if parent_path and path and not auxiliary:
             if path[:len(parent_path)] != parent_path:
                 flag("BROKEN_HEADING_PATH", "error", {"element_id": element["id"],
                                                       "parent_element_id": parent_id})
@@ -562,7 +564,7 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
     reference = (json.loads(Path(reference_path).read_text(encoding="utf-8")) if reference_path else
                  {"status": "not_supplied", "passages": [], "structure": [], "reading_order": []})
     outcomes = select_outcomes(input_dir, additional_input_dirs)
-    corpus = {}
+    corpus, formats = {}, {}
     documents = []
     for outcome in outcomes:
         if outcome["status"] in {"parsed", "partial"}:
@@ -570,6 +572,7 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
             bundle = json.loads((folder / "artifact-bundle.json").read_text(encoding="utf-8"))
             sidecar = json.loads((folder / "parse.json").read_text(encoding="utf-8"))
             corpus[outcome["manifest_id"]] = (bundle["elements"], sidecar["elements"])
+            formats[outcome['manifest_id']] = bundle['sources'][0]['format']
             document = audit_document(outcome, bundle["elements"], sidecar["elements"], folder)
             try:
                 validate_bundle(bundle)
@@ -590,7 +593,8 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
         elements = corpus[outcome["manifest_id"]][0]
         folder = Path(outcome["output"])
         invalid = []
-        if (folder / "docling.json").is_file():
+        format_name = formats[outcome['manifest_id']]
+        if format_name == 'pdf' and (folder / "docling.json").is_file():
             pages = json.loads((folder / "docling.json").read_text(encoding="utf-8"))["pages"]
             for element in elements:
                 location = element["location"]
@@ -603,12 +607,26 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
                     if not (0 <= left <= right <= page["size"]["width"] + 1 and
                             0 <= top <= bottom <= page["size"]["height"] + 1):
                         invalid.append(element["id"])
-        else:
+        elif format_name == 'html':
             document = html.parse(str(Path(source_root) / outcome["local_path"])).getroot()
             for element in elements:
                 selected = document.cssselect(element["location"]["selector"])
                 if len(selected) != 1:
                     invalid.append(element["id"])
+        elif format_name in {'markdown', 'docx'}:
+            # Replay these deterministic native locators against the saved file;
+            # Markdown line ranges and DOCX blocks/cells are not CSS selectors.
+            settings = json.loads((folder / 'parse.json').read_text())['settings']
+            parser = parse_markdown if format_name == 'markdown' else parse_docx
+            items, _, _ = parser(Path(source_root) / outcome['local_path'], {}, settings)
+            by_locator = {item['locator_key']: item for item in items}
+            for element in elements:
+                original = by_locator.get(element['locator_key'])
+                if original is None or any(original[k] != element[k] for k in ('kind', 'text', 'location')):
+                    invalid.append(element['id'])
+        else:
+            # A PDF without its native sidecar cannot prove its page locations.
+            invalid = [element['id'] for element in elements]
         measurements["locations"].append({"source": outcome["manifest_id"],
                                           "checked": len(elements), "valid": len(elements) - len(invalid),
                                           "invalid_element_ids": invalid})

@@ -10,7 +10,7 @@ RUN_ID="your-claim-run-id"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 
-.venv/bin/python scripts/render_knowledge_graph.py \
+direnv exec . .venv/bin/python scripts/render_knowledge_graph.py \
   --bundle "$CLASSIFIED_DIR/artifact-bundle.json" \
   --claim-generation-dir "$CANDIDATES_DIR" \
   --output "$CLASSIFIED_DIR/knowledge-provenance-graph.html"
@@ -18,6 +18,9 @@ CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 
 Open the HTML in a browser. Add `--force` only to replace an existing viewer,
 or choose a new output name to preserve it. No model calls or claim artifact edits occur.
+For chatbot access, register this exact file as the run's `graph_path` in
+[`retrieval-corpora.json`](../config/retrieval-corpora.json). The chatbot displays
+it directly when the selected snapshot matches; no separate HTTP server is needed.
 
 Add `--summary-dir "artifacts/summaries-${RUN_ID}"` to include the independent
 [summary branch](summaries.md). It verifies and loads the frozen summary run and

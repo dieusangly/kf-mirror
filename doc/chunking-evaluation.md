@@ -35,7 +35,7 @@ PARSED_DIR="artifacts/parsed-${RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 MANIFEST_PATH="data/manifest.json"
 
-.venv/bin/python scripts/evaluate_chunking.py \
+direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \
@@ -80,6 +80,8 @@ coverage; small documents contribute all chunks. Risks: picture-contained prose,
 tables, split elements, short/near-limit chunks, lists and footnotes.
 
 Samples give text, source file/URL/version, locations and selection reasons. Check
+relative `source_file` paths against the selected pipeline's source root (the
+repository root by default). Check
 fidelity, reading order, standalone meaning, headings, boundaries, duplicates and
 whole-chunk support. Inspect layout/figures as needed; never pass uninspected sources.
 
@@ -101,7 +103,7 @@ After the human or agent fills `chunking-review.json`, rerun with `--review-file
 to include their judgments. Keep initial inputs, sample size, policy and reference selection:
 
 ```sh
-.venv/bin/python scripts/evaluate_chunking.py \
+direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \

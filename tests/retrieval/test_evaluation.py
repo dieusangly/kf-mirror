@@ -25,3 +25,23 @@ def test_exact_text_checks_respect_the_expected_source_and_location():
     assert matches_anchors([e], case)
     assert not matches_anchors([e], {**case, 'pages': [4]})
     assert not matches_anchors([e], {**case, 'source_id': 'other'})
+
+
+def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path, monkeypatch):
+    import json
+    from scripts.evaluate_retrieval import main
+    config, sid = published
+    config['search']['rerank'] = True
+    config['answer']['provider'] = 'openai'
+    cfg, cases, output = (tmp_path / name for name in ['config.json', 'cases.json', 'report.json'])
+    cfg.write_text(json.dumps(config))
+    cases.write_text(json.dumps([{'id': 'one', 'question': 'Dogs rest exercise',
+                                  'source_id': store.snapshot('animals')['identity']['sources'][0]['id']}]))
+    def forbidden(*args):
+        raise AssertionError('search comparison must not rank with a model')
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.setattr('knowledge_foundry.retrieval.ranking.openai_stream', forbidden)
+    result = main(['--corpus', 'animals', '--snapshot-id', sid, '--config', str(cfg), '--cases', str(cases),
+                   '--methods', 'keyword', '--no-rerank', '--check-excerpts', '--output', str(output)])
+    assert result['metrics'][0]['hits'] == 1 and result['rows'][0]['ranking'] is None
+    assert output.is_file()

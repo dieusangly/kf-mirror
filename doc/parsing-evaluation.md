@@ -12,7 +12,7 @@ From the repository root, select a saved parsing run:
 RUN_ID="your-parsing-run-id"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
 
-.venv/bin/python scripts/evaluate_parsing.py \
+direnv exec . .venv/bin/python scripts/evaluate_parsing.py \
   --input-dir "$PARSED_DIR" \
   --output "$PARSED_DIR/parsing-evaluation-report.json"
 ```
@@ -62,6 +62,9 @@ legal meaning. Diagnose corrupt OCR/uncertain labels rather than treating them
 as prose. Landmarks sample the source. HTML gets DOM-location, landmark, structure,
 duplication and bundle checks, without Docling/figure checks. Table overlap does
 not establish retrieval behaviour.
+Markdown and DOCX checks replay native line/block/cell locations against saved
+files; Markdown heading paths can come from canonical locations. This requires
+no PDF model downloads and does not prove semantic completeness.
 
 Reports under `artifacts/` are ignored by Git. Test evaluator changes with
-`.venv/bin/python -m unittest discover -s tests -p 'test_evaluate_parsing.py' -v`.
+`direnv exec . .venv/bin/python -m unittest discover -s tests -p 'test_evaluate_parsing.py' -v`.

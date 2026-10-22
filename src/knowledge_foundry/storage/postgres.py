@@ -135,6 +135,12 @@ class PostgresStore:
         with self.connection() as conn:
             return conn.execute('SELECT s.*,c.active_snapshot=s.id AS active FROM kf_snapshots s LEFT JOIN kf_corpora c ON c.corpus=s.corpus WHERE (%s::text IS NULL OR s.corpus=%s) ORDER BY s.created_at DESC', (corpus, corpus)).fetchall()
 
+    def vector_coverage(self, snapshot_id):
+        with self.connection() as conn:
+            return {r['kind']: {'records': r['records'], 'vectors': r['vectors']} for r in conn.execute(
+                'SELECT kind,count(*) AS records,count(vector_id) AS vectors FROM kf_records '
+                'WHERE snapshot_id=%s GROUP BY kind', (snapshot_id,))}
+
     def search(self, snapshot, query, kind, method, search, vector=None, source_ids=None, document_ids=None):
         if kind not in {'passage', 'claim', 'summary'} or method not in {'keyword', 'vector', 'combined'}:
             raise ValueError('invalid retrieval mode/method')

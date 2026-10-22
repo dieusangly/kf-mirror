@@ -11,7 +11,7 @@
         "preparation_dir": "artifacts/generated-claims-20261019/preparation",
         "claims_dir": "artifacts/classified-claims-20261019",
         "summaries_dir": "artifacts/summaries-20261019",
-        "graph_url": "http://localhost:8502/classified-claims-20261019/knowledge-provenance-graph.html"
+        "graph_path": "artifacts/classified-claims-20261019/knowledge-provenance-graph.html"
       }
     }
   }

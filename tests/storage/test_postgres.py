@@ -67,7 +67,7 @@ def test_conversations_feedback_followups_and_retrieval_are_isolated(store, publ
     token, other = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     session = store.new_session(sid, token)
     def rewrite(payload, config):
-        yield {'type': 'delta', 'text': json.dumps({'query': 'Dogs rest exercise exceptions', 'uses_history': True})}
+        yield {'type': 'delta', 'text': json.dumps({'query': 'Dogs rest exercise exceptions', 'uses_history': True, 'intent': 'evidence_question'})}
     assistant = DocumentAssistant(store, c, query_stream=rewrite)
     answer = assistant.ask('animals', 'Dogs rest exercise', token=token, session_id=session)
     assert answer['citations'][0]['reference']['element_id']
@@ -100,6 +100,21 @@ def test_claim_and_summary_navigation_resolve_to_original_passages(store, publis
         assert result['passage_ids'][0].startswith('structural:')
         assert result['evidence'][0]['text'].startswith('Dogs must')
         assert all('proposition' not in e['text'] for e in json.loads(result['payload']['input'])['evidence'])
+
+
+@pytest.mark.parametrize('method', ['vector', 'combined'])
+@pytest.mark.parametrize('mode', ['claim', 'summary'])
+def test_vector_navigation_resolves_original_evidence_and_respects_filters(store, published, mode, method):
+    from knowledge_foundry.structural_chunks import stable_hash
+    c, sid = published
+    question = 'Canine recovery proposition' if mode == 'claim' else 'Overview animal recovery'
+    assistant = DocumentAssistant(store, c, embedding_fixture={'embedding_vectors': {stable_hash(question): [0., 1., 0.]}})
+    result = assistant.retrieve('animals', question, mode=mode, method=method)
+    assert result['navigation_ids'][0].startswith(mode + ':')
+    assert result['passage_ids'][0].startswith('structural:')
+    assert any(e['text'].startswith('Dogs must rest') for e in result['evidence'])
+    assert store.vector_coverage(sid)[mode] == {'records': 1, 'vectors': 1}
+    assert assistant.retrieve('animals', question, mode=mode, method=method, source_ids=['absent'])['evidence'] == []
 
 
 def test_embedding_query_profile_mismatch_and_cached_fixture_query(store, published, tmp_path):
@@ -180,7 +195,7 @@ def test_topic_change_retrieves_again_without_old_question(store, published):
     assert any(e['text'] == 'Cats may play outdoors.' for e in result['evidence'])
     assert not any(e['text'].startswith('Dogs must') for e in result['evidence'])
     def rewrite(payload, config):
-        yield {'type': 'delta', 'text': json.dumps({'query': 'Cats play indoors', 'uses_history': True})}
+        yield {'type': 'delta', 'text': json.dumps({'query': 'Cats play indoors', 'uses_history': True, 'intent': 'evidence_question'})}
     followup = DocumentAssistant(store, c, query_stream=rewrite).retrieve('animals', 'What about indoors?',
                                                    history=['Dogs rest exercise', 'Cats play outdoors'])
     assert followup['history_used']

@@ -19,7 +19,7 @@ REVIEW_FILE="$CLASSIFIED_DIR/compilation-review.json"
 
 ```sh
 evaluate_claims() {
-  .venv/bin/python scripts/evaluate_claims.py \
+  direnv exec . .venv/bin/python scripts/evaluate_claims.py \
     --candidates-dir "$CANDIDATES_DIR" \
     --classified-dir "$CLASSIFIED_DIR" \
     --manifest "$MANIFEST_PATH" \

@@ -11,9 +11,9 @@ from knowledge_foundry.retrieval.config import ROOT
 from knowledge_foundry.structural_chunks import stable_hash
 
 INSUFFICIENT = 'The selected sources do not provide sufficient evidence to answer this question.'
-PROMPT_VERSION = 'rag-answer-v2'
+PROMPT_VERSION = 'rag-answer-v1'
 EXTRACTIVE_VERSION = 'extractive-v2'
-PROMPT = (ROOT / 'src/knowledge_foundry/prompts/rag_answer_v2.txt').read_text()
+PROMPT = (ROOT / 'src/knowledge_foundry/prompts/rag_answer_v1.txt').read_text()
 
 
 def request_payload(config, question, history, evidence):
@@ -139,7 +139,7 @@ def generate(config, payload, evidence, stream=None):
         for event in (stream or openai_stream)(payload, config):
             if event['type'] == 'delta':
                 text += event['text']
-                if token_count(text) > config['budget']['output_tokens']:
+                if token_count(text, config['budget']['tokenizer']) > config['budget']['output_tokens']:
                     raise ValueError('answer exceeds output budget')
                 yield event
             elif event['type'] == 'usage':

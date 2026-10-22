@@ -42,18 +42,13 @@ def main(argv=None):
         result = {'published': args.snapshot_id, 'corpus': args.corpus}
     else:
         selection = {k: getattr(args, k) for k in ('artifact_path', 'preparation_dir', 'claims_dir', 'summaries_dir', 'build_id') if getattr(args, k) is not None}
-        graph = None
         if args.run:
             run = corpora(args.corpora_config)[args.corpus]['runs'][args.run]
             paths = {k: ROOT / run[k] for k in ('artifact_path', 'preparation_dir', 'claims_dir', 'summaries_dir') if run.get(k)}
-            configured_claims = paths.get('claims_dir')
             selection = {**paths, **selection}
-            # A configured graph is offered only alongside its exact claim branch.
-            if configured_claims and selection.get('claims_dir') == configured_claims and (configured_claims / 'knowledge-provenance-graph.html').is_file():
-                graph = run.get('graph_url')
         fixture = json.loads(args.fixture.read_text()) if args.fixture else None
         result = index_artifacts(store, args.corpus, load_config(args.config), embed_missing=args.embed_missing,
-                                 fixture=fixture, graph_url=graph, **selection)
+                                 fixture=fixture, **selection)
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return result
 

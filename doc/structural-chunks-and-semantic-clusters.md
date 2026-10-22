@@ -17,7 +17,7 @@ CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
 PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
 CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
 
-.venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
+direnv exec . .venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
   --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" \
   --output-dir "$CONTEXT_DIR" --cache-dir artifacts/embeddings-and-token-counts
 ```

@@ -9,7 +9,7 @@ RUN_ID="your-chunking-run-id"
 PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 
-.venv/bin/python scripts/chunk.py \
+direnv exec . .venv/bin/python scripts/chunk.py \
   --config config/pipeline.json \
   --input-dir "$PARSED_DIR" \
   --output-dir "$CHUNKED_DIR"
@@ -42,7 +42,7 @@ Record the old parsed folder before changing source bytes. Update hash, size and
 edition in `data/manifest.json`, then parse only that selector:
 
 ```sh
-.venv/bin/python scripts/parse.py \
+direnv exec . .venv/bin/python scripts/parse.py \
   --config config/pipeline.json --output-dir "$PARSED_DIR" --source MANIFEST_ID
 ```
 
@@ -150,7 +150,7 @@ An already mixed original chunk cannot be disentangled by this stage.
 The chunk command validates schema v1.0.0 and links before writing. To check the saved bundle independently:
 
 ```sh
-.venv/bin/python scripts/validate_artifact_examples.py "$CHUNKED_DIR/artifact-bundle.json"
+direnv exec . .venv/bin/python scripts/validate_artifact_examples.py "$CHUNKED_DIR/artifact-bundle.json"
 ```
 
 Validation also checks manifest/source hashes and bundle metadata without

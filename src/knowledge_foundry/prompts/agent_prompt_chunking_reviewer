@@ -11,6 +11,7 @@ RUN_ID="your-completed-run-id"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 MANIFEST_PATH="data/manifest.json"
+SOURCE_ROOT="."  # resolved source root from the selected pipeline configuration
 REFERENCE_PATH=""  # optional source-checked fixture matching the selected corpus
 REVIEW_POLICY="config/review-policy.json"  # selects chunking
 SAMPLE_PER_DOCUMENT=12  # default in config/pipeline.json; retain any original override
@@ -25,7 +26,7 @@ evaluate_chunking() {
   if [ -n "$REFERENCE_PATH" ]; then
     set -- --reference-fixture "$REFERENCE_PATH" "$@"
   fi
-  .venv/bin/python scripts/evaluate_chunking.py \
+  direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
     --chunked-dir "$CHUNKED_DIR" \
     --parsed-dir "$PARSED_DIR" \
     --manifest "$MANIFEST_PATH" \
@@ -44,6 +45,7 @@ fi
 Inspect the exit code and written report. Stop on exit 2, a stale build/policy or mismatched sample set, missing review/report, or `automatic_gate: fail`; report the failure without changing artifacts. Initial pending review returns 0; validating an existing pending or failed review can return 1. That exit 1 permits continuing source review only when artifact checks pass and the build, policy and samples are valid. Never replace an existing review with a new template or reset its judgments. An automatic pass is not expert approval. Do not repeat parsing or chunking.
 
 Inspect the manifest, chunk collection, per-document views, parsed bundles, `parse.json` sidecars, figure links, and `$EVALUATION_REPORT`. Confirm that it describes the supplied build before beginning source review.
+Resolve relative `source_file` paths against `SOURCE_ROOT`.
 2. In the evaluation report, review **every chunk in every document's `review_sample`**. Use the sample's source file, full chunk text, evidence IDs, and native page, selector, line, or block locations to inspect the saved original source. For PDF evidence, inspect the cited page and relevant layout or figure crop when needed. If a source or location cannot be inspected, leave that sample `pending` and explain why; do not mark it `pass` by relying only on the chunk text.
 3. For each sample, check text fidelity, reading order, sentence and list-item integrity, table rows and headers, heading context, useful standalone meaning, exact duplicate handling, and whether the citation supports the whole chunk. Verify that genuine repeated text at distinct locations is retained. Table cells must not be treated as independent evidence. Auxiliary diagram labels must not become text claims; the linked image preserves visual information, and visual relationships require image review.
 4. Inspect additional high-risk chunks when the report or source suggests a problem, including short chunks, near-limit chunks, split elements, long sentences, split tables, figure-adjacent prose, and repeated wording. Record these findings separately in the final report; the standard review JSON covers only the evaluator's sampled chunk IDs. Distinguish a parser omission or bad parsed location from a chunking defect.

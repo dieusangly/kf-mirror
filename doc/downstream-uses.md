@@ -2,8 +2,8 @@
 
 **Claims** express individual propositions linked to exact source evidence.
 **Summaries** compress related chunks or earlier summaries, retaining provenance.
-The repository generates both and renders their graph. Other uses below are
-possible consumers, not implemented retrieval or training systems.
+The repository generates both, renders their graph and supports
+[snapshot-scoped RAG](retrieval-rag.md). Training uses below remain prospective.
 
 **Neither output requires the other.** Each column describes an alternative use;
 choose claims, summaries or both according to the task. Passage-only RAG is also
@@ -17,9 +17,9 @@ possible. Combining outputs is optional.
 | Training data | Reviewed source/context → claim and claim/context → topic/null examples. | Reviewed structural-text → summary and earlier-summaries → higher-summary examples. |
 | Reasoning-model training | Curate questions, evidence combinations, checked conclusions and verifiable intermediate steps. | Supply context maps or synthesis tasks; validate conclusions against underlying evidence. |
 
-A combined RAG system could use summaries to locate material, claims to identify
-precise propositions and original evidence to ground the answer. Neither a shared
-topic nor semantic similarity proves agreement or legal applicability.
+The RAG service selects passage, claim or summary retrieval; all answer citations
+resolve to original evidence. Neither a shared topic nor semantic similarity
+proves agreement or legal applicability.
 
 Before training, review individual targets: a run-level pass does not approve
 every claim, and summaries currently have no independent fidelity gate. Retain

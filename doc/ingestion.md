@@ -1,16 +1,26 @@
 # Ingestion
 
-From the repository root, set up Python 3.11+ and inventory saved sources under
-a chosen run ID:
+Run from the repository root with Python 3.12 and direnv installed. Set up once:
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+test -d .venv || python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+test -f .envrc || cp .envrc.example .envrc
+```
+
+Set `OPENAI_API_KEY` in `.envrc` for embedding/generation steps, and
+`KF_DATABASE_URL` for [PostgreSQL/RAG](retrieval-rag.md). Run `direnv allow` after
+editing. Commands use `direnv exec .`, so no shell hook or `source .envrc` is needed.
+
+Save the original files and record their sizes/hashes/editions in the manifest;
+ingestion validates local files and does not download them. Inventory a new run:
+
+```sh
+direnv allow
 RUN_ID="your-ingestion-run-id"
 INGESTION_DIR="artifacts/ingestion-${RUN_ID}"
 mkdir -p "$INGESTION_DIR"
-python scripts/ingest.py --config config/pipeline.json --output "$INGESTION_DIR/ingestion-report.json"
+direnv exec . .venv/bin/python scripts/ingest.py --config config/pipeline.json --output "$INGESTION_DIR/ingestion-report.json"
 ```
 
 Omit `--output` for stdout. Report every source, including failures. Exits: `0`
@@ -43,6 +53,6 @@ This inventory is not an artifact bundle. Continue with [parsing](parsing.md).
 For development, run the tests and artifact validator:
 
 ```sh
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-python3 scripts/validate_artifact_examples.py
+direnv exec . env PYTHONPATH=src:.:tests .venv/bin/python -m pytest tests -q
+direnv exec . .venv/bin/python scripts/validate_artifact_examples.py
 ```

@@ -5,4 +5,10 @@ Use the most recent relevant topic; ignore older topics and unrelated history.
 Preserve the current question's language, identifiers, qualifications and intent.
 If it already stands alone, return it exactly and set uses_history to false.
 Otherwise resolve its references, return the standalone question, and set
-uses_history to true. Return only the JSON object required by the schema.
+uses_history to true.
+Classify intent as document_inventory only when asking which documents or
+sources are present in the selected corpus, or asking for its document list.
+Questions about documents required by a procedure, documents discussed within a
+source, or substantive source content are evidence_question. A request for the
+corpus inventory must never be answered from a single source's table of contents.
+Return only the JSON object required by the schema.

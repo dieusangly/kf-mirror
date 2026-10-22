@@ -62,8 +62,10 @@ def main(argv=None):
                                  retry_failed_from=args.retry_failed_from)
     except Exception as exc:
         parser.exit(2, f"claim generation failed; completed semantic clusters remain resumable with --resume: {exc}\n")
+    cost = telemetry['estimated_cost_usd']
+    cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
     print(f"[generate] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "
-          f"OpenAI estimated cost: ${telemetry['estimated_cost_usd']:.6f} "
+          f"OpenAI estimated cost: {cost_text} "
           f"({telemetry['requests']} API requests)", file=sys.stderr, flush=True)
     coverage = report.get("coverage")
     if coverage:
@@ -79,8 +81,10 @@ def main(argv=None):
     projection = report.get("projected_full_generation")
     if projection:
         scope = report["compilation_scope"]
+        cost = projection['estimated_cost_usd']
+        cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
         print(f"[generate] Projected full generation from {len(scope['selected_cluster_numbers'])}/"
-              f"{scope['total_semantic_clusters']} subset semantic clusters: ${projection['estimated_cost_usd']:.6f} (estimate)",
+              f"{scope['total_semantic_clusters']} subset semantic clusters: {cost_text} (estimate)",
               file=sys.stderr, flush=True)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report['status'] == 'complete' else 1

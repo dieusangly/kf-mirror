@@ -6,11 +6,11 @@ from knowledge_foundry.retrieval.query import rewrite_query
 from rag_fixtures import config
 
 
-def fixture_stream(query, uses_history, calls=None):
+def fixture_stream(query, uses_history, calls=None, intent='evidence_question'):
     def stream(payload, config):
         if calls is not None:
             calls.append(payload)
-        yield {'type': 'delta', 'text': json.dumps({'query': query, 'uses_history': uses_history})}
+        yield {'type': 'delta', 'text': json.dumps({'query': query, 'uses_history': uses_history, 'intent': intent})}
         yield {'type': 'usage', 'usage': {'input_tokens': 20, 'output_tokens': 10}, 'model': 'fixture'}
     return stream
 
@@ -68,3 +68,23 @@ def test_rewriter_enforces_complete_request_and_output_budgets(tmp_path):
     c['budget']['max_question_tokens'] = 10
     result = rewrite_query(c, 'How long?', ['Permits'], fixture_stream('word ' * 100, True))
     assert result['warnings'] and not result['history']
+
+
+def test_inventory_route_on_first_question_uses_structured_intent(tmp_path):
+    calls = []
+    result = rewrite_query(config(tmp_path), 'このコーパスには何の文書がありますか？', [],
+                           fixture_stream('ignored', False, calls, 'document_inventory'), route_inventory=True)
+    assert result['intent'] == 'document_inventory'
+    assert len(calls) == 1 and not result['history']
+
+
+def test_offline_inventory_routing_does_not_call_a_provider(tmp_path):
+    result = rewrite_query(config(tmp_path), 'List documents', [], route_inventory=True)
+    assert result['intent'] == 'evidence_question' and result['telemetry'] is None
+
+
+def test_first_question_cannot_acquire_invented_history(tmp_path):
+    result = rewrite_query(config(tmp_path), 'Current question', [],
+                           fixture_stream('Invented context', True), route_inventory=True)
+    assert result['query'] == 'Current question' and not result['history']
+    assert result['warnings'] and result['intent'] == 'evidence_question'

@@ -91,12 +91,14 @@ def load_artifacts(*, artifact_path=None, preparation_dir=None, claims_dir=None,
         identity['claim_manifest'] = manifest
     elif bundle['claims']:
         claims = bundle['claims']
-    summaries = []
+    summaries, summary_embeddings = [], []
     if summaries_dir:
         loaded = load_summaries(summaries_dir)
         if prepared is None or loaded['manifest']['preparation_manifest_sha256'] != prepared['manifest_sha256']:
             raise ValueError('summary branch requires the identical selected preparation')
         summaries = loaded['summaries']
+        summary_embeddings = [json.loads(l) for l in
+                              (Path(summaries_dir) / 'summary-embeddings.jsonl').read_text().splitlines()]
         identity['summary_manifest_sha256'] = file_hash(Path(summaries_dir) / 'build-manifest.json')
         identity['summary_manifest'] = loaded['manifest']
     selected = copy.deepcopy(bundle)
@@ -113,7 +115,7 @@ def load_artifacts(*, artifact_path=None, preparation_dir=None, claims_dir=None,
         embeddings = [json.loads(l) for l in (Path(preparation_dir) / 'embeddings.jsonl').read_text().splitlines()]
     return {'bundle': selected, 'claims': claims, 'summaries': summaries, 'structural': structural,
             'links': links, 'hierarchy': prepared['hierarchy'] if prepared else [],
-            'embeddings': embeddings, 'identity': identity}
+            'embeddings': embeddings, 'summary_embeddings': summary_embeddings, 'identity': identity}
 
 
 def project(artifacts, embedding_config=None):
@@ -171,8 +173,18 @@ def project(artifacts, embedding_config=None):
                 related[b].add(a)
 
     records = []
-    vectors = {r['structural_chunk_id']: r for r in artifacts['embeddings']}
     wanted = profile(embedding_config) if embedding_config else None
+    vectors, saved_ids = {}, set()
+    for kind, key, saved_rows in (
+            ('passage', 'structural_chunk_id', artifacts['embeddings']),
+            ('summary', 'summary_id', artifacts.get('summary_embeddings', []))):
+        for saved in saved_rows:
+            if wanted and profile(saved) == wanted:
+                identity = (kind, saved[key], saved['input_sha256'])
+                saved_ids.add((kind, saved[key]))
+                if identity in vectors and vectors[identity]['vector_sha256'] != saved['vector_sha256']:
+                    raise ValueError('conflicting saved vectors for the same text/profile')
+                vectors[identity] = saved
     for kind, rows in (('passage', artifacts['structural']), ('claim', artifacts['claims']),
                        ('summary', artifacts['summaries'])):
         for row in rows:
@@ -187,9 +199,11 @@ def project(artifacts, embedding_config=None):
                         full_id = by_element.get(ref['element_id'])
                         if full_id and full_id not in ids:
                             ids.append(full_id)
-            saved = vectors.get(row['id'])
+            saved = vectors.get((kind, row['id'], stable_hash(row['text'])))
             vector = None
-            if saved and wanted and profile(saved) == wanted:
+            if (kind, row['id']) in saved_ids and not saved:
+                raise ValueError('saved vector text/hash mismatch')
+            if saved:
                 if saved['input_sha256'] != stable_hash(row['text']) or saved['vector_sha256'] != stable_hash(saved['vector']):
                     raise ValueError('saved vector text/hash mismatch')
                 vector = validate_response({'data': [{'index': 0, 'embedding': saved['vector']}]}, 1, wanted['dimensions'])[0]

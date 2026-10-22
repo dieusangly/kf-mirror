@@ -1,7 +1,8 @@
 # Knowledge Foundry documentation
 
-Start with the [pipeline runbook](pipeline-runbook.md) for successive commands,
-agent reviews, pass gates and safe reruns.
+Start with the [source-to-chatbot runbook](pipeline-runbook.md) for commands,
+prerequisites, reviews and safe reruns. To reuse the saved pilot immediately,
+follow the [RAG setup](retrieval-rag.md).
 
 | Order | Guide | Covers |
 | --- | --- | --- |
@@ -18,7 +19,7 @@ agent reviews, pass gates and safe reruns.
 | 11. Structural chunk and semantic cluster build | [Structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md) | Shared inputs for claims and summaries, budgets and reruns. |
 | 12. Claim generation and classification | [Claim generation and classification](claim-generation-and-classification.md) | Models, CLI, review and exports. |
 | 13. Claim evaluation | [Claim evaluation](claim-evaluation.md) | Review and acceptance. |
-| 14. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect topic → claim → chunk → source links. |
-| 15. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
+| 14. Summaries | [Recursive summaries](summaries.md) | Independent cluster summaries, higher levels, provenance, CLI and migration. |
+| 15. Knowledge provenance graph | [Knowledge provenance graph](knowledge-provenance-graph.md) | Inspect claim/summary → chunk → source links. |
 | 16. Downstream uses | [Claims versus summaries](downstream-uses.md) | Graphs, RAG, candidate training data and reasoning-task uses. |
 | 17. Document assistant | [Retrieval/RAG and PostgreSQL](retrieval-rag.md) | Frozen artifact imports, publication, querying, chatbot, evaluation and limits. |

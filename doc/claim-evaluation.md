@@ -12,7 +12,7 @@ CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 ```
 
-Replace the placeholder with the completed run's ID. Prepared generation runs
+Replace the placeholder with the completed run's ID. Generation runs
 include their frozen structural/semantic context in `CANDIDATES_DIR/preparation`.
 Evaluation uses the selected candidate/classification folders and saved original
 sources; it does not need superseded claim runs or the original context-build
@@ -42,7 +42,7 @@ Preserve existing review judgments and report the final results.
 Run once before handing the review file to a human:
 
 ```sh
-.venv/bin/python scripts/evaluate_claims.py \
+direnv exec . .venv/bin/python scripts/evaluate_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --initialize-review
@@ -126,7 +126,7 @@ After the human or agent records judgments, rerun with `--review-file` and the
 same optional arguments as during initialisation to finalize the report:
 
 ```sh
-.venv/bin/python scripts/evaluate_claims.py \
+direnv exec . .venv/bin/python scripts/evaluate_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --review-file "$CLASSIFIED_DIR/compilation-review.json"

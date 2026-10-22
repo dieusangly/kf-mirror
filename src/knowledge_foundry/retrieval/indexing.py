@@ -4,7 +4,7 @@ from knowledge_foundry.retrieval.artifacts import PROJECTION_VERSION, load_artif
 from knowledge_foundry.retrieval.config import ROOT
 
 
-def index_artifacts(store, corpus, config, *, embed_missing=False, fixture=None, graph_url=None, **selection):
+def index_artifacts(store, corpus, config, *, embed_missing=False, fixture=None, **selection):
     artifacts = load_artifacts(**selection)
     records, evidence = project(artifacts, config['embedding'])
     telemetry = {'requests': 0, 'input_tokens': 0, 'estimated_cost_usd': 0., 'cache_hits': 0}
@@ -17,10 +17,17 @@ def index_artifacts(store, corpus, config, *, embed_missing=False, fixture=None,
         for r in pending:
             r['vector'] = by_id[r['id']]
         telemetry = adapter.telemetry
+    document_ids = {did for r in records for did in r['document_ids']}
+    documents = [d for d in artifacts['bundle']['documents'] if d['id'] in document_ids]
+    editions = {(d['source_id'], d['source_version']) for d in documents}
     identity = {**artifacts['identity'], 'projection_version': PROJECTION_VERSION,
-                'builds': artifacts['bundle']['builds'], 'sources': artifacts['bundle']['sources'],
-                'documents': artifacts['bundle']['documents'], 'graph_url': graph_url}
+                'builds': artifacts['bundle']['builds'],
+                'sources': [s for s in artifacts['bundle']['sources'] if (s['id'], s['version']) in editions],
+                'documents': documents}
     result = store.import_snapshot(corpus, identity, records, evidence, profile(config['embedding']), config['search']['language'])
     result['embedding_usage'] = telemetry
     result['saved_vectors_reused'] = sum(r['vector'] is not None for r in records) - (len(pending) if embed_missing else 0)
+    result['vector_coverage'] = {kind: {'records': sum(r['kind'] == kind for r in records),
+                                      'vectors': sum(r['kind'] == kind and r['vector'] is not None for r in records)}
+                                 for kind in ('passage', 'claim', 'summary')}
     return result

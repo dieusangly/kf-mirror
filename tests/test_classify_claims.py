@@ -8,6 +8,17 @@ from scripts.classify_claims import main
 
 
 class ClassifyClaimsCliTests(unittest.TestCase):
+    def test_unknown_cost_does_not_fail_after_classification(self):
+        def classify(*args, **kwargs):
+            kwargs['on_progress']({'phase': 'complete', 'state': 'complete',
+                                   'telemetry': {'requests': 1, 'estimated_cost_usd': None}})
+            return {'status': 'complete', 'projected_full_build': {'estimated_cost_usd': None}}
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch('scripts.classify_claims.classify_claims', side_effect=classify), redirect_stdout(stdout), redirect_stderr(stderr):
+            self.assertEqual(main(['--candidates-dir', 'candidates', '--output-dir', 'classified']), 0)
+        self.assertEqual(json.loads(stdout.getvalue())['status'], 'complete')
+        self.assertEqual(stderr.getvalue().count('unknown'), 2)
+
     def test_cli_prints_classification_progress_and_summary(self):
         report = {"status": "complete", "claims": 1}
 

@@ -149,7 +149,7 @@ The [PDF example](../examples/artifact-bundle-pdf.json) and
 with illustrative passages, chunks, draft claims and topics. Both hash saved bytes
 and illustrate the contract, not parser output or approved answer labels.
 
-With `jsonschema` installed, run `python3 scripts/validate_artifact_examples.py`
+After [setup](ingestion.md), run `direnv exec . .venv/bin/python scripts/validate_artifact_examples.py`
 to check saved sources, schemas, IDs, references and spans. This does not measure
 parsing or retrieval quality.
 

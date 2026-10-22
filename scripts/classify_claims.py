@@ -54,12 +54,16 @@ def main(argv=None):
                                  reuse_candidates_dir=args.reuse_candidates_dir, resume=args.resume)
     except Exception as exc:
         parser.exit(2, f"claim classification failed: {exc}; interrupted output can be resumed with --resume\n")
+    cost = telemetry['estimated_cost_usd']
+    cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
     print(f"[classify] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "
-          f"OpenAI estimated cost: ${telemetry['estimated_cost_usd']:.6f} "
+          f"OpenAI estimated cost: {cost_text} "
           f"({telemetry['requests']} API requests)", file=sys.stderr, flush=True)
     projection = report.get("projected_full_build")
     if projection:
-        print(f"[classify] Projected full build: ${projection['estimated_cost_usd']:.6f} (estimate)",
+        cost = projection['estimated_cost_usd']
+        cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
+        print(f"[classify] Projected full build: {cost_text} (estimate)",
               file=sys.stderr, flush=True)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report['status'] == 'complete' else 1

@@ -1,94 +1,108 @@
-# RAG validation — 2026-10-20
+# RAG validation — 2026-10-21
 
-[Setup and commands](retrieval-rag.md). Results use published snapshot
-`snapshot:6873e80ac3197d6e4ca7bc6504a1cd61446bd5f04e02cf4f5d05d40dc02f3d60`.
-Frozen pipeline artifacts and passage vectors were reused; no upstream rebuild,
-reimport or migration was needed for these changes.
+[Setup and commands](retrieval-rag.md). Published snapshot:
+`snapshot:cddfb128404b5ca71cd905d9ddf2dc5ef11f9f172febe2b3f3c99daa119b21f5`.
+It contains vectors for **791 passages, 1,280 claims and 369 summaries** (1536
+dimensions, `text-embedding-3-small`). The importer reused 791 passage and 365
+summary vectors and embedded the remaining 1,284 records. Frozen upstream files
+and earlier snapshots were preserved.
 
-## Scope and findings
+## Search comparison
 
 The [original eight questions](french-aml-cft-pilot-sources-and-evaluation.md) have
-**draft annotations, not reviewed ground truth**. Four additional questions cover
-risk-management scope, information updates, representatives and digital documents
-([fixture](../tests/fixtures/retrieval-additional-smoke.json)). Their text anchors
-were recorded from saved passages before running retrieval. All twelve are now
-development smoke cases; none constitute independent acceptance testing.
+**draft annotations, not reviewed ground truth**. Four additional cases cover risk
+scope, updates, representatives and digital documents. These twelve development
+cases are not independent acceptance tests.
 
-Search alone sometimes preferred generic reporting material or another numbered
-case. A bounded model reranker now selects relevant candidates without language
-patterns, source aliases or identifier-specific filters. A list split across
-structural passages also lost its final clause; context now completes bounded
-lists through saved direct governing relationships. Headings consistently supply
-scope; body passages supply citations. Active answer prompt: `rag-answer-v2`.
+All methods used the same snapshot, budgets, top five results and candidate pool
+of 30, without model reranking. Cells show **source/location hits; complete text
+anchor hits**, each out of twelve. Anchors measure retrieval, not answer support.
 
-## Measured retrieval
+| Retrieve via | Keyword | Vector | Combined |
+| --- | --- | --- | --- |
+| Passage baseline | 8; 7 | 9; 5 | 9; 8 |
+| Claim → passages | 7; 6 | 10; 8 | 8; 7 |
+| Summary → passages | 6; 5 | 8; 7 | 10; 8 |
 
-Top five results, candidate pool 30, identical snapshot/budgets. Cells show
-**locator hits / cases; complete text-anchor hits / cases**. Anchor presence is
-separate from semantic answer support. All comparisons used cached query vectors.
+**108/108 checks completed**, using cached query embeddings and no model calls.
+All 1,501 deterministic excerpt citation instances resolve exactly to saved text
+and locations. This does not establish semantic relevance or answer completeness.
+Navigation vectors help some cases and miss others; passage retrieval remains
+the default. Summaries never become verified evidence.
 
-| Passage retrieval | Original eight | Four additional |
-| --- | --- | --- |
-| Keyword, no reranker | 4/8; 3/8 | 4/4; 4/4 |
-| Vector, no reranker | 6/8; 5/8 | 3/4; 0/4 |
-| Combined, no reranker | 6/8; 5/8 | 3/4; 3/4 |
-| Combined + model reranker | 8/8; 8/8 | 4/4; 4/4 |
+Historical comparison (2026-10-20, previous snapshot): combined passage search
+with model reranking reached anchors in 12/12 development cases. That result
+used recorded ranking selections and is not a fresh 12-case reranker benchmark
+for this revision. Historical reports remain in `generic-*.json`.
 
-The reranker was called live once per question. Final context checks replayed
-those recorded selections after completing cross-passage lists. Deterministic
-excerpt anchors matched the final retrieval anchors in every row. This measures
-these cases only; it does not establish reliability on arbitrary questions.
-Live median retrieval latency, including reranking: **2.36 s** for the original
-set and **3.69 s** for the additional set. One ranking request admitted 28/30
-complete candidates because of its input budget; the others admitted all 30.
+## Live answer checks
 
-Optional navigation, keyword without reranking: claims → passages reached 3/8
-locators and 2/8 complete anchors; summaries → passages reached 3/8 for both.
-Claim/summary vectors were unavailable, so their vector retrieval was not run.
+Bounded checks used the shared service and the new snapshot:
 
-## Answers, generality and usage
+- French and English corpus-inventory questions returned all five documents from
+  snapshot metadata, without passage search or fabricated citations. The offline
+  **Documents in corpus** button uses the same metadata without a model call.
+- Case 16 included all four source steps, with 4/4 exact citations. A conversational
+  follow-up retrieved its alert criteria again, resolving the reference to case 16.
+- Additional checks covered binding status, information updates, representatives,
+  and required identity-verification documents. A question about required documents
+  correctly followed evidence retrieval rather than the inventory route.
+- Claim and summary combined-search checks answered the binding-status question
+  using original passage citations, not generated propositions or summaries.
+- An unrelated recipe question and nonexistent case 99999 returned insufficient
+  evidence. These two probes do not establish general rejection accuracy.
+- An initial updates answer applied an AMF qualification without clearly naming
+  its authority. A generic source-attribution instruction was added; one recheck
+  reused the saved evidence and named ACPR–Tracfin and AMF separately.
 
-Final generated checks covered case 16, information updates and representatives.
-Case 16 includes all four steps; its **4/4 citations resolve exactly**. The other
-two answers each resolve **3/3 citations**. Their narrow propositions were
-inspected against the saved text; broader semantic entailment remains unscored.
-A diagnostic answer before list completion omitted the final step. Earlier
-unranked checks also missed relevant evidence; those results are retained in the
-ignored reports rather than described as successful answers.
+All **28/28 citation instances** in generated checks, including that recheck,
+resolve exactly. The narrow propositions were inspected against their cited
+text. Semantic support is not automatically scored; answers remain drafts.
+Active prompts: `rag-answer-v1`, `rag-query-v2`, `rag-rank-v1`; reports retain
+prompt hashes to distinguish the scope correction.
 
-Two live rewrite checks separated a standalone topic change from a French
-follow-up. Automated tests additionally cover new validated equipment,
-horticulture and transport documents in English, French and German through all
-three search methods, ranking and citation resolution. Fixture vectors and model
-responses are deterministic oracles: these tests prove mechanics, not real-model
-semantic quality across those languages. Japanese follow-up rewriting is also
-fixture-tested. Unsupported questions, unknown citation IDs, missing evidence,
-rewrite failures and request budgets have deterministic coverage.
+## Validation and usage
 
-This revision used **21 bounded Responses calls** (12 rankings, two rewrites,
-seven answer checks): 121,898 input, 1,069 output and 121,431 cache-write tokens;
-estimated **USD 0.015760075** under the configured 2026-10-19 rate card.
-One embedding request covered four new questions: **101 tokens, USD 0.00000202**.
-All other embeddings were cached. Earlier diagnostic work used five answer calls
-(USD 0.002002125), separately recorded. Estimates are not invoices.
-Reports: ignored `artifacts/retrieval-evaluation/generic-*.json` and earlier
-`regressions-*.json`; the latter describe superseded implementations.
-
-## Validation and remaining limits
-
-- Full suite with real PostgreSQL/pgvector: **330 passed, 11 skipped, 80 subtests passed**.
-- Coverage includes idempotent imports, snapshot/session isolation, original lineage,
-  source filters, list completion, complete budgets, fail-closed citations, model
-  fixtures, offline fallback and rendered Streamlit interactions.
+- Full suite, real PostgreSQL/pgvector: **394 passed, 11 skipped, 80 subtests passed**.
+  Ten skips require older parsed/chunked pilot directories; OCR integration is
+  opt-in. Current frozen import artifacts were validated separately.
+- Command audit checks documented script options against executable CLIs. A
+  deterministic Markdown/DOCX/HTML fixture runs ingestion through parsing,
+  review-gate mechanics, structural build, claims, recursive summaries, graph,
+  vector import/publication, queries, evaluation and rendered chat. It verifies
+  saved-vector reuse, missing claim/final-summary vectors, idempotency and unchanged
+  frozen files. Native parsing-location and unknown-cost CLI failures were fixed;
+  retrieval execution errors now exit 1. No paid calls or pilot rebuild were added.
+- Coverage includes import idempotency, publication/snapshot isolation, compatible
+  vector reuse, all three navigation modes, exact lineage, filters, atomic context
+  budgets, private histories, follow-ups, feedback and rendered Streamlit flows.
 - Playwright/Chrome at `http://127.0.0.1:8503`, desktop 1440×1000 and mobile
-  390×844: page identity, content, no framework overlay, citation links, feedback,
-  reset and history restoration passed; no console errors or warnings. Screenshots
-  were inspected. Browser plugin unavailable; recorded model responses and cached
-  embeddings kept browser QA free of external model calls.
-- Compilation and `git diff --check` passed. No commit was created.
-- Generated answers remain drafts. Exact citations do not prove that their text
-  supports every assertion. The reranker can miss evidence outside its candidate
-  pool/budget; unranked/offline retrieval has the measured gaps above.
-- New corpora need reviewed questions, negative cases and independent answer-support
-  assessment. Production authentication, access control and deployment hardening
-  remain outside this local demo.
+  390×844: page/content, inventory, graph rendering, record details, summary view,
+  feedback and cached claim/summary vector queries passed. Screenshots inspected;
+  no application errors or framework overlays. Streamlit's iframe produces nine
+  browser capability/sandbox warnings; only trusted configured HTML is embedded.
+  Browser plugin unavailable; Playwright was used. Browser checks made no model calls.
+- `pip check`, compilation and `git diff --check` passed.
+
+This revision used **31 Responses calls** (12 routing/rewrites, ten rankings,
+nine answer calls including the scope recheck): 110,609 input, 2,004 output and
+106,777 cache-write tokens, estimated **USD 0.014732325**. Indexing used 41 embedding
+requests (91,682 tokens, USD 0.00183364); four query embedding requests added 94
+tokens (USD 0.00000188). Total estimate: **USD 0.016567845**, under the configured
+2026-10-19 rate cards; not an invoice. Offline comparisons reused caches.
+
+Local reports: ignored `artifacts/retrieval-evaluation/search-20261021.json` and
+`live-20261021.json`; older reports retain their historical results. The earlier
+2026-10-20 revision used 21 Responses calls (USD 0.015760075), one 101-token
+embedding request (USD 0.00000202), plus five separately recorded diagnostic
+answer calls (USD 0.002002125).
+
+## Remaining limits
+
+Candidate pools and budgets can exclude useful evidence. Source-excerpt mode has
+no semantic reranker or conversational rewrite. Routing and generation can fail;
+use explicit source filters and inspect original editions and qualifications.
+Exact citations do not prove every assertion. New corpora need reviewed questions,
+negative cases and independent answer-support evaluation. Production still needs
+authentication, access control, concurrency protection, backups and deployment
+hardening. No upstream pilot was regenerated.

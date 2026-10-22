@@ -27,7 +27,7 @@ Run from the repository root. Replace the run ID for each new output directory:
 RUN_ID="your-parsing-run-id"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
 
-.venv/bin/python scripts/parse.py --config config/pipeline.json --output-dir "$PARSED_DIR"
+direnv exec . .venv/bin/python scripts/parse.py --config config/pipeline.json --output-dir "$PARSED_DIR"
 ```
 
 `--config` is required; output defaults to `artifacts/parsed`. `manifest_ids`

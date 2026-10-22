@@ -1,6 +1,6 @@
 # Claim generation and classification
 
-`prepared semantic clusters → candidate claims → topics`
+`semantic clusters → candidate claims → topics`
 
 Generation extracts draft, evidence-linked candidate claims. Classification assigns
 curated topics or explicit null outcomes without changing candidate text or evidence.
@@ -21,12 +21,13 @@ RUN_ID="your-new-claim-run-id"
 CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
 CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
-printf 'RUN_ID=%s\n' "$RUN_ID"
+CLAIM_CONFIG="config/claim-generation-and-classification.json"
+TAXONOMY_PATH="config/topics-v1.json"
 
-.venv/bin/python scripts/generate_claims.py \
+direnv exec . .venv/bin/python scripts/generate_claims.py --config "$CLAIM_CONFIG" \
   --context-dir "$CONTEXT_DIR" --output-dir "$CANDIDATES_DIR"
 
-.venv/bin/python scripts/classify_claims.py \
+direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFIG" --taxonomy "$TAXONOMY_PATH" \
   --candidates-dir "$CANDIDATES_DIR" --output-dir "$CLASSIFIED_DIR"
 ```
 
@@ -38,7 +39,7 @@ Then invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_c
 with this `RUN_ID`: it initializes or reuses the review, inspects saved sources and
 runs final evaluation. For manual review commands, see [claim evaluation](claim-evaluation.md).
 Then create the [knowledge provenance graph](knowledge-provenance-graph.md) for inspection.
-For prospective RAG and training consumers, see [downstream uses](downstream-uses.md).
+For vector indexing, publication and chat, continue with the [runbook](pipeline-runbook.md#7-import-vectors-and-publish-the-selected-snapshot).
 
 The build can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,
@@ -52,7 +53,7 @@ fresh directory; successful clusters, including zero-claim results, are reused.
 Only failed clusters make new generation calls.
 
 ```sh
-.venv/bin/python scripts/generate_claims.py \
+direnv exec . .venv/bin/python scripts/generate_claims.py --config "$CLAIM_CONFIG" \
   --context-dir "$CONTEXT_DIR" \
   --retry-failed-from "$CANDIDATES_DIR" \
   --output-dir "${CANDIDATES_DIR}-recovered"
@@ -65,7 +66,7 @@ If still partial, recover that result into another fresh directory.
 After success, classify normally using the recovered directories:
 
 ```sh
-.venv/bin/python scripts/classify_claims.py \
+direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFIG" --taxonomy "$TAXONOMY_PATH" \
   --candidates-dir "${CANDIDATES_DIR}-recovered" \
   --output-dir "${CLASSIFIED_DIR}-recovered"
 ```
@@ -79,7 +80,7 @@ If compatible prior classifications exist, supply both their directory and the
 candidate run they consumed. For example, after generation recovery:
 
 ```sh
-.venv/bin/python scripts/classify_claims.py \
+direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFIG" --taxonomy "$TAXONOMY_PATH" \
   --candidates-dir "${CANDIDATES_DIR}-recovered" \
   --reuse-classification-from "$CLASSIFIED_DIR" \
   --reuse-candidates-dir "$CANDIDATES_DIR" \
@@ -103,12 +104,12 @@ Rerun the same command with `--resume`, preserving its output directory and any
 retry/reuse options. Examples for normal runs:
 
 ```sh
-.venv/bin/python scripts/generate_claims.py \
+direnv exec . .venv/bin/python scripts/generate_claims.py --config "$CLAIM_CONFIG" \
   --context-dir "$CONTEXT_DIR" --output-dir "$CANDIDATES_DIR" --resume
 ```
 
 ```sh
-.venv/bin/python scripts/classify_claims.py \
+direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFIG" --taxonomy "$TAXONOMY_PATH" \
   --candidates-dir "$CANDIDATES_DIR" --output-dir "$CLASSIFIED_DIR" --resume
 ```
 

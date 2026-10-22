@@ -57,7 +57,7 @@ CONTEXT_RUN_ID="your-completed-structural-chunk-and-semantic-cluster-run-id"
 RUN_ID="your-new-summary-run-id"
 CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
 
-.venv/bin/python scripts/generate_summaries.py \
+direnv exec . .venv/bin/python scripts/generate_summaries.py \
   --context-dir "$CONTEXT_DIR" --output-dir "artifacts/summaries-${RUN_ID}" \
   --config config/summaries.json --cache-dir artifacts/summary-cache
 ```
@@ -84,6 +84,11 @@ changed text or generation/provenance metadata changes identity. `load_summaries
 checks hashes, membership, budgets and transitive provenance offline. Frozen v1/v2
 structural chunks and semantic clusters remain readable; structural-v3 builds
 supply the improved hierarchy.
+
+For RAG, import these summaries with the same frozen structural build and
+`--embed-missing`: grouping vectors do not cover every final summary. The importer
+reuses compatible saved vectors and fills gaps, including claim vectors. Continue
+with [indexing and publication](pipeline-runbook.md#7-import-vectors-and-publish-the-selected-snapshot).
 
 Summaries remain drafts: provenance identifies their inputs, not proof of every
 sentence. Compression errors can accumulate across levels. There is currently no

@@ -80,6 +80,23 @@ def test_existing_contract_examples_can_be_imported_without_claim_generation(tmp
     assert all(e['source']['version'] for e in evidence)
 
 
+def test_saved_summary_vectors_reuse_text_and_profile_across_rounds(tmp_path):
+    from knowledge_foundry.retrieval.artifacts import profile
+    from knowledge_foundry.structural_chunks import stable_hash
+    a, c = artifacts(), config(tmp_path)
+    summary = a['summaries'][0]
+    row = {**profile(c['embedding']), 'summary_id': summary['id'], 'vector': [1, 0, 0],
+           'input_sha256': stable_hash(summary['text']), 'vector_sha256': stable_hash([1, 0, 0])}
+    a['summary_embeddings'] = [{**row, 'round': 2}, {**row, 'round': 3}]
+    records, _ = project(a, c['embedding'])
+    assert next(r for r in records if r['kind'] == 'summary')['vector'] == [1, 0, 0]
+    assert all(r['vector'] is None for r in records if r['kind'] != 'summary')
+    assert next(r for r in project(a, {**c['embedding'], 'model': 'other'})[0] if r['kind'] == 'summary')['vector'] is None
+    a['summary_embeddings'][1].update(vector=[0, 1, 0], vector_sha256=stable_hash([0, 1, 0]))
+    with pytest.raises(ValueError, match='conflicting saved vectors'):
+        project(a, c['embedding'])
+
+
 def test_import_does_not_publish_implicitly(tmp_path):
     class Store:
         def import_snapshot(self, *args):
