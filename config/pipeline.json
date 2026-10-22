@@ -1,9 +1,33 @@
 {
   "root": "..",
   "manifest_file": "data/manifest.json",
-  "manifest_ids": ["A", "T", "M", "L1", "L2"],
-  "chunking": {"max_tokens": 256},
-  "evaluation": {"chunking": {"sample_per_document": 12}},
+  "manifest_ids": [
+    "A",
+    "T",
+    "M",
+    "L1",
+    "L2",
+    "P",
+    "T2",
+    "BASEL20",
+    "COLB24",
+    "NRA23",
+    "AMFRA24",
+    "R24EN",
+    "R24FR",
+    "EUROPOL23",
+    "TFR23EN",
+    "D24EN",
+    "AR24EN"
+  ],
+  "chunking": {
+    "max_tokens": 256
+  },
+  "evaluation": {
+    "chunking": {
+      "sample_per_document": 12
+    }
+  },
   "parsing": {
     "pdf": {
       "backend": "docling_parse",
@@ -13,14 +37,23 @@
     },
     "ocr": {
       "mode": "auto",
-      "languages": ["fra", "eng"],
+      "languages": [
+        "fra",
+        "eng"
+      ],
       "scale": 3.0,
       "psm": 3,
       "tesseract_cmd": "tesseract",
       "tessdata_path": null
     },
-    "html": {"content_selector": "article.js-article-content-to-copy"},
-    "markdown": {"tables": true},
-    "docx": {"include_headers_footers": false}
+    "html": {
+      "content_selector": "article.js-article-content-to-copy"
+    },
+    "markdown": {
+      "tables": true
+    },
+    "docx": {
+      "include_headers_footers": false
+    }
   }
 }

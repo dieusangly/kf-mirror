@@ -8,12 +8,16 @@
       "class": "regulatory guidance",
       "source_version": "2025-04",
       "publisher_url": "https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf",
-      "local_path": "data/20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "local_path": "data/A-20250423_Lignes_directrices_obligations_Tracfin.pdf",
       "retrieved_on": "2026-10-05",
       "media_type": "application/pdf",
       "size_bytes": 1575917,
       "sha256": "a1eae0e3d31d648b330c0e273d6ff524459a26e849bde7b69345b681bb74b4c0",
-      "capture_method": "publisher_pdf_download"
+      "capture_method": "publisher_pdf_download",
+      "language": "fr",
+      "validation": {
+        "pages": 70
+      }
     },
     {
       "manifest_id": "T",
@@ -22,12 +26,16 @@
       "class": "typology report",
       "source_version": "2025-09-29-tome-3",
       "publisher_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
-      "local_path": "data/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
+      "local_path": "data/T-TRACFIN_2024_Tome3_FR_WEB_0.pdf",
       "retrieved_on": "2026-10-05",
       "media_type": "application/pdf",
       "size_bytes": 2492962,
       "sha256": "c197fbf3f9825cff39bf9976b97d6062c49d654b2609ba494d42bdfc8b392932",
-      "capture_method": "publisher_pdf_download"
+      "capture_method": "publisher_pdf_download",
+      "language": "fr",
+      "validation": {
+        "pages": 82
+      }
     },
     {
       "manifest_id": "M",
@@ -36,12 +44,16 @@
       "class": "sector guidance",
       "source_version": "2023-07-28",
       "publisher_url": "https://www.amf-france.org/sites/institutionnel/files/private/2023-07/DOC-2019-16_LD%20Clients%20et%20b%C3%A9n%C3%A9ficiaires%20effectifs_VF3_0.pdf",
-      "local_path": "data/DOC-2019-16_LD Clients et bénéficiaires effectifs_VF3_0.pdf",
+      "local_path": "data/M-DOC-2019-16_LD Clients et bénéficiaires effectifs_VF3_0.pdf",
       "retrieved_on": "2026-10-05",
       "media_type": "application/pdf",
       "size_bytes": 660525,
       "sha256": "0b5f0eca936ed2424bffaa57ce46c6695f85a12081e2d3afd8e8ab19eb0b38be",
-      "capture_method": "publisher_pdf_download"
+      "capture_method": "publisher_pdf_download",
+      "language": "fr",
+      "validation": {
+        "pages": 33
+      }
     },
     {
       "manifest_id": "L1",
@@ -50,12 +62,13 @@
       "class": "versioned legal article",
       "source_version": "LEGIARTI000033517537",
       "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
-      "local_path": "data/Article L561-2-2 - Code monétaire et financier - Légifrance.html",
+      "local_path": "data/L1-Article L561-2-2 - Code monétaire et financier - Légifrance.html",
       "retrieved_on": "2026-10-05",
       "media_type": "text/html",
       "size_bytes": 120663,
       "sha256": "384dc6261a71c435c9508ac04d1cf4ecbb78a67b5c260db770fe43930dca96ed",
-      "capture_method": "browser_save_html_only"
+      "capture_method": "browser_save_html_only",
+      "language": "fr"
     },
     {
       "manifest_id": "L2",
@@ -64,12 +77,488 @@
       "class": "versioned legal article",
       "source_version": "LEGIARTI000033517733",
       "publisher_url": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517733",
-      "local_path": "data/Article L561-6 - Code monétaire et financier - Légifrance.html",
+      "local_path": "data/L2-Article L561-6 - Code monétaire et financier - Légifrance.html",
       "retrieved_on": "2026-10-05",
       "media_type": "text/html",
       "size_bytes": 124209,
       "sha256": "ac924f42ab5c28332721e3b3a4e5540f753051fc3ff3e7ee9fb402ac65b45290",
-      "capture_method": "browser_save_html_only"
+      "capture_method": "browser_save_html_only",
+      "language": "fr"
+    },
+    {
+      "manifest_id": "P",
+      "source_id": "src:acpr-ppe-2018",
+      "title": "ACPR — Personnes politiquement exposées",
+      "publisher_url": "https://acpr.banque-france.fr/system/files/import/acpr/media/2018/05/02/20180410_ld_ppe_college.revu_.asb_.post_decretdgtv2presidents.pdf",
+      "source_version": "2018-body",
+      "language": "fr",
+      "publication_on": "2018-04-20",
+      "requires_source_ids": [
+        "src:acpr-ppe-annex-2024"
+      ],
+      "edition_note": "Historical 2018 guidance body. The publisher pairs this body with a 2024 annex, which is outside this saved corpus. The body is not a 2024 rewrite.",
+      "verification_url": "https://acpr.banque-france.fr/fr/publications-et-statistiques/publications/lignes-directrices-relatives-aux-personnes-politiquement-exposees-ppe-en-vigueur",
+      "media_type": "application/pdf",
+      "class": "regulatory guidance",
+      "local_path": "data/P-acpr-ppe-2018.pdf",
+      "size_bytes": 399853,
+      "sha256": "2be18f91c335d931ce000bacfa55784352bd9179b44a38a2cc3e794680af6024",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "publisher_download",
+      "download_url": "https://acpr.banque-france.fr/system/files/import/acpr/media/2018/05/02/20180410_ld_ppe_college.revu_.asb_.post_decretdgtv2presidents.pdf",
+      "validation": {
+        "pages": 13,
+        "validation": "signature, readable content and publisher identity terms"
+      },
+      "date_verification": "2018-04-20 is the date shown in the older official registry listing; distinct from the 2024 annex listing. Body page 1 has no publication date.",
+      "publisher_link_verified_on": "2026-10-22",
+      "historical": true,
+      "completeness": "incomplete_annex_pairing",
+      "scope_note": "Historical 2018 body only, accepted for this pilot without its intended annex pairing. Not complete current guidance.",
+      "landing_page": "https://acpr.banque-france.fr/fr/publications-et-statistiques/publications/lignes-directrices-relatives-aux-personnes-politiquement-exposees-ppe-en-vigueur",
+      "accepted_missing_dependencies": [
+        {
+          "source_id": "src:acpr-ppe-annex-2024",
+          "decision": "historical_body_only",
+          "authority": "explicit_user_instruction",
+          "accepted_on": "2026-10-22",
+          "reason": "Pilot accepts dated 2018 PPE body without its intended annex pairing; historical coverage remains explicit."
+        }
+      ]
+    },
+    {
+      "manifest_id": "T2",
+      "source_id": "src:tracfin-activity-report-tome-2",
+      "title": "Tracfin — L’activité de Tracfin, bilan 2024, Tome II",
+      "publisher_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome2_FR_WEB_0.pdf",
+      "source_version": "2024-tome-2-published-2025-09-05",
+      "language": "fr",
+      "publication_on": "2025-09-05",
+      "reporting_period": "2024",
+      "landing_page": "https://www.economie.gouv.fr/tracfin/lactivite-de-tracfin-bilan-2024",
+      "media_type": "application/pdf",
+      "class": "activity report",
+      "local_path": "data/T2-tracfin-activity-report-tome-2.pdf",
+      "link_verification": {
+        "method": "followed official publication page download link in browsing tool",
+        "checked_on": "2026-10-22",
+        "pdf_readable_in_browsing_tool": true,
+        "expected_pages": 46
+      },
+      "size_bytes": 1618406,
+      "sha256": "a76ec088801300fed7984d5f7f3718798edffd1e421c8044f00a4a8da55027d4",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "official_original_import",
+      "download_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome2_FR_WEB_0.pdf",
+      "validation": {
+        "pages": 46,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "import_provenance": {
+        "registered_at": "2026-10-22T15:49:54.290151+02:00",
+        "original_official_url": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome2_FR_WEB_0.pdf",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash",
+        "original_filename": "TRACFIN_2024_Tome2_FR_WEB_0.pdf"
+      },
+      "pdf_metadata_observations": {
+        "embedded_created_at": "2025-09-17T09:31:48+02:00",
+        "embedded_modified_at": "2025-09-25T11:37:52+02:00",
+        "note": "Embedded file metadata, distinct from the publication-page date 2025-09-05, reporting year 2024 and retrieval date 2026-10-22."
+      }
+    },
+    {
+      "manifest_id": "BASEL20",
+      "source_id": "src:bcbs-aml-cft-risk-management-2020",
+      "title": "Basel Committee — Sound management of risks related to money laundering and financing of terrorism",
+      "source_version": "2014-01-revised-2020-07",
+      "language": "en",
+      "edition_month": "2020-07",
+      "original_edition_month": "2014-01",
+      "publisher_identifier": "BCBS d505; ISBN 978-92-9259-403-9",
+      "landing_page": "https://www.bis.org/bcbs/publ/d505.htm",
+      "class": "international supervisory guidance",
+      "publisher_url": "https://www.bis.org/publications/202007-guidelines-sound-management-risks-related-money-laundering-and-financing-terrorism-revisions-supervisory.pdf",
+      "media_type": "application/pdf",
+      "local_path": "data/BASEL20-bcbs-aml-cft-risk-management-2020.pdf",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "size_bytes": 775427,
+      "sha256": "1cc3c40c9de0e5d1272f4b86a11a7babd4847b1083ed30d0bc0bac14117bf1a6",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://www.bis.org/publications/202007-guidelines-sound-management-risks-related-money-laundering-and-financing-terrorism-revisions-supervisory.pdf",
+      "validation": {
+        "pages": 62,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:32:49.917327+02:00",
+      "import_provenance": {
+        "original_filename": "basel-2020-en.pdf",
+        "registered_at": "2026-10-22T16:32:49.917369+02:00",
+        "original_official_url": "https://www.bis.org/publications/202007-guidelines-sound-management-risks-related-money-laundering-and-financing-terrorism-revisions-supervisory.pdf",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
+    },
+    {
+      "manifest_id": "COLB24",
+      "source_id": "src:colb-annual-report-2024",
+      "title": "COLB — Rapport annuel 2024",
+      "source_version": "2024-report",
+      "language": "fr",
+      "reporting_period": "2024",
+      "publication_on": null,
+      "publisher_identifier": "ea198438-3d69-4649-9699-f30dfb7ce9fb",
+      "class": "activity report",
+      "publisher_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/ea198438-3d69-4649-9699-f30dfb7ce9fb",
+      "media_type": "application/pdf",
+      "local_path": "data/COLB24-colb-annual-report-2024.pdf",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "size_bytes": 3243216,
+      "sha256": "ccd922c0375c19252c3e48e224c8ff267d564b9fa595bb8de0abb6c96379774a",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/ea198438-3d69-4649-9699-f30dfb7ce9fb",
+      "validation": {
+        "pages": 116,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:32:50.650780+02:00",
+      "import_provenance": {
+        "original_filename": "colb-2024-2025-fr.pdf",
+        "registered_at": "2026-10-22T16:32:50.650823+02:00",
+        "original_official_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/ea198438-3d69-4649-9699-f30dfb7ce9fb",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
+    },
+    {
+      "manifest_id": "NRA23",
+      "source_id": "src:fr-colb-national-risk-assessment-2023",
+      "title": "COLB — Analyse nationale des risques de blanchiment de capitaux et de financement du terrorisme en France",
+      "source_version": "2023-01",
+      "language": "fr",
+      "publisher_identifier": "5a1a87e0-2f90-4f4d-b5e8-e7077920cd56",
+      "class": "national risk assessment",
+      "publisher_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/5a1a87e0-2f90-4f4d-b5e8-e7077920cd56",
+      "media_type": "application/pdf",
+      "local_path": "data/NRA23-fr-colb-national-risk-assessment-2023.pdf",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "size_bytes": 1975636,
+      "sha256": "eb15343d4a20d162e84f6d8782aece96b94e5b18544f9296130f91885da30229",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/5a1a87e0-2f90-4f4d-b5e8-e7077920cd56",
+      "validation": {
+        "pages": 194,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:32:51.849372+02:00",
+      "import_provenance": {
+        "original_filename": "anr-2023-fr.pdf",
+        "registered_at": "2026-10-22T16:32:51.849417+02:00",
+        "original_official_url": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/5a1a87e0-2f90-4f4d-b5e8-e7077920cd56",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      },
+      "edition_month": "2023-01",
+      "publication_on": null,
+      "date_verification": "Cover gives edition month; exact publication date not verified."
+    },
+    {
+      "manifest_id": "AMFRA24",
+      "source_id": "src:amf-sector-risk-assessment-2024",
+      "title": "AMF — Analyse sectorielle des risques de blanchiment de capitaux et de financement du terrorisme",
+      "source_version": "2024-06",
+      "language": "fr",
+      "publisher_identifier": "202406_analyse_sectorielle_lab-ft_fr",
+      "class": "sector risk assessment",
+      "publisher_url": "https://www.amf-france.org/sites/institutionnel/files/private/2024-06/202406_analyse_sectorielle_lab-ft_fr.pdf",
+      "media_type": "application/pdf",
+      "local_path": "data/AMFRA24-amf-sector-risk-assessment-2024.pdf",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "size_bytes": 908405,
+      "sha256": "6436bdff03be621deaef84bb50ddfdecad984f21dd14f04ca7faa68b0ac37ba1",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://www.amf-france.org/sites/institutionnel/files/private/2024-06/202406_analyse_sectorielle_lab-ft_fr.pdf",
+      "validation": {
+        "pages": 50,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:32:52.300214+02:00",
+      "import_provenance": {
+        "original_filename": "amf-risk-2024-fr.pdf",
+        "registered_at": "2026-10-22T16:32:52.300280+02:00",
+        "original_official_url": "https://www.amf-france.org/sites/institutionnel/files/private/2024-06/202406_analyse_sectorielle_lab-ft_fr.pdf",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      },
+      "edition_month": "2024-06",
+      "publication_on": null,
+      "date_verification": "Cover gives edition month; exact publication date not verified."
+    },
+    {
+      "manifest_id": "R24EN",
+      "source_id": "src:eu-reg-2024-1624-en",
+      "title": "Regulation (EU) 2024/1624 (EN)",
+      "publisher_url": "https://eur-lex.europa.eu/eli/reg/2024/1624/oj/eng",
+      "source_version": "32024R1624-OJ-en",
+      "language": "en",
+      "publication_on": "2024-06-19",
+      "adopted_on": "2024-05-31",
+      "work_id": "eli:reg/2024/1624",
+      "date_verification": "OJ edition; application/transposition dates require article-specific inspection; publication and retrieval are not application dates",
+      "language_variant_of": "src:eu-reg-2024-1624-fr",
+      "media_type": "application/pdf",
+      "class": "EU legislation",
+      "local_path": "data/R24EN-eu-reg-2024-1624-en.pdf",
+      "document_number": "2024/1624",
+      "oj_identifier": "OJ:L_202401624",
+      "route_note": "Publication page is authoritative. Import may use an official PDF or complete legal HTML. No speculative asset URL fallback. Corrected OJ identifier supplied by user where recorded.",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "868bf3cf-2dd4-11ef-a61b-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/868bf3cf-2dd4-11ef-a61b-01aa75ed71a1/language-en",
+      "size_bytes": 2409580,
+      "sha256": "c4024f4c4c1616cc729ed4ec4333274d711324efa9750d3d531bf90770ed8eb6",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=868bf3cf-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 111,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:32:56.075595+02:00",
+      "import_provenance": {
+        "original_filename": "amlr-2024-en.pdf",
+        "registered_at": "2026-10-22T16:32:56.075647+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=868bf3cf-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      },
+      "application_on": "2027-07-10",
+      "application_exceptions": [
+        {
+          "entities": "Article 3, points (3)(n) and (o)",
+          "application_on": "2029-07-10"
+        }
+      ],
+      "application_date_basis": "Article 90, saved OJ PDF page 96; entry into force is separately twenty days after publication."
+    },
+    {
+      "manifest_id": "R24FR",
+      "source_id": "src:eu-reg-2024-1624-fr",
+      "title": "Regulation (EU) 2024/1624 (FR)",
+      "publisher_url": "https://eur-lex.europa.eu/eli/reg/2024/1624/oj/fra",
+      "source_version": "32024R1624-OJ-fr",
+      "language": "fr",
+      "publication_on": "2024-06-19",
+      "adopted_on": "2024-05-31",
+      "work_id": "eli:reg/2024/1624",
+      "date_verification": "OJ edition; application/transposition dates require article-specific inspection; publication and retrieval are not application dates",
+      "language_variant_of": "src:eu-reg-2024-1624-en",
+      "media_type": "application/pdf",
+      "class": "EU legislation",
+      "local_path": "data/R24FR-eu-reg-2024-1624-fr.pdf",
+      "document_number": "2024/1624",
+      "oj_identifier": "OJ:L_202401624",
+      "route_note": "Publication page is authoritative. Import may use an official PDF or complete legal HTML. No speculative asset URL fallback. Corrected OJ identifier supplied by user where recorded.",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "868bf3cf-2dd4-11ef-a61b-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/868bf3cf-2dd4-11ef-a61b-01aa75ed71a1/language-fr",
+      "size_bytes": 2476123,
+      "sha256": "4bbb0c71486258bea7ed57d4f960485a16f44b68bba73aee410a99cb6e84fc30",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=868bf3cf-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=fr&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 111,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:33:00.067051+02:00",
+      "import_provenance": {
+        "original_filename": "amlr-2024-fr.pdf",
+        "registered_at": "2026-10-22T16:33:00.067101+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=868bf3cf-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=fr&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      },
+      "application_on": "2027-07-10",
+      "application_exceptions": [
+        {
+          "entities": "Article 3, points (3)(n) and (o)",
+          "application_on": "2029-07-10"
+        }
+      ],
+      "application_date_basis": "Article 90, saved OJ PDF page 96; entry into force is separately twenty days after publication."
+    },
+    {
+      "manifest_id": "EUROPOL23",
+      "source_id": "src:europol-efect-2023-executive-summary-en",
+      "title": "Europol — The other side of the coin: European Financial and Economic Crime Threat Assessment 2023, executive summary",
+      "source_version": "EFECTA-2023-executive-summary",
+      "language": "en",
+      "reporting_period": "2023 assessment",
+      "publication_year": "2024",
+      "publication_date_basis": "Publications Office listing; assessment edition is 2023",
+      "isbn": "978-92-95236-02-8",
+      "class": "threat assessment executive summary",
+      "publisher_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=03fe32d1-d9db-11ee-b9d9-01aa75ed71a1&format=pdf&language=en&productionSystem=cellar&part=",
+      "media_type": "application/pdf",
+      "local_path": "data/EUROPOL23-europol-efect-2023-executive-summary-en.pdf",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "03fe32d1-d9db-11ee-b9d9-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/03fe32d1-d9db-11ee-b9d9-01aa75ed71a1/language-en",
+      "size_bytes": 392954,
+      "sha256": "9e927870f91104317353f3a70376f44fdc251ce376748ee5951694666b981c70",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=03fe32d1-d9db-11ee-b9d9-01aa75ed71a1&format=pdf&language=en&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 11,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:33:00.195866+02:00",
+      "import_provenance": {
+        "original_filename": "europol-summary-2024-en.pdf",
+        "registered_at": "2026-10-22T16:33:00.195914+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=03fe32d1-d9db-11ee-b9d9-01aa75ed71a1&format=pdf&language=en&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
+    },
+    {
+      "manifest_id": "TFR23EN",
+      "source_id": "src:eu-reg-2023-1113-en",
+      "title": "Regulation (EU) 2023/1113 (EN)",
+      "publisher_url": "https://eur-lex.europa.eu/eli/reg/2023/1113/oj/eng",
+      "source_version": "32023R1113-OJ-en",
+      "language": "en",
+      "publication_on": "2023-06-09",
+      "adopted_on": "2023-05-31",
+      "work_id": "eli:reg/2023/1113",
+      "date_verification": "OJ edition; application/transposition dates require article-specific inspection; publication and retrieval are not application dates",
+      "media_type": "application/pdf",
+      "class": "EU legislation",
+      "local_path": "data/TFR23EN-eu-reg-2023-1113-en.pdf",
+      "document_number": "2023/1113",
+      "route_note": "Publication page is authoritative. Import may use an official PDF or complete legal HTML. No speculative asset URL fallback. Corrected OJ identifier supplied by user where recorded.",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "48eca7a6-0660-11ee-b12e-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/48eca7a6-0660-11ee-b12e-01aa75ed71a1/language-en",
+      "size_bytes": 768673,
+      "sha256": "d7502c011527b67c3e12a221ad74afd6adaf7b2f93171e0f52d101dadbf25527",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=48eca7a6-0660-11ee-b12e-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 39,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:33:01.468538+02:00",
+      "import_provenance": {
+        "original_filename": "tfr-2023-en.pdf",
+        "registered_at": "2026-10-22T16:33:01.468589+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=48eca7a6-0660-11ee-b12e-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
+    },
+    {
+      "manifest_id": "D24EN",
+      "source_id": "src:eu-dir-2024-1640-en",
+      "title": "Directive (EU) 2024/1640 (EN)",
+      "publisher_url": "https://eur-lex.europa.eu/eli/dir/2024/1640/oj/eng",
+      "source_version": "32024L1640-OJ-en",
+      "language": "en",
+      "publication_on": "2024-06-19",
+      "adopted_on": "2024-05-31",
+      "work_id": "eli:dir/2024/1640",
+      "date_verification": "OJ edition; application/transposition dates require article-specific inspection; publication and retrieval are not application dates",
+      "media_type": "application/pdf",
+      "class": "EU legislation",
+      "local_path": "data/D24EN-eu-dir-2024-1640-en.pdf",
+      "document_number": "2024/1640",
+      "oj_identifier": "OJ:L_202401640",
+      "route_note": "Publication page is authoritative. Import may use an official PDF or complete legal HTML. No speculative asset URL fallback. Corrected OJ identifier supplied by user where recorded.",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "698476cd-2dd4-11ef-a61b-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/698476cd-2dd4-11ef-a61b-01aa75ed71a1/language-en",
+      "size_bytes": 2172837,
+      "sha256": "df546f2364aaf9e2fc5e718ff47e6ccca6b553a83d21969483cb28f6e9cfbb6a",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=698476cd-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 94,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:33:04.714002+02:00",
+      "import_provenance": {
+        "original_filename": "amld6-2024-en.pdf",
+        "registered_at": "2026-10-22T16:33:04.714051+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=698476cd-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
+    },
+    {
+      "manifest_id": "AR24EN",
+      "source_id": "src:eu-reg-2024-1620-en",
+      "title": "Regulation (EU) 2024/1620 (EN)",
+      "publisher_url": "https://eur-lex.europa.eu/eli/reg/2024/1620/oj/eng",
+      "source_version": "32024R1620-OJ-en",
+      "language": "en",
+      "publication_on": "2024-06-19",
+      "adopted_on": "2024-05-31",
+      "work_id": "eli:reg/2024/1620",
+      "date_verification": "OJ edition; application/transposition dates require article-specific inspection; publication and retrieval are not application dates",
+      "media_type": "application/pdf",
+      "class": "EU legislation",
+      "local_path": "data/AR24EN-eu-reg-2024-1620-en.pdf",
+      "document_number": "2024/1620",
+      "route_note": "Publication page is authoritative. Import may use an official PDF or complete legal HTML. No speculative asset URL fallback. Corrected OJ identifier supplied by user where recorded.",
+      "acquisition_checked_on": "2026-10-22",
+      "downloaded_on": null,
+      "date_capture_note": "Staged original verified on acquisition_checked_on; original download timestamp not recorded. retrieved_on is repository capture date.",
+      "publisher_identifier": "8e78c1d2-2dd4-11ef-a61b-01aa75ed71a1",
+      "landing_page": "https://op.europa.eu/en/publication-detail/-/publication/8e78c1d2-2dd4-11ef-a61b-01aa75ed71a1/language-en",
+      "size_bytes": 1949789,
+      "sha256": "3a1785f95cb37b3c446f6766474dd095dc4a1effc29df539298d756945d74e23",
+      "retrieved_on": "2026-10-22",
+      "capture_method": "verified_official_original_import",
+      "download_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=8e78c1d2-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+      "validation": {
+        "pages": 90,
+        "media_type": "application/pdf",
+        "validation": "original structure, edition/language identity, readable content and publisher provenance declaration"
+      },
+      "registered_at": "2026-10-22T16:33:07.806055+02:00",
+      "import_provenance": {
+        "original_filename": "amlar-2024-en.pdf",
+        "registered_at": "2026-10-22T16:33:07.806105+02:00",
+        "original_official_url": "https://op.europa.eu/o/opportal-service/download-handler?identifier=8e78c1d2-2dd4-11ef-a61b-01aa75ed71a1&format=pdfa2a&language=en&productionSystem=cellar&part=",
+        "declaration": "official original; URL provenance declared, not authenticated by content hash"
+      }
     }
-  ]
+  ],
+  "reference_metadata": "/home/dsly/Projects/BankLLM/corpus/sources.yaml (read-only; no Q&A imported)"
 }

@@ -34,8 +34,10 @@ configuration file; `manifest_file` and source `local_path` values are relative
 to `root`. `manifest_ids` selects/orders the short IDs defined in the manifest.
 
 [Manifest entries](../data/manifest.json) hold short `manifest_id`, stable `source_id`,
-title, class, publisher version and file metadata. Retain `source_id` across
-URL/edition changes; update `source_version` for new editions. Collections need
+title, class, publisher version, file metadata and explicit coverage decisions.
+Saved pilot filenames use `<manifest_id>-<filename>`; `local_path` records
+the current path. Renaming a file leaves its bytes and source/document IDs unchanged.
+Retain `source_id` across URL/edition changes; update `source_version` for new editions. Collections need
 matching config/manifests.
 
 The CLI detects PDF/HTML by signature, DOCX by ZIP members and UTF-8 Markdown by

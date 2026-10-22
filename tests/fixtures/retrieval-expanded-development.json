@@ -1,0 +1,328 @@
+[
+  {
+    "id": "A1",
+    "question": "Les lignes directrices ACPR–Tracfin ont-elles un caractère contraignant ?",
+    "source_id": "src:acpr-tracfin-joint-guidelines",
+    "pages": [
+      3
+    ],
+    "text_anchors": [
+      "n'a pas de caractère contraignant"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "A2",
+    "question": "Une COSI exige-t-elle un soupçon, comme une déclaration de soupçon ?",
+    "source_id": "src:acpr-tracfin-joint-guidelines",
+    "pages": [
+      5
+    ],
+    "text_anchors": [
+      "indépendamment de toute notion de soupçon"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "T1",
+    "question": "Quel schéma illustre le cas n° 16 de Tracfin ?",
+    "source_id": "src:tracfin-threat-report-tome-3",
+    "pages": [
+      45
+    ],
+    "text_anchors": [
+      "Monsieur M ouvre de multiples sociétés",
+      "Il ouvre ensuite des comptes de paiement",
+      "les comptes sont alimentés",
+      "Ces sommes sont rapidement débitées"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "T2",
+    "question": "Quels signes d'alerte du cas n° 16 concernent les flux d'une société récente ?",
+    "source_id": "src:tracfin-threat-report-tome-3",
+    "pages": [
+      45,
+      46
+    ],
+    "text_anchors": [
+      "Un volume des transactions important",
+      "La célérité des flux"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "M1",
+    "question": "Quelle différence la doctrine AMF fait-elle entre identifier et vérifier un bénéficiaire effectif ?",
+    "source_id": "src:amf-doc-2019-16",
+    "pages": [
+      18
+    ],
+    "text_anchors": [
+      "A cet égard, préalablement à l'entrée",
+      "L'identification du bénéficiaire effectif se fait"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "M2",
+    "question": "La doctrine AMF prévoit-elle une exception d'identification pour une société cotée ?",
+    "source_id": "src:amf-doc-2019-16",
+    "pages": [
+      18
+    ],
+    "text_anchors": [
+      "Les assujettis n'ont pas l'obligation d'identifier",
+      "l'assujetti est en mesure de justifier auprès de l'AMF"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "L1a",
+    "question": "Qui peut être bénéficiaire effectif au sens du code ?",
+    "source_id": "src:cmf-L561-2-2",
+    "text_anchors": [
+      "les personnes physiques",
+      "contrôlent en dernier lieu",
+      "une opération est exécutée"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "L2a",
+    "question": "Pendant combien de temps la vigilance sur une relation d'affaires s'exerce-t-elle ?",
+    "source_id": "src:cmf-L561-6",
+    "text_anchors": [
+      "Pendant toute la durée de la relation d'affaires",
+      "connaissance actualisée"
+    ],
+    "label_status": "development_unreviewed",
+    "query_language": "fr",
+    "source_language": "fr"
+  },
+  {
+    "id": "P-en-fr",
+    "question": "Does politically exposed person status itself imply suspicion about all transactions?",
+    "source_id": "src:acpr-ppe-2018",
+    "query_language": "en",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      4
+    ],
+    "text_anchors": [
+      "Définition de la notion de PPE"
+    ]
+  },
+  {
+    "id": "T2-en-fr",
+    "question": "What are Tracfin’s three core missions in its 2024 activity report, volume II?",
+    "source_id": "src:tracfin-activity-report-tome-2",
+    "query_language": "en",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      5
+    ],
+    "text_anchors": [
+      "trois missions"
+    ]
+  },
+  {
+    "id": "AMLR-en",
+    "question": "When does Regulation (EU) 2024/1624 apply, and which entities have a later application date?",
+    "source_id": "src:eu-reg-2024-1624-en",
+    "query_language": "en",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      96
+    ],
+    "text_anchors": [
+      "Entry into force and application"
+    ]
+  },
+  {
+    "id": "AMLR-fr-en",
+    "question": "À quelle date le règlement 2024/1624 s’applique-t-il, avec quelles exceptions ? Référence anglaise.",
+    "source_id": "src:eu-reg-2024-1624-en",
+    "query_language": "fr",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      96
+    ],
+    "text_anchors": [
+      "Entry into force and application"
+    ]
+  },
+  {
+    "id": "AMLR-fr",
+    "question": "Quand s’applique le règlement 2024/1624 et quelles entités relèvent d’une date ultérieure ?",
+    "source_id": "src:eu-reg-2024-1624-fr",
+    "query_language": "fr",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      96
+    ],
+    "text_anchors": [
+      "Entrée en vigueur et application"
+    ]
+  },
+  {
+    "id": "AMLR-en-fr",
+    "question": "Which application dates are stated in the French text of Regulation 2024/1624?",
+    "source_id": "src:eu-reg-2024-1624-fr",
+    "query_language": "en",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      96
+    ],
+    "text_anchors": [
+      "Entrée en vigueur et application"
+    ]
+  },
+  {
+    "id": "AMLD6-en",
+    "question": "Which transposition deadlines does Directive (EU) 2024/1640 set for Member States?",
+    "source_id": "src:eu-dir-2024-1640-en",
+    "query_language": "en",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      86
+    ],
+    "text_anchors": [
+      "Transposition"
+    ]
+  },
+  {
+    "id": "TFR-fr-en",
+    "question": "Quelles informations doivent accompagner les transferts de crypto-actifs selon le règlement 2023/1113 ?",
+    "source_id": "src:eu-reg-2023-1113-en",
+    "query_language": "fr",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      21
+    ],
+    "text_anchors": [
+      "Information accompanying transfers of crypto-assets"
+    ]
+  },
+  {
+    "id": "AMLAR-en",
+    "question": "What are the tasks and powers of the Authority established by Regulation (EU) 2024/1620?",
+    "source_id": "src:eu-reg-2024-1620-en",
+    "query_language": "en",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "locator_status": "development locator inspected in saved original; independent relevance review required",
+    "pages": [
+      21
+    ],
+    "text_anchors": [
+      "Tasks"
+    ]
+  },
+  {
+    "id": "NRA23-en-fr",
+    "question": "How does the 2023 French national risk assessment rate money-laundering risks for trusts, domiciliation companies and fiducies?",
+    "source_id": "src:fr-colb-national-risk-assessment-2023",
+    "query_language": "en",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "pages": [
+      137
+    ],
+    "text_anchors": [
+      "élevé en ce qui concerne les trusts"
+    ],
+    "locator_status": "development locator inspected in saved original; independent relevance review required"
+  },
+  {
+    "id": "AMFRA24-fr",
+    "question": "Sur quelle échelle l’AMF évalue-t-elle les risques globaux dans son analyse sectorielle de juin 2024 ?",
+    "source_id": "src:amf-sector-risk-assessment-2024",
+    "query_language": "fr",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "pages": [
+      3
+    ],
+    "text_anchors": [
+      "échelle de cotation à quatre niveaux"
+    ],
+    "locator_status": "development locator inspected in saved original; independent relevance review required"
+  },
+  {
+    "id": "COLB24-fr",
+    "question": "Que rapporte le COLB sur les conditions d’accès au registre des bénéficiaires effectifs après le changement du 31 juillet 2024 ?",
+    "source_id": "src:colb-annual-report-2024",
+    "query_language": "fr",
+    "source_language": "fr",
+    "label_status": "development_unreviewed",
+    "pages": [
+      19
+    ],
+    "text_anchors": [
+      "vérification de l’intérêt légitime des utilisateurs"
+    ],
+    "locator_status": "development locator inspected in saved original; independent relevance review required"
+  },
+  {
+    "id": "BASEL20-fr-en",
+    "question": "Comment les orientations du Comité de Bâle révisées en juillet 2020 répartissent-elles la gestion du risque BC-FT entre les trois lignes de défense ?",
+    "source_id": "src:bcbs-aml-cft-risk-management-2020",
+    "query_language": "fr",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "pages": [
+      9
+    ],
+    "text_anchors": [
+      "The three lines of defence"
+    ],
+    "locator_status": "development locator inspected in saved original; independent relevance review required"
+  },
+  {
+    "id": "EUROPOL23-en",
+    "question": "What role do professional experts play in financial and economic crime according to Europol’s 2023 executive summary?",
+    "source_id": "src:europol-efect-2023-executive-summary-en",
+    "query_language": "en",
+    "source_language": "en",
+    "label_status": "development_unreviewed",
+    "pages": [
+      2
+    ],
+    "text_anchors": [
+      "Professional experts provide a wide range of services to criminal networks"
+    ],
+    "locator_status": "development locator inspected in saved original; independent relevance review required"
+  }
+]

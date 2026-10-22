@@ -6,6 +6,11 @@ required gate. [Set up Python/direnv](ingestion.md) first. Model steps require
 The commands below build a new run. To reuse the saved pilot, start with the
 [RAG shortcut](retrieval-rag.md).
 
+For persisted run/status/resume, independent review sessions, budgets and gated local
+publication, use the [resumable pilot workflow](resumable-pilot-workflow.md).
+The checked-in selection contains 17 saved files and records the accepted historical
+PPE limitation.
+
 ## Inputs and paths
 
 Save the original PDF, HTML, Markdown or DOCX files before ingestion: it validates
@@ -16,7 +21,7 @@ review fixtures to the corpus. The checked-in defaults select the AML/CFT pilot.
 ```sh
 RUN_ID="your-new-run-id"
 INPUT_RUN_ID="$RUN_ID"  # change only when reusing reviewed parsed/chunked inputs
-CORPUS_ID="aml-cft-pilot"  # choose another ID for another corpus
+CORPUS_ID="aml-cft-expanded-pilot"  # matches config/workflow.json
 SOURCE_ROOT="."  # same source root as pipeline.json's resolved root
 MANIFEST_PATH="data/manifest.json"
 PIPELINE_CONFIG="config/pipeline.json"
@@ -24,7 +29,7 @@ STRUCTURAL_CONFIG="config/structural-chunks-and-semantic-clusters.json"
 CLAIM_CONFIG="config/claim-generation-and-classification.json"
 SUMMARY_CONFIG="config/summaries.json"
 TAXONOMY_PATH="config/topics-v1.json"
-RETRIEVAL_CONFIG="config/retrieval.json"
+RETRIEVAL_CONFIG="config/retrieval-multilingual.json"
 CORPORA_CONFIG="config/retrieval-corpora.json"
 PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
@@ -131,7 +136,7 @@ Before opening chat, register these exact directories and `graph_path` under
 `CORPUS_ID`/`RUN_ID` in `CORPORA_CONFIG` ([template](retrieval-rag.md#other-corpora-and-commands)).
 The chatbot embeds compatible local HTML; no separate graph server is needed.
 
-## 7. Import vectors and publish the selected snapshot
+## 7. Import vectors into an unpublished snapshot
 
 Create the database once using the [RAG setup](retrieval-rag.md#1-create-the-local-database-once).
 Then import the outputs above, rather than selecting an older preset run:
@@ -151,16 +156,46 @@ claim and summary vectors; it may incur API costs. No upstream files are changed
 
 ```sh
 SNAPSHOT_ID=$(direnv exec . .venv/bin/python -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot_id"])' "$IMPORT_RESULT")
-direnv exec . .venv/bin/python scripts/index_artifacts.py publish \
-  --corpus "$CORPUS_ID" --snapshot-id "$SNAPSHOT_ID"
 ```
 
-**Gate:** exit 0. Publication is explicit; prior snapshots and their histories remain.
+**Gate:** exit 0. Retain the explicit snapshot ID for evaluation; importing does not publish it.
 Passage-only RAG can start after step 3: omit the claim/summary directory arguments
 and skip their dependent steps. Keyword-only imports may omit `--embed-missing`;
 vector/combined queries require vectors for the selected kind.
 
-## 8. Query, evaluate and start chat
+## 8. Evaluate before publication
+
+Select source-reviewed cases matching the exact corpus and editions. Development
+smoke cases are useful for diagnosis but are not acceptance labels. Evaluate the
+explicit ready snapshot without selecting it for chat:
+
+```sh
+RETRIEVAL_CASES="path/to/source-reviewed-cases.json"
+direnv exec . .venv/bin/python scripts/evaluate_retrieval.py \
+  --corpus "$CORPUS_ID" --config "$RETRIEVAL_CONFIG" --snapshot-id "$SNAPSHOT_ID" \
+  --unpublished --cases "$RETRIEVAL_CASES" --modes passage claim summary \
+  --no-rerank --check-excerpts --output "artifacts/retrieval-evaluation-${RUN_ID}.json"
+```
+
+**Gate:** inspect the saved metrics and rows, not just exit 0. All cases must
+complete and combined retrieval must meet the corpus's acceptance target in each
+required mode. Compare keyword/vector baselines separately. Review semantic
+relevance against originals: source/page overlap and excerpt anchors alone cannot
+approve acceptance. The expanded controller enforces a 0.875 combined hit rate
+and requires a separate source-checked acceptance attestation before publication.
+
+## 9. Explicitly publish, query and start chat
+
+Only after all required build, review and retrieval checks pass:
+
+```sh
+direnv exec . .venv/bin/python scripts/index_artifacts.py publish \
+  --corpus "$CORPUS_ID" --snapshot-id "$SNAPSHOT_ID"
+```
+
+**Gate:** exit 0. Publication is explicit; prior snapshots and histories remain.
+Use `scripts/workflow.py publish` for persisted enforcement of the complete
+expanded-pilot gates; this low-level command remains an operator primitive.
 
 ```sh
 direnv exec . .venv/bin/python scripts/query.py 'Which documents are in this corpus?' \

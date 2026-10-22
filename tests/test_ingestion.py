@@ -21,10 +21,12 @@ VALIDATOR = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
 class IngestionTests(unittest.TestCase):
     def test_pilot_pdf_and_html_match_task_2_examples(self):
         report = ingest(ROOT / "config/pipeline.json")
-        self.assertEqual(len(report["outcomes"]), 5)
+        selected = json.loads((ROOT / "config/pipeline.json").read_text())["manifest_ids"]
+        self.assertEqual([item["manifest_id"] for item in report["outcomes"]], selected)
         self.assertTrue(all(item["status"] == "ingested" for item in report["outcomes"]))
         outcomes = {item["manifest_id"]: item for item in report["outcomes"]}
-        self.assertEqual([item["detected_format"] for item in report["outcomes"]], ["pdf", "pdf", "pdf", "html", "html"])
+        self.assertEqual([outcomes[mid]["detected_format"] for mid in ("A", "T", "M", "L1", "L2")],
+                         ["pdf", "pdf", "pdf", "html", "html"])
         for manifest_id, example_name in (("A", "artifact-bundle-pdf.json"), ("L1", "artifact-bundle-html.json")):
             example = json.loads((ROOT / "examples" / example_name).read_text(encoding="utf-8"))
             self.assertEqual(outcomes[manifest_id]["source"], example["sources"][0])

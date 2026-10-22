@@ -45,3 +45,36 @@ def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path
                    '--methods', 'keyword', '--no-rerank', '--check-excerpts', '--output', str(output)])
     assert result['metrics'][0]['hits'] == 1 and result['rows'][0]['ranking'] is None
     assert output.is_file()
+
+
+def test_unpublished_evaluation_is_scoped_and_never_publishes():
+    import pytest
+    from knowledge_foundry.retrieval.evaluation import SnapshotEvaluationStore
+    class Store:
+        def evaluation_snapshot(self, corpus, snapshot_id):
+            return {'id': snapshot_id, 'status': 'ready'}
+        def publish(self, *args):
+            raise AssertionError('evaluation must never publish')
+    with pytest.raises(ValueError, match='explicit snapshot'):
+        SnapshotEvaluationStore(Store(), 'test', None)
+    evaluation_store = SnapshotEvaluationStore(Store(), 'test', 'ready-snapshot')
+    assert evaluation_store.snapshot('test', 'ready-snapshot')['status'] == 'ready'
+    for corpus, sid in [('test', None), ('other', 'ready-snapshot'), ('test', 'other')]:
+        with pytest.raises(ValueError, match='another snapshot'):
+            evaluation_store.snapshot(corpus, sid)
+
+
+def test_explicit_unpublished_read_preserves_active_snapshot(store, published):
+    import pytest
+    from rag_fixtures import projection
+    from knowledge_foundry.retrieval.artifacts import profile
+    config, active = published
+    records, evidence, identity = projection()
+    identity['evaluation_fixture_revision'] = 2
+    ready = store.import_snapshot('animals', identity, records, evidence, profile(config['embedding']), 'english')['snapshot_id']
+    assert store.evaluation_snapshot('animals', ready)['status'] == 'ready'
+    assert store.snapshot('animals')['id'] == active
+    with pytest.raises(ValueError, match='published snapshot'):
+        store.snapshot('animals', ready)
+    with pytest.raises(ValueError, match='absent from this corpus'):
+        store.evaluation_snapshot('other-corpus', ready)

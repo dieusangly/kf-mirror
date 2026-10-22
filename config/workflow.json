@@ -1,0 +1,13 @@
+{
+  "corpus": "aml-cft-expanded-pilot",
+  "pipeline": "config/pipeline.json",
+  "structural": "config/structural-chunks-and-semantic-clusters.json",
+  "claims": "config/claim-generation-and-classification.json",
+  "summaries": "config/summaries.json",
+  "taxonomy": "config/topics-v1.json",
+  "retrieval": "config/retrieval-multilingual.json",
+  "retrieval_cases": "tests/fixtures/retrieval-expanded-development.json",
+  "retrieval_acceptance": "data/retrieval-expanded-acceptance.json",
+  "sample_per_document": 12,
+  "minimum_retrieval_hit_rate": 0.875
+}

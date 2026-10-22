@@ -7,6 +7,22 @@ from haystack.core.errors import PipelineRuntimeError
 from knowledge_foundry.retrieval.answering import generate
 
 
+class SnapshotEvaluationStore:
+    """Confine unpublished reads to one explicitly selected evaluation snapshot."""
+    def __init__(self, store, corpus, snapshot_id):
+        if not snapshot_id:
+            raise ValueError('unpublished evaluation requires an explicit snapshot ID')
+        self.store, self.corpus, self.snapshot_id = store, corpus, snapshot_id
+
+    def snapshot(self, corpus, snapshot_id=None):
+        if corpus != self.corpus or snapshot_id != self.snapshot_id:
+            raise ValueError('evaluation cannot select another snapshot or the active corpus')
+        return self.store.evaluation_snapshot(corpus, snapshot_id)
+
+    def __getattr__(self, name):
+        return getattr(self.store, name)
+
+
 def matches_locator(evidence, case):
     return (evidence['source']['id'] == case['source_id']
             and (not case.get('pages') or evidence['location'].get('page') in case['pages'])

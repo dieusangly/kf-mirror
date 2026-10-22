@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
 from knowledge_foundry.retrieval.config import load_config
-from knowledge_foundry.retrieval.evaluation import evaluate
+from knowledge_foundry.retrieval.evaluation import SnapshotEvaluationStore, evaluate
 from knowledge_foundry.retrieval.service import DocumentAssistant
 from knowledge_foundry.storage.postgres import PostgresStore
 
@@ -18,6 +18,7 @@ def main(argv=None):
     parser.add_argument('--cases', type=Path, required=True)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--snapshot-id')
+    parser.add_argument('--unpublished', action='store_true', help='evaluate one explicit ready snapshot without publishing it')
     parser.add_argument('--methods', nargs='+', choices=['keyword', 'vector', 'combined'], default=['keyword', 'vector', 'combined'])
     parser.add_argument('--modes', nargs='+', choices=['passage', 'claim', 'summary'], default=['passage'])
     parser.add_argument('--output', type=Path, required=True)
@@ -25,10 +26,15 @@ def main(argv=None):
     parser.add_argument('--check-excerpts', action='store_true', help='audit deterministic excerpts without answer-model calls')
     parser.add_argument('--no-rerank', action='store_true', help='compare search without model reranking')
     args = parser.parse_args(argv)
+    if args.unpublished and not args.snapshot_id:
+        parser.error('--unpublished requires --snapshot-id')
     config = load_config(args.config)
     if args.no_rerank:
         config['search']['rerank'] = False
-    report = evaluate(DocumentAssistant(PostgresStore(), config), args.corpus,
+    store = PostgresStore()
+    if args.unpublished:
+        store = SnapshotEvaluationStore(store, args.corpus, args.snapshot_id)
+    report = evaluate(DocumentAssistant(store, config), args.corpus,
                       json.loads(args.cases.read_text()), methods=args.methods, modes=args.modes,
                       snapshot_id=args.snapshot_id, sequential=args.sequence, check_excerpts=args.check_excerpts)
     args.output.parent.mkdir(parents=True, exist_ok=True)

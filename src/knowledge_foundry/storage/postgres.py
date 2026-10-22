@@ -131,6 +131,17 @@ class PostgresStore:
             raise ValueError('no selected published snapshot; import and explicitly publish first')
         return row
 
+    def evaluation_snapshot(self, corpus, snapshot_id):
+        """Read one explicit ready snapshot for evaluation without publishing it."""
+        if not snapshot_id:
+            raise ValueError('evaluation requires an explicit snapshot ID')
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM kf_snapshots WHERE corpus=%s AND id=%s AND status IN ('ready','published')",
+                               (corpus, snapshot_id)).fetchone()
+        if not row:
+            raise ValueError('evaluation snapshot is absent from this corpus')
+        return row
+
     def snapshots(self, corpus=None):
         with self.connection() as conn:
             return conn.execute('SELECT s.*,c.active_snapshot=s.id AS active FROM kf_snapshots s LEFT JOIN kf_corpora c ON c.corpus=s.corpus WHERE (%s::text IS NULL OR s.corpus=%s) ORDER BY s.created_at DESC', (corpus, corpus)).fetchall()

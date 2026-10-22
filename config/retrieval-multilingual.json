@@ -1,0 +1,59 @@
+{
+  "version": "retrieval-multilingual-pilot-v1",
+  "search": {
+    "method": "combined",
+    "mode": "passage",
+    "language": "simple",
+    "top_k": 5,
+    "candidate_k": 30,
+    "minimum_vector_similarity": 0.25,
+    "minimum_keyword_score": 0.0,
+    "minimum_keyword_coverage": 0.25,
+    "rrf_constant": 60,
+    "max_context_evidence": 24,
+    "max_context_depth": 4,
+    "followup_turns": 2,
+    "rerank": true
+  },
+  "budget": {
+    "tokenizer": "cl100k_base",
+    "input_tokens": 12000,
+    "output_tokens": 1600,
+    "safety_tokens": 1024,
+    "context_window_tokens": 32768,
+    "max_question_tokens": 1500,
+    "history_tokens": 1500
+  },
+  "answer": {
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "low",
+    "timeout_seconds": 90,
+    "pricing": {
+      "model": "gpt-6-luna",
+      "verified_on": "2026-10-19",
+      "input_usd_per_million": 0.1,
+      "cached_input_usd_per_million": 0.01,
+      "cache_write_usd_per_million": 0.125,
+      "output_usd_per_million": 0.5,
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+    }
+  },
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dimensions": 1536,
+    "expected_dimensions": 1536,
+    "preprocessing_version": "structural-evidence-text-v1",
+    "tokenizer": "cl100k_base",
+    "max_input_tokens": 8192,
+    "max_request_inputs": 32,
+    "max_request_tokens": 32000,
+    "timeout_seconds": 90,
+    "retries": 0
+  },
+  "embedding_pricing": {
+    "usd_per_million_input_tokens": 0.02
+  },
+  "cache_dir": "artifacts/embeddings-and-token-counts/embeddings"
+}
