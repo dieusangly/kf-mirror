@@ -53,6 +53,31 @@ stage attempts; resume/repair retains counters. They are not hard dollar/token c
 unavailable cost measurements remain null. Ambiguity, inaccessible evidence, scope
 expansion and repeated lack of progress require escalation, not threshold changes.
 
+Each run also writes `artifacts/workflow/<run-id>/report.json` at checkpoints and
+on completion, failure or interruption. It summarizes recorded stage/gate outcomes,
+current and invalidated attempts, artifact paths, execution time, budgets, reviewer
+settings, measured usage and cost components. Stage reports remain beside their bundles.
+After a hard kill, the summary retains its last checkpoint until regeneration/resume.
+
+`cost.known_subtotal_usd` sums available model/API estimates across all attempts.
+`cost.estimated_total_usd` is null while any component is unpriced; those components
+are listed explicitly. Resumed cumulative telemetry is counted once, generation
+recovery carryovers are excluded from the new attempt, and copied upstream costs
+and full-build projections are excluded. Summary generation uses usage and rate cards
+saved with its build. Reviewer USD costs and unreported failed calls remain unknown.
+These estimates exclude hardware/subscription charges and are not billing statements
+or forecasts for unstarted work. Malformed/missing telemetry is visible in the report.
+
+Regenerate a summary for an existing run without executing stages or changing state:
+
+```sh
+direnv exec . .venv/bin/python scripts/workflow.py report --run-id aml-cft-pilot
+```
+
+Report generation holds the run lock. Gate results are reported as recorded; use
+`status` to check current staleness. Reporting never approves reviews or publishes.
+Older state files may lack timing/configuration measurements; unavailable costs stay null.
+
 Retrieval development checks cover every saved file and both languages. PostgreSQL
 `simple` text search avoids applying French stemming to English; multilingual
 embeddings support cross-language matching. Keyword/vector baselines remain diagnostic.

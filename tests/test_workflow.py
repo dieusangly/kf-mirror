@@ -91,6 +91,10 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     retrieval = next(cmd for stage, cmd in calls if stage == 'retrieval')
     assert '--unpublished' in retrieval and '--snapshot-id' in retrieval
     assert controller.state['status'] == 'awaiting_explicit_publication'
+    report = w.read(controller.directory / 'report.json')
+    assert report['recorded_checks_complete'] and not report['published']
+    assert report['stage_counts']['complete'] == len(w.STAGES) - 1
+    assert report['test_only']
     count = len(calls)
     resumed = w.Workflow('fixture-run', root=controller.root)
     resumed.run(limits())
@@ -111,6 +115,9 @@ def test_pending_exit_zero_is_inspected_and_can_resume(controller, commands, mon
     assert 'structure' not in controller.state['stages']
     pending_dir = controller.output('chunk_review')
     assert w.read(pending_dir / 'repair-task.json')['status'] == 'pending'
+    report = w.read(controller.directory / 'report.json')
+    assert report['status'] == 'blocked' and report['last_error']
+    assert next(s for s in report['stages'] if s['stage'] == 'chunk_review')['status'] == 'pending'
     monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
     controller.run(limits(), stop_after='chunk_review')
     assert controller.output('chunk_review') == pending_dir
@@ -136,6 +143,10 @@ def test_failed_review_preserves_findings_requires_rebuild_and_fresh_review(cont
     assert old != controller.output('chunk_review')
     assert w.read(old / 'review.json')['reviews'][0]['status'] == 'fail'
     assert len([e for e in controller.state['history'] if e.get('stage') == 'chunk_review']) == 1
+    report = w.read(controller.directory / 'report.json')
+    attempts = next(s for s in report['stages'] if s['stage'] == 'chunk_review')['attempts']
+    assert [e['status'] for e in attempts] == ['failed', 'complete']
+    assert not attempts[0]['current'] and attempts[1]['current']
 
 
 def test_stale_inputs_and_artifacts_are_rejected(controller, commands, monkeypatch):
@@ -166,6 +177,8 @@ def test_interruption_resume_preserves_attempt_and_restarts_frozen_builder(contr
         controller.run(limits())
     old = controller.output('parse')
     assert controller.state['stages']['parse']['status'] == 'interrupted'
+    report = w.read(controller.directory / 'report.json')
+    assert next(s for s in report['stages'] if s['stage'] == 'parse')['attempts'][0]['execution_seconds'] >= 0
     resumed = w.Workflow('fixture-run', root=controller.root)
     resumed.run(limits(), stop_after='parse')
     assert resumed.output('parse') != old and (old / 'partial.txt').read_text() == 'retain me'
@@ -179,6 +192,25 @@ def test_lock_is_exclusive_and_recovers_after_release(controller):
                 pass
     with w.run_lock(controller.directory):
         pass
+
+
+def test_report_command_regenerates_summary_without_running_or_mutating_state(controller, commands, monkeypatch, capsys):
+    controller.run(limits(), stop_after='ingest')
+    state_before = controller.path.read_bytes()
+    artifacts_before = w.fingerprints(controller.output('ingest'))
+    report_path = controller.directory / 'report.json'
+    report_path.unlink()  # Also supports older runs that have no overall report.
+    calls_before = len(commands[0])
+    original = w.Workflow
+    monkeypatch.setattr(w, 'Workflow', lambda run_id, config: original(run_id, config, root=controller.root))
+    assert w.main(['report', '--run-id', 'fixture-run', '--config', str(controller.config_path)]) == 0
+    assert json.loads(capsys.readouterr().out)['report_path'] == str(report_path)
+    assert w.read(report_path)['cost']['estimated_total_usd'] == 0
+    assert controller.path.read_bytes() == state_before and len(commands[0]) == calls_before
+    assert w.fingerprints(controller.output('ingest')) == artifacts_before
+    with w.run_lock(controller.directory):
+        assert w.main(['report', '--run-id', 'fixture-run', '--config', str(controller.config_path)]) == 1
+    assert 'holds this run lock' in capsys.readouterr().err
 
 
 def test_budgets_and_missing_sources_block_before_paid_work(controller, commands, monkeypatch):

@@ -162,12 +162,23 @@ class Workflow:
         self.path = self.directory / 'state.json'
         self.state = read(self.path) if self.path.exists() else {
             'schema_version': 1, 'run_id': run_id, 'created_at': now(), 'status': 'new',
+            'workflow_config': read(self.config_path),
             'identity': input_identity(root, self.config_path), 'stages': {}, 'history': [],
             'paid_stages_started': 0, 'review_sessions_started': 0, 'elapsed_seconds': 0}
 
     def save(self):
         self.state['updated_at'] = now()
         write(self.path, self.state)
+        self.write_report()
+
+    def write_report(self):
+        from knowledge_foundry.workflow_reporting import build_report
+        elapsed = self.state['elapsed_seconds']
+        if getattr(self, '_run_active', False):
+            elapsed += time.monotonic() - self.started
+        path = self.directory / 'report.json'
+        write(path, build_report(self.state, STAGES, self.path, self.config_path, elapsed))
+        return path
 
     def output(self, stage):
         return Path(self.state['stages'][stage]['directory'])
@@ -197,6 +208,7 @@ class Workflow:
                 self.state['history'].append({'stage': name, **self.state['stages'].pop(name),
                                               'invalidated_at': now(), 'repair_note': note})
         self.state['identity'] = input_identity(self.root, self.config_path)
+        self.state['workflow_config'] = read(self.config_path)
         if stage == 'ingest' and self.state.get('reviewer'):
             self.state['history'].append({'reviewer': self.state.pop('reviewer'), 'repair_note': note})
         self.state['status'] = 'repaired'
@@ -517,6 +529,7 @@ class Workflow:
 
     def run(self, limits, *, publish=False, stop_after=None):
         self.limits, self.started = limits, time.monotonic()
+        self._run_active = True
         self.state.setdefault('budget_history', []).append({
             'started_at': now(), 'publish': publish,
             **{key: getattr(limits, key) for key in ('allow_paid', 'max_seconds', 'max_paid_stages',
@@ -567,6 +580,7 @@ class Workflow:
                 if name in PAID:
                     self.state['paid_stages_started'] += 1
                 self.save()
+                execution_started = time.monotonic()
                 try:
                     if name in REVIEWS:
                         rc = execute(self.review_command(name, out), out, self.remaining())
@@ -605,6 +619,9 @@ class Workflow:
                         entry.update(status='interrupted' if isinstance(exc, (KeyboardInterrupt, subprocess.TimeoutExpired)) else 'failed', error=str(exc))
                     self.save()
                     raise
+                finally:
+                    entry['execution_seconds'] = entry.get('execution_seconds', 0) + time.monotonic() - execution_started
+                    self.save()
                 if name == stop_after:
                     break
             self.state['status'] = 'published' if publish else ('stopped_after_' + stop_after if stop_after else 'awaiting_explicit_publication')
@@ -613,12 +630,13 @@ class Workflow:
             raise
         finally:
             self.state['elapsed_seconds'] += time.monotonic() - self.started
+            self._run_active = False
             self.save()
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['run', 'status', 'resume', 'publish'])
+    parser.add_argument('command', choices=['run', 'status', 'resume', 'publish', 'report'])
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--config', type=Path, default=ROOT / 'config/workflow.json')
     parser.add_argument('--allow-paid', action='store_true')
@@ -647,10 +665,14 @@ def main(argv=None):
                 raise ValueError('run already exists; use status or resume')
             if args.command != 'run' and not workflow.path.exists():
                 raise ValueError('unknown run ID')
+            if args.command == 'report':
+                print(json.dumps({'report_path': str(workflow.write_report())}))
+                return 0
             if args.repair_from:
                 workflow.repair(args.repair_from, args.repair_note)
             workflow.run(args, publish=args.command == 'publish', stop_after=args.stop_after)
-            print(json.dumps({'status': workflow.state['status'], 'state_path': str(workflow.path)}))
+            print(json.dumps({'status': workflow.state['status'], 'state_path': str(workflow.path),
+                              'report_path': str(workflow.directory / 'report.json')}))
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
