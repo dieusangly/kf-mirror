@@ -155,6 +155,11 @@ For queries/chat, follow [RAG setup](retrieval-rag.md) with this corpus/snapshot
 ## Failures and reruns
 
 Correct the underlying defect before rebuilding; retain findings and thresholds.
+Use a separate repair session with the matching prompt:
+[parsing](../src/knowledge_foundry/prompts/agent_prompt_parsing_repair),
+[chunking](../src/knowledge_foundry/prompts/agent_prompt_chunking_repair) or
+[claims](../src/knowledge_foundry/prompts/agent_prompt_claim_repair).
+Supply `RUN_ID` and exact evidence paths; after rebuilding, request fresh independent review.
 For an unchanged-code/config rebuild:
 
 ```sh

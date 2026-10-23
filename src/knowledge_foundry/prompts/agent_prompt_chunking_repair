@@ -1,0 +1,33 @@
+Repair chunking review defects. Read AGENTS.md, .agents/AGENTS.md,
+doc/chunking.md and doc/chunking-evaluation.md, and repair rules in
+doc/pipeline-runbook.md and doc/resumable-pilot-workflow.md.
+
+RUN_ID="your-reviewed-run-id"
+Read artifacts/${RUN_ID}/chunking-review/review.json and report.json,
+chunking bundles, originals, and available state.json/repair-task.json.
+Use exact recorded paths for other layouts or build IDs; record actual model/settings.
+
+1. Read gates/findings and reproduce failures against originals; identify the earliest
+underlying defect. Pending inspection needs evidence, stale reviews need matching
+inputs/fresh review. Record source-located counterevidence for disputed findings.
+
+Trace chunks through evidence IDs and parsed elements to originals/PDF layout.
+Check sentence/list integrity, governing context, tables, citations, size boundaries
+and duplicates. Preserve genuine repetition at distinct locations; never invent
+missing text or treat diagram labels as authoritative prose.
+
+2. Apply the smallest generic code/configuration fix; preserve unrelated changes.
+Add/run targeted offline regression tests; mock model-backed behavior. Never edit
+source text, editions, frozen bundles, judgments or state; discard findings; lower
+thresholds; hard-code document/page exceptions; or fabricate approval.
+
+3. Report cause, changes, tests, blockers and exact rebuild commands. Rebuild only
+when separately authorized. Follow controller archival/downstream invalidation rules;
+code/config/source/model changes require repair from ingestion or a fresh run.
+Retain compatible caches; reject stale approvals. Respect retry/time limits; escalate
+ambiguity, scope expansion or repeated lack of progress. No paid calls, increased
+budgets, publication, commits or pushes without separate authorization.
+
+After authorized rebuilds, request fresh independent agent_prompt_chunking_review.
+Never approve your repair or transfer judgments to changed outputs. Fixture tests
+are not pilot approval. Finish with the next action.

@@ -1,0 +1,34 @@
+Repair claim review defects. Read AGENTS.md, .agents/AGENTS.md,
+doc/claim-generation-and-classification.md and doc/claim-evaluation.md, and repair rules in
+doc/pipeline-runbook.md and doc/resumable-pilot-workflow.md.
+
+RUN_ID="your-reviewed-run-id"
+Read artifacts/${RUN_ID}/claim-review/review.json and report.json,
+claim-generation and claim-classification bundles, originals, and available state.json/repair-task.json.
+Use exact recorded paths for other layouts or build IDs; record actual model/settings.
+
+1. Read gates/findings and reproduce failures against originals; identify the earliest
+underlying defect. Pending inspection needs evidence, stale reviews need matching
+inputs/fresh review. Record source-located counterevidence for disputed findings.
+
+Trace claims/chunks/topics to originals, conditions, exceptions, tables and footnotes.
+Check taxonomy scopes/exclusions and evidence-accounting.json when present. Separate
+generation, classification and upstream defects; repair generation first when needed.
+Preserve valid null outcomes; do not turn narrative facts into rules or infer legal
+effectiveness/resolve conflicts without evidence.
+
+2. Apply the smallest generic code/configuration fix; preserve unrelated changes.
+Add/run targeted offline regression tests; mock model-backed behavior. Never edit
+source text, editions, frozen bundles, judgments or state; discard findings; lower
+thresholds; hard-code document/page exceptions; or fabricate approval.
+
+3. Report cause, changes, tests, blockers and exact rebuild commands. Rebuild only
+when separately authorized. Follow controller archival/downstream invalidation rules;
+code/config/source/model changes require repair from ingestion or a fresh run.
+Retain compatible caches; reject stale approvals. Respect retry/time limits; escalate
+ambiguity, scope expansion or repeated lack of progress. No paid calls, increased
+budgets, publication, commits or pushes without separate authorization.
+
+After authorized rebuilds, request fresh independent agent_prompt_claim_review.
+Never approve your repair or transfer judgments to changed outputs. Fixture tests
+are not pilot approval. Finish with the next action.
