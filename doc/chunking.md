@@ -1,7 +1,6 @@
 # Chunking
 
-From the repository root, select saved bundles/`parse.json` sidecars in a parsing
-run’s `documents/` directory and a new chunking run. Inputs remain unchanged:
+Select saved bundles/`parse.json` sidecars and a fresh chunking directory:
 
 ```sh
 INPUT_RUN_ID="your-parsing-run-id"
@@ -23,7 +22,7 @@ figure assets stop the build.
 
 ## Output
 
-The command writes four deterministic collection files:
+Collection outputs:
 
 - `artifact-bundle.json`: source, document, element, chunk, and build records. Claim/topic arrays remain empty.
 - `figure-links.json`: source locations and verified figure assets; no diagram relationships are inferred.
@@ -46,8 +45,8 @@ direnv exec . .venv/bin/python scripts/parse.py \
   --config config/pipeline.json --output-dir "$PARSED_DIR" --source MANIFEST_ID
 ```
 
-Replace `MANIFEST_ID` with the selected source selector; only that source is reparsed. Changed bytes create a **new** folder; after success, move
-the old folder outside the active inputs:
+Changed bytes create a new folder. After successful parsing, move the recorded old
+folder outside active inputs:
 
 ```sh
 PARSED_HISTORY_DIR="${PARSED_DIR}-history"
@@ -58,11 +57,10 @@ mv "$PARSED_DIR/documents/OLD_DOCUMENT_HASH" "$PARSED_HISTORY_DIR/documents/"
 Replace `OLD_DOCUMENT_HASH` with the recorded name. Keep one folder/source;
 unchanged bytes overwrite the same folder and need no move.
 
-Archive the old collection/parsed inputs if needed, rerun chunking above, then
-[review/evaluate](chunking-evaluation.md). Chunking rewrites all configured
-documents/views, without `--source` or incremental cache. Unchanged documents
-retain chunk IDs; changed document IDs change the collection build ID. Use
-reference fixtures only while their passages apply.
+Archive old outputs, rerun chunking, then [review](chunking-evaluation.md).
+Chunking rewrites all configured documents/views without a subset/cache option.
+Unchanged documents retain chunk IDs; changed documents change the build ID.
+Reference fixtures must still match the source editions.
 
 ## Configuration and version IDs
 
@@ -95,47 +93,27 @@ Chunking does not resolve parser OCR/layout warnings. Heading context appears as
 
 ## Structural assembly after original chunking
 
-The [structural chunk and semantic cluster build command](structural-chunks-and-semantic-clusters.md)
-reads the original bundle and `document-structure.json`. It saves
-`document-hierarchy.json`: one record per element with `element_id`,
-`parent_element_id` (nullable), `role` and `basis`. Parents precede their children
-in the derived hierarchy within the same document; canonical source order stays
-unchanged. Roles distinguish sections, numbered paragraphs, local
-list introductions, independent boxes, ordinary content and detached notes/furniture. The basis
-records whether a relationship came from parser metadata, heading levels, a
-numbered paragraph's scope or local list flow.
+The [structural build](structural-chunks-and-semantic-clusters.md) reads the bundle
+and `document-structure.json`. Its `document-hierarchy.json` stores `element_id`,
+nullable `parent_element_id`, `role` and `basis`. Parents precede children within
+each document; canonical source order stays unchanged. Roles distinguish sections,
+numbered paragraphs, list introductions, boxes, content and detached notes/furniture.
 
-Docling extracts reading order, text labels (including headings, paragraphs and
-list items), native groups and page/bounding-box provenance. Our parsing adapter
-derives heading levels/paths from numbering and index indentation and resolves
-element parent IDs. Structural assembly then builds numbered-paragraph and local
-list scope from these saved signals; Docling does not provide this finished
-hierarchy or our structural chunk links. No semantic similarity is used to infer
-document parents.
+Docling supplies labels, groups and page geometry. The adapter derives heading
+paths/parents; assembly derives numbered-paragraph/list scope without semantic
+similarity. Geometry can restore topic/case hierarchy, supported cross-page list
+continuations and independent box context. Contradictory spanless headings are
+excluded from derived evidence. These heuristics require source review.
 
-When a PDF topic banner appears above a case heading on the page but late in
-parser reading order, assembly uses page geometry to restore the topic/case
-relationship. Case subheadings stay within that case. Stale, spanless heading
-context is excluded from derived evidence when it contradicts these ancestors;
-the original chunks remain unchanged. A markerless continuation across a page
-break retains its list introduction when text and column geometry support the
-continuation, even when detached footnotes intervene. Captioned boxes establish
-their own context under the section instead of inheriting the preceding numbered
-paragraph. These repairs are heuristics and require source review.
-
-For the ACPR–Tracfin **INTRODUCTION**, the numbered paragraphs are children of the
-introduction. Paragraph 7 remains the parent of the split “Dans le secteur de la
-banque :” and “Dans le secteur de l'assurance :” leads. Their respective list items
-are children of those leads, even across adjacent pages. The next independent
-numbered paragraph ends paragraph 7's scope. Page-bottom footnotes remain detached.
-These relationships survive when the paragraph, leads and lists occupy many
-structural chunks: they do not require one large introduction/section chunk.
+Example: an introduction's numbered paragraph can govern separate banking and
+insurance leads, each with its own list across pages. The next independent
+paragraph ends that scope; footnotes remain detached. Hierarchy spans focused
+chunks without merging a whole section.
 
 Each structural chunk keeps unique original-chunk membership, exact evidence
 memberships, and `context_element_ids` for source ancestors and direct note hints.
-Generation renders this extra context with non-citable C labels; it never invents
-supporting spans or expands original chunk membership. Summary generation also
-receives parent context separately from source evidence.
+Generation renders it as non-citable C labels; summaries also receive context
+separately. Neither invents spans or expands original memberships.
 
 Only adjacent shared-element fragments and geometrically supported sentence/table
 continuations may merge. Merged components are bounded to four original chunks and

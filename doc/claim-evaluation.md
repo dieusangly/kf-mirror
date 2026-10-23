@@ -1,7 +1,7 @@
 # Claim evaluation
 
-Review generated claims and topic classifications against saved originals. The evaluator checks artifacts and
-scores judgments without model calls; claims/topics remain drafts.
+Review claims/classifications against saved originals. The evaluator checks
+artifacts and scores judgments without model calls; outputs remain drafts.
 
 After [generation/classification](claim-generation-and-classification.md), select a saved run from
 the repository root; set directories separately if stage run IDs differ:
@@ -12,25 +12,18 @@ CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
 CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
 ```
 
-Replace the placeholder with the completed run's ID. Generation runs
-include their frozen structural/semantic context in `CANDIDATES_DIR/preparation`.
-Evaluation uses the selected candidate/classification folders and saved original
-sources; it does not need superseded claim runs or the original context-build
-folder. Keep the latest review and evaluation report with their classified run.
+Frozen context lives in `CANDIDATES_DIR/preparation`; superseded claim/context runs
+are unnecessary. Keep reviews/reports with the classified run.
 
 ## One agent-review task
 
-Use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer)
-after classification. The agent initializes evaluation if needed, reviews saved
-sources, and runs final evaluation. Existing review files are validated and reused
-without resetting judgments. Stale snapshots or failed automatic checks stop the
-review. A pending review is expected before source inspection.
-
-To invoke the reviewer by path without copying the full prompt, send the agent:
+After classification, the [agent prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
+initializes/reuses the review, inspects originals and evaluates judgments. Stale
+snapshots or failed automatic checks stop inspection; pending is expected initially.
 
 ```text
 Read AGENTS.md and .agents/AGENTS.md, then follow
-src/knowledge_foundry/prompts/agent_prompt_claim_reviewer
+src/knowledge_foundry/prompts/agent_prompt_claim_review
 for RUN_ID="your-completed-run-id".
 
 Complete initialization/reuse, source review, and final evaluation.
@@ -42,7 +35,7 @@ Preserve existing review judgments and report the final results.
 Run once before handing the review file to a human:
 
 ```sh
-direnv exec . .venv/bin/python scripts/evaluate_claims.py \
+direnv exec . .venv/bin/python scripts/auto_review_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --initialize-review
@@ -66,9 +59,8 @@ Use the same inputs, source root, taxonomy, policy and sample size in both steps
 
 ## Review saved sources
 
-A separate human or agent inspects every sample against originals and fills the
-review file; agents use the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer).
-Do not reinitialize existing review files or reuse another build’s judgments.
+Inspect every sample against originals. Preserve judgments; never reinitialize
+an existing review or copy another build's approval.
 
 Automatic checks validate schemas, hashes, IDs, exact spans, unchanged candidate
 claims, stage errors, source versions, inverse links, JSONL exports and topic views.
@@ -79,13 +71,10 @@ Evaluation makes no embedding or generation calls.
 Missing candidate claims and null classifications need source review; they are not
 automatically wrong.
 
-For runs with `evidence-accounting.json`, automatic checks also validate its exact
-references, candidate links, cluster membership and report counts. Inspect
-unresolved dispositions around sampled passages and expand high-risk review when
-needed. A model's `represented` judgment is not source-review approval: a citing
-claim can still omit another proposition or qualification from the same passage.
-Older runs have no accounting field; their saved judgments remain valid for their
-original snapshot.
+`evidence-accounting.json`, when present, is checked for references, candidate links,
+membership and counts. Inspect unresolved/high-risk dispositions: `represented`
+does not prove that a claim preserves every proposition or qualification. Older
+runs remain reviewable without accounting.
 
 Sampling selects available risks first, then spreads through reading order:
 
@@ -101,9 +90,9 @@ cross-chunk/document evidence, repeated context and uncited chunks. Small popula
 contribute all items; cross-document units count once/dimension. Unselected chunks
 are excluded.
 
-Samples give text/evidence, native locations, source paths/versions and selection
-reasons. Inspect generation/classification together: they sample the same candidate claims.
-Candidate claim IDs differ from claim IDs; resolve them in `CANDIDATES_DIR/claim-candidates.jsonl`.
+Samples include evidence, locations, source versions and selection reasons.
+Generation/classification share sampled candidates; resolve their IDs in
+`CANDIDATES_DIR/claim-candidates.jsonl`, not classified claim records.
 
 Preserve `build_id`, `snapshot_sha256`, sample IDs and dimensions. Record reviewer
 kind (`human` or `agent`), name and model when known. Set every status to `pass`,
@@ -122,11 +111,10 @@ view adds an independent problem.
 
 ## Rerun evaluation with the human or agent review
 
-After the human or agent records judgments, rerun with `--review-file` and the
-same optional arguments as during initialisation to finalize the report:
+After inspection, reuse the initialization arguments with `--review-file`:
 
 ```sh
-direnv exec . .venv/bin/python scripts/evaluate_claims.py \
+direnv exec . .venv/bin/python scripts/auto_review_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
   --review-file "$CLASSIFIED_DIR/compilation-review.json"
@@ -142,14 +130,11 @@ combined 92 with generation 86 still fails. Set thresholds before review.
 
 ## Reports and reproducibility
 
-Snapshots pin both manifests, source hashes, taxonomy, the selected subject's
-policy and sample. Changing another subject's policy does not invalidate this
-review. Changes to the selected policy require fresh review. Each subject has
-its own version, thresholds and scoring in the shared `review-policy.json`.
-Explicit standalone legacy policy files remain supported. Record timezone-qualified review start/end times and measured
-requests/tokens/cost separately from generation/classification; unknowns stay `null`.
-Duration derives from timestamps. Identical inputs/judgments give identical
-samples, snapshots and scores.
+Snapshots pin manifests, source hashes, taxonomy, samples and the selected policy
+subject. Only that subject's changes invalidate review; legacy standalone policies
+remain supported. Record timezone-qualified review times and measured usage/cost
+separately from generation; unknowns stay `null`. Identical inputs/judgments give
+identical samples, snapshots and scores.
 
 - `automatic_gate`: `pass` or `fail` for artifact checks.
 - `review_gate`: `pending`, `pass` or `fail` from dimension results. Known critical
@@ -164,8 +149,6 @@ Keep run-specific findings in the review/report. A policy pass may retain minor
 or limited major failures; it is not a whole-corpus accuracy estimate or legal
 verification. `retrieved_on` is a capture date, not proof of legal effectiveness.
 
-Build reports include structural-chunk and semantic-cluster counts, size
-distributions, singletons, refinement splits and cross-document clusters.
-Generation adds cross-document candidate-claim counts. These diagnostics and
-citation coverage do not establish semantic completeness; source review must
-check missed relationships and duplicate claims.
+Build/generation reports include cluster sizes, singletons, refinement splits and
+cross-document counts. These and citation coverage do not establish completeness;
+inspect missed relationships and duplicate claims against sources.

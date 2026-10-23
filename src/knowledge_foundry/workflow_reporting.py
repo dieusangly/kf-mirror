@@ -8,7 +8,7 @@ from pathlib import Path
 
 BUILD_REPORTS = {'parse', 'chunk', 'structure', 'summaries', 'generate', 'classify'}
 MODEL_STAGES = {'structure', 'summaries', 'generate', 'classify', 'index', 'retrieval'}
-REVIEW_STAGES = {'chunk_review', 'claim_review'}
+REVIEW_STAGES = {'parsing_review', 'chunk_review', 'claim_review'}
 
 
 def load(path, issues):
@@ -113,6 +113,20 @@ def costs(stage, report, path, directory, issues):
     return result
 
 
+def review_component(measurement, issues, name):
+    saved = load(measurement, issues)
+    resolved = saved.get('resolved') or {}
+    settings = resolved.get('settings') if isinstance(resolved, dict) else None
+    if not isinstance(settings, dict):
+        issues.append({'path': str(measurement), 'reason': 'reviewer model settings are unavailable'})
+        settings = {}
+    telemetry = {'estimated_cost_usd': saved.get('cost_usd'), 'usage': saved.get('usage'), **settings}
+    item = component(name, telemetry, measurement, 'independent reviewer USD cost is unavailable')
+    item['thread_ids'] = saved.get('thread_ids', [])
+    item['model_settings'] = settings or None
+    return item
+
+
 def attempt_report(stage, entry, current, issues):
     directory = Path(entry['directory'])
     path = directory / ('build/report.json' if stage in BUILD_REPORTS else 'stdout.log' if stage == 'index' else 'report.json')
@@ -133,18 +147,7 @@ def attempt_report(stage, entry, current, issues):
         row['review_path'] = str(directory / 'review.json') if (directory / 'review.json').exists() else None
         components = []
         for measurement in sorted(directory.glob('session-*/measurement.json')):
-            saved = load(measurement, issues)
-            resolved = saved.get('resolved') or {}
-            settings = resolved.get('settings') if isinstance(resolved, dict) else None
-            if not isinstance(settings, dict):
-                issues.append({'path': str(measurement), 'reason': 'reviewer model settings are unavailable'})
-                settings = {}
-            telemetry = {'estimated_cost_usd': saved.get('cost_usd'), 'usage': saved.get('usage'),
-                         **settings}
-            item = component(measurement.parent.name, telemetry, measurement, 'independent reviewer USD cost is unavailable')
-            item['thread_ids'] = saved.get('thread_ids', [])
-            item['model_settings'] = settings or None
-            components.append(item)
+            components.append(review_component(measurement, issues, measurement.parent.name))
         if not components:
             components.append(component('unreported_review', {}, directory, 'independent review usage was not recorded'))
     else:
@@ -179,6 +182,21 @@ def build_report(state, stage_order, state_path, config_path, elapsed_seconds):
                        'attempt_count': len(rows), 'attempts': rows,
                        'known_cost_subtotal_usd': sum(r['known_cost_subtotal_usd'] for r in rows),
                        'cost_complete': all(r['cost_complete'] for r in rows)})
+    external_reviews = []
+    accounted_paths = {str(Path(c['source_path']).resolve()) for stage in stages
+                       for row in stage['attempts'] for c in row['cost_components']}
+    for review in state.get('external_reviews', []):
+        measurement = Path(review['measurement'])
+        if str(measurement.resolve()) in accounted_paths:
+            continue
+        accounted_paths.add(str(measurement.resolve()))
+        item = review_component(measurement, issues, review.get('purpose', 'external_review'))
+        external_reviews.append({**review, 'cost_component': item})
+        if item['estimated_cost_usd'] is None:
+            unpriced.append({'stage': 'external_review', 'component': item['component'],
+                             'source_path': item['source_path'], 'reason': item['unpriced_reason']})
+        else:
+            subtotal += item['estimated_cost_usd']
     recorded_config = state.get('workflow_config', {})
     return {'schema_version': 1, 'run_id': state['run_id'], 'corpus': recorded_config.get('corpus'),
             'test_only': bool(recorded_config.get('test_only')) if recorded_config else None, 'status': state['status'],
@@ -193,6 +211,7 @@ def build_report(state, stage_order, state_path, config_path, elapsed_seconds):
             'stage_counts': dict(Counter(s['status'] for s in stages)), 'stages': stages,
             'execution_budget': (state.get('budget_history') or [None])[-1],
             'paid_stages_started': state['paid_stages_started'], 'review_sessions_started': state['review_sessions_started'],
+            'external_reviews': external_reviews,
             'cost': {'currency': 'USD', 'known_subtotal_usd': subtotal, 'complete': not unpriced,
                      'estimated_total_usd': subtotal if not unpriced else None, 'unpriced_components': unpriced,
                      'scope': 'Reported model/API usage for this run, including prior attempts; excludes hardware/subscription charges.',

@@ -2,12 +2,9 @@
 
 `semantic clusters → candidate claims → topics`
 
-Generation extracts draft, evidence-linked candidate claims. Classification assigns
-curated topics or explicit null outcomes without changing candidate text or evidence.
-Start with the [structural chunk and semantic cluster build](structural-chunks-and-semantic-clusters.md).
-Its semantic clusters also feed an independent [recursive summary path](summaries.md).
-Summaries do not consume claims, and do not replace claim generation, classification
-or its grounding/classification review statuses.
+Generation extracts draft evidence-linked claims; classification assigns topics
+or null without changing text/evidence. Start with the [structural build](structural-chunks-and-semantic-clusters.md).
+[Summaries](summaries.md) use the same clusters independently and do not replace claim review.
 
 ## Normal case
 
@@ -35,11 +32,9 @@ Generation/classification exit **0** when complete, **1** for finalized partial
 output, and **2** for invalid input or an unhandled failure. Classification rejects
 partial generation before making model calls. A complete subset is classifiable.
 
-Then invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer)
-with this `RUN_ID`: it initializes or reuses the review, inspects saved sources and
-runs final evaluation. For manual review commands, see [claim evaluation](claim-evaluation.md).
-Then create the [knowledge provenance graph](knowledge-provenance-graph.md) for inspection.
-For vector indexing, publication and chat, continue with the [runbook](pipeline-runbook.md#7-import-vectors-and-publish-the-selected-snapshot).
+Invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
+with `RUN_ID`, or use [manual evaluation](claim-evaluation.md). Then inspect the
+[graph](knowledge-provenance-graph.md) and follow the [indexing runbook](pipeline-runbook.md#7-import-vectors-into-an-unpublished-snapshot).
 
 The build can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,
@@ -71,8 +66,7 @@ direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFI
   --output-dir "${CLASSIFIED_DIR}-recovered"
 ```
 
-Alternatively, choose reuse below instead of this full-classification command.
-Neither retry nor reuse is required for a normal successful run.
+Or reuse compatible classifications below.
 
 ## Optional: reuse prior classifications
 
@@ -87,12 +81,10 @@ direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFI
   --output-dir "${CLASSIFIED_DIR}-recovered"
 ```
 
-Reuse validates artifact hashes, taxonomy, model/settings, prompt, candidate and
-request context. Matching topic assignments and explicit nulls are retained;
-new/changed candidates and prior classification errors make new calls. Historical
-classifications from partial generation may supply outcomes, but target generation
-must be complete. A fresh combined build gets new claim IDs/topic views and needs
-its own source review; previous review judgments stay with their old snapshot.
+Reuse validates hashes, taxonomy, model/settings, prompt, candidates and request
+context. Matching assignments/nulls are retained; new/changed candidates and prior
+errors make new calls. Historical partial runs may supply outcomes, but target
+generation must be complete. New claim IDs/views require fresh source review.
 
 `classification_reuse` records source provenance and reused/new counts. Telemetry
 includes calls for the new output, including resumed calls, and excludes historical
@@ -113,12 +105,10 @@ direnv exec . .venv/bin/python scripts/classify_claims.py --config "$CLAIM_CONFI
   --candidates-dir "$CANDIDATES_DIR" --output-dir "$CLASSIFIED_DIR" --resume
 ```
 
-Inputs, execution settings, prompts, schemas, scope and reuse-source manifests must
-match; classification fixtures must also match. Completed checkpoints are reused;
-classification checkpoints include nulls and usage, and errors are retried.
-Existing classification output is rejected before calls unless resuming. Finalized
-runs require fresh outputs; classification runs interrupted before checkpoint
-support have no saved intermediate results.
+Inputs, settings, prompts, schemas, scope, reuse manifests and classification
+fixtures must match. Checkpoints retain results, nulls and usage; errors are retried.
+Existing classification output requires `--resume`; finalized runs require fresh
+outputs. Older runs without checkpoints cannot resume.
 
 ## Configuration and context limits
 
@@ -153,9 +143,8 @@ requires `claims` and one coverage disposition per E passage: `represented`,
 derives claim links from citations. Missing/duplicate E labels, unknown evidence
 and contradictory dispositions are rejected through bounded retries.
 
-An attempt such as `2/3` or `3/3` repeats the same work unit after a
-provider error or rejected response. Validation feedback can guide the next response.
-Retries add usage/cost; a successful retry still requires source review.
+Retries repeat the same unit with validation feedback after provider/response
+failure. They add cost and never replace source review.
 
 `evidence-accounting.json` preserves exact references and candidate IDs; checkpoints,
 classification and evaluation validate its lineage. Accounting and citations do not
@@ -175,8 +164,7 @@ null. Subset projections include whole-input embedding cost. Preserve frozen
 structural chunks, semantic clusters and checkpoints for resume. See
 [cache and rebuild rules](structural-chunks-and-semantic-clusters.md#outputs-and-reruns).
 
-Before a full run, test affected subsets and controls across documents/layouts.
-Use cluster numbers from the new build, compare common original chunk IDs,
-and assess source fidelity, omissions, topic choices and costs. Fixture tests
-validate mechanics; source review assesses model quality. Keep old runs/reviews
-as baselines; never copy judgments to a different snapshot.
+Before full runs, test changed subsets across documents/layouts using the new
+cluster numbers. Compare shared original chunk IDs, fidelity, omissions, topics
+and cost. Fixtures test mechanics; source review assesses quality. Preserve old
+baselines without transferring judgments to another snapshot.

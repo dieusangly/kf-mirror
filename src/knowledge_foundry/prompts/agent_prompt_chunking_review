@@ -22,11 +22,11 @@ REVIEW_FILE="$CHUNKED_DIR/chunking-review.json"
 1. Read `doc/chunking.md` and `doc/chunking-evaluation.md`. Inspect any existing report before invoking evaluation, retaining its input selection. Initialize evaluation when the review file is absent; otherwise validate and reuse it without resetting judgments. Use the same arguments for initialization and final evaluation:
 
 ```sh
-evaluate_chunking() {
+auto_review_chunking() {
   if [ -n "$REFERENCE_PATH" ]; then
     set -- --reference-fixture "$REFERENCE_PATH" "$@"
   fi
-  direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
+  direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
     --chunked-dir "$CHUNKED_DIR" \
     --parsed-dir "$PARSED_DIR" \
     --manifest "$MANIFEST_PATH" \
@@ -36,9 +36,9 @@ evaluate_chunking() {
 }
 
 if [ -e "$REVIEW_FILE" ]; then
-  evaluate_chunking --review-file "$REVIEW_FILE"
+  auto_review_chunking --review-file "$REVIEW_FILE"
 else
-  evaluate_chunking --initialize-review "$REVIEW_FILE"
+  auto_review_chunking --initialize-review "$REVIEW_FILE"
 fi
 ```
 
@@ -53,7 +53,7 @@ Resolve relative `source_file` paths against `SOURCE_ROOT`.
 6. After recording source-review judgments, run final policy evaluation using the same arguments:
 
 ```sh
-evaluate_chunking --review-file "$REVIEW_FILE"
+auto_review_chunking --review-file "$REVIEW_FILE"
 ```
 
 The evaluator scores the recorded judgments; it does not conduct the source review. Report its exit code, automatic gate, review gate, and overall gate. A failed or pending gate is an honest result, not a reason to change the artifacts or thresholds.

@@ -27,6 +27,16 @@ def test_exact_text_checks_respect_the_expected_source_and_location():
     assert not matches_anchors([e], {**case, 'source_id': 'other'})
 
 
+def test_anchor_typography_equivalence_preserves_words_and_accents():
+    e = {'id': 'e', 'text': "L'e\u0301le\u0300ve présente son certificat.",
+         'source': {'id': 'school'}, 'location': {'page': 2}}
+    case = {'source_id': 'school', 'pages': [2],
+            'text_anchors': ['L’élève présente son certificat']}
+    assert matches_anchors([e], case)
+    assert not matches_anchors([e], {**case, 'text_anchors': ['L’élève présente son permis']})
+    assert not matches_anchors([e], {**case, 'text_anchors': ["L'eleve présente son certificat"]})
+
+
 def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path, monkeypatch):
     import json
     from scripts.evaluate_retrieval import main

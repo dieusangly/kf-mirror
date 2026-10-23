@@ -21,6 +21,73 @@ def block(kind, text, key, top, height=8, left=40, page=1):
 
 
 class PdfStructureTests(unittest.TestCase):
+    def test_rotated_headers_wrap_across_native_cells_and_group_headers_cannot_capture_markers(self):
+        def cell(row, column, text, left, right, top, bottom, header=False, span=1):
+            return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
+                text=text, row_span=1, col_span=span, column_header=header, row_header=False,
+                bbox=SimpleNamespace(l=left, r=right, t=top, b=bottom))
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 1, 'Internal benches', 100, 175, -20, -10, True),
+            cell(0, 2, 'External benches', 182, 258, -20, -10, True, 2),
+            cell(1, 0, 'Test', 0, 60, 190, 200, True),
+            cell(1, 1, 'North bench South', 100, 138, 0, 200, True),
+            cell(1, 2, 'bench West bench', 140, 188, 0, 200, True),
+            cell(1, 3, 'External lab', 220, 228, 0, 200, True),
+            cell(2, 0, 'Inspect mounts', 0, 60, 220, 232),
+            cell(2, 2, 'x', 182, 186, 223, 228),
+            cell(3, 0, 'Check enclosure', 0, 60, 240, 252),
+            cell(3, 1, 'x', 102, 106, 243, 248),
+            cell(3, 3, 'x', 222, 226, 243, 248),
+        ]))
+        before = copy.deepcopy(table)
+        characters = []
+        for text, x in [('North bench ', 100), ('South ', 130), ('bench ', 140),
+                        ('West bench ', 180), ('External lab', 220)]:
+            for offset, value in enumerate(text):
+                characters.append({'index': len(characters), 'text': value,
+                                   'bbox': [x, offset * 8, x + 8, offset * 8 + 8]})
+        cells = _pdf_table_cells(table, characters)
+        self.assertFalse(any(c['alignment_uncertain'] for c in cells))
+        self.assertEqual([(c['column'], c['text']) for c in cells if c['row'] == 1],
+                         [(0, 'Test'), (1, 'North bench'), (2, 'South bench'),
+                          (3, 'West bench'), (4, 'External lab')])
+        self.assertEqual([(c['column'], c['col_span']) for c in cells if c['row'] == 0],
+                         [(1, 2), (3, 2)])
+        self.assertEqual([(c['row'], c['column']) for c in cells if c['text'] == 'x'],
+                         [(2, 3), (3, 1), (3, 4)])
+        self.assertEqual(table, before)
+
+    def test_recovered_notes_reclassify_roles_after_detaching_and_merging(self):
+        auxiliary = block('footnote', '8 Keep the calibration certificate.', 'n8', 650)
+        auxiliary['details']['evidence_role'] = 'auxiliary'
+        auxiliary['parent_key'] = 'diagram'
+        filename = block('footnote', '9 maintenance.html', 'n9', 670)
+        filename['details'].update(evidence_role='structural', link_text_role='non_substantive_filename')
+        continuation = block('paragraph', 'Record the inspection date.', 'cont', 680)
+        repaired = repair_footnotes([auxiliary, filename, continuation], {1: 800})
+        self.assertEqual(len(repaired), 2)
+        self.assertTrue(all(item['details']['evidence_role'] == 'authoritative' for item in repaired))
+        self.assertTrue(all(item['parent_key'] is None for item in repaired))
+        self.assertNotIn('link_text_role', repaired[1]['details'])
+        self.assertEqual(repaired[1]['details']['docling_refs'], ['n9', 'cont'])
+
+    def test_separate_note_marker_joins_following_note_and_stops_prior_continuation(self):
+        items = [block('paragraph', 'Use the maintenance guide 12 and the procedure 13.', 'body', 100),
+                 block('footnote', '12 Original maintenance guide.', 'n12', 640),
+                 block('paragraph', '13', 'marker13', 652, height=4),
+                 block('footnote', 'https://example.org/equipment-procedure.html', 'url13', 663)]
+        repaired = repair_footnotes(items, {1: 800})
+        self.assertEqual(len(repaired), 3)
+        self.assertEqual(repaired[1]['text'], '12 Original maintenance guide.')
+        self.assertEqual(repaired[2]['text'], '13 https://example.org/equipment-procedure.html')
+        self.assertEqual(repaired[2]['details']['docling_refs'], ['marker13', 'url13'])
+        self.assertEqual(repaired[2]['details']['heading_path'], [])
+        self.assertIsNone(repaired[2]['parent_key'])
+        unreferenced = [block('footnote', '12 Keep this guide.', 'n12', 640),
+                        block('paragraph', '13', 'marker13', 652, height=4),
+                        block('footnote', 'https://example.org/other.html', 'url13', 663)]
+        self.assertEqual(len(repair_footnotes(unreferenced, {1: 800})), 3)
+
     def test_numbered_note_and_continuation_recovered_without_native_note_labels(self):
         items = [block('paragraph', 'Inspect the sensor 14 and its mount 15.', 'body', 100, 20),
                  block('paragraph', '14 Replace a defective sensor;', 'n14', 600),
@@ -114,6 +181,56 @@ class PdfStructureTests(unittest.TestCase):
                       if c['text'] == 'x')
         self.assertEqual(marker['row'], 1)
         self.assertTrue(marker['alignment_uncertain'])
+
+    def test_tall_category_does_not_override_nearby_equipment_row_labels(self):
+        for marker_column, category_column in [(8, 2), (2, 8)]:
+            with self.subTest(marker_column=marker_column):
+                def cell(row, column, text, top, bottom):
+                    return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
+                        text=text, row_span=1, col_span=1, column_header=False,
+                        bbox=SimpleNamespace(l=column * 10, r=column * 10 + 8,
+                                             t=top, b=bottom))
+                table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+                    cell(10, category_column, 'Equipment group', 35, 65),
+                    cell(10, 5, 'Measure pressure', 20, 40),
+                    cell(20, 5, 'Replace filter', 50, 70),
+                    cell(10, marker_column, '✓', 54, 58),
+                ]))
+                marker = next(c for c in _pdf_table_cells(table) if c['text'] == '✓')
+                self.assertEqual(marker['row'], 20)
+                self.assertFalse(marker['alignment_uncertain'])
+
+    def test_single_digit_counts_keep_columns_beneath_a_spanning_caption(self):
+        def cell(row, column, text, header=False, span=1):
+            return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
+                text=text, row_span=1, col_span=span, column_header=header, row_header=False,
+                bbox=SimpleNamespace(l=column * 40, r=column * 40 + 20,
+                                     t=row * 20, b=row * 20 + 10))
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 0, 'Equipment inspection counts', True, 3),
+            cell(1, 0, 'Operating'), cell(1, 1, '2'), cell(1, 2, '7'),
+            cell(2, 0, 'Under repair'), cell(2, 1, '4'), cell(2, 2, '6'),
+        ]))
+        self.assertEqual(_pdf_table_text(table, None),
+                         'Equipment inspection counts\nOperating | 2 | 7\nUnder repair | 4 | 6')
+        self.assertFalse(any(c['alignment_uncertain'] for c in _pdf_table_cells(table)))
+
+    def test_column_headers_restart_for_each_header_row(self):
+        def cell(row, column, text, header=False, span=1):
+            return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,
+                text=text, row_span=1, col_span=span, column_header=header, row_header=False,
+                bbox=SimpleNamespace(l=column * 50, r=column * 50 + 30,
+                                     t=row * 20, b=row * 20 + 10))
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 0, 'Annual equipment inspections', True, 3),
+            cell(1, 0, 'Instrument', True), cell(1, 1, 'North lab', True),
+            cell(1, 2, 'South lab', True),
+            cell(2, 0, 'Pressure sensor'), cell(2, 1, '4'), cell(2, 2, '8'),
+        ]))
+        self.assertEqual(_pdf_table_text(table, None),
+                         'Annual equipment inspections\nInstrument | North lab | South lab\nPressure sensor | 4 | 8')
+        headers = [(c['row'], c['column']) for c in _pdf_table_cells(table) if c['header']]
+        self.assertEqual(headers, [(0, 0), (1, 0), (1, 1), (1, 2)])
 
     def test_numeric_identifier_separators_require_unambiguous_local_source_glyphs(self):
         def glyphs(text, left=0):

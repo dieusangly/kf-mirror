@@ -2,12 +2,8 @@
 
 **Claims** express individual propositions linked to exact source evidence.
 **Summaries** compress related chunks or earlier summaries, retaining provenance.
-The repository generates both, renders their graph and supports
-[snapshot-scoped RAG](retrieval-rag.md). Training uses below remain prospective.
-
-**Neither output requires the other.** Each column describes an alternative use;
-choose claims, summaries or both according to the task. Passage-only RAG is also
-possible. Combining outputs is optional.
+Use either, both or passages alone in [snapshot-scoped RAG](retrieval-rag.md).
+The graph supports both; training uses below remain prospective.
 
 | Use | Claims | Summaries |
 | --- | --- | --- |
@@ -17,9 +13,8 @@ possible. Combining outputs is optional.
 | Training data | Reviewed source/context → claim and claim/context → topic/null examples. | Reviewed structural-text → summary and earlier-summaries → higher-summary examples. |
 | Reasoning-model training | Curate questions, evidence combinations, checked conclusions and verifiable intermediate steps. | Supply context maps or synthesis tasks; validate conclusions against underlying evidence. |
 
-The RAG service selects passage, claim or summary retrieval; all answer citations
-resolve to original evidence. Neither a shared topic nor semantic similarity
-proves agreement or legal applicability.
+All answer citations resolve to original evidence. Shared topics or semantic
+similarity do not prove agreement or legal applicability.
 
 Before training, review individual targets: a run-level pass does not approve
 every claim, and summaries currently have no independent fidelity gate. Retain
@@ -27,6 +22,5 @@ source versions and usage rights. Split datasets by source/document family befor
 deriving overlapping records, so chunks or summary ancestors cannot leak between
 training and evaluation.
 
-These artifacts are not verified reasoning traces. Reasoning training still needs
-curated tasks, checked targets and evaluation; the LLM's `reasoning_effort` setting
-does not create that dataset.
+Reasoning training needs curated tasks and checked targets; `reasoning_effort`
+does not create verified reasoning traces.

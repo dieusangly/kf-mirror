@@ -2,8 +2,7 @@
 
 `reviewed original chunks → structural chunks → semantic clusters`
 
-The structural chunk and semantic cluster build feeds [claims](claim-generation-and-classification.md)
-and [summaries](summaries.md) independently. Neither branch requires the other.
+Feeds [claims](claim-generation-and-classification.md) and [summaries](summaries.md) independently.
 
 ## Run
 
@@ -29,28 +28,21 @@ Pass the resulting `CONTEXT_DIR` to either output branch.
 
 ## Structure and provenance
 
-Structural chunks preserve [explicit document hierarchy](chunking.md#structural-assembly-after-original-chunking)
-and keep original chunks focused. Bounded adjacent fragments and supported
-sentence/table continuations may join. Section/list parents, repeated context
-and same-page note hints are non-merging relationships. Ancestor and note text
-is supplied as non-citable context. Only identical evidence spans are deduplicated;
-repeated wording at distinct locations remains. Heuristic links require source review.
+Structural chunks preserve [hierarchy and bounded joins](chunking.md#structural-assembly-after-original-chunking).
+Parents, repeated context and note hints never merge chunks. Ancestor/note text is
+non-citable context. Deduplicate only identical spans; heuristic links need source review.
 
 Semantic clusters can span documents. Each original/structural chunk belongs to
 one final cluster. Greedy grouping requires similarity to every member; it is
 deterministic but order-sensitive. Similarity does not establish actor identity,
 agreement, legal scope or effective dates.
 
-New builds use `structural-chunks-v3`, `compilation-v13` and manifest/schema
-v2. For existing chunking runs without `document-structure.json`, add
-`--parsed-dir artifacts/parsed-YOUR_RUN` to the build command to snapshot the matching
-`parse.json` sidecars. With neither metadata source, source-flow/numbering fallback
-is explicit in the report and cannot recover all heading depths.
-Use a fresh output directory: structural IDs, semantic memberships
-and claim request hashes change. Original chunk IDs and bundle schemas remain
-unchanged. Frozen v1/v2 outputs and candidate artifacts remain readable and
-evaluable with their original algorithm. New generation requires a fresh v3
-build. Existing classified claim views remain supported.
+New builds use `structural-chunks-v3`, `compilation-v13`, manifest/schema v2 and fresh
+outputs. Older chunking runs can supply `--parsed-dir` sidecars when their structure
+snapshot is absent. Without either source, the reported numbering/source-flow
+fallback cannot recover all heading depths. Original chunk IDs/schemas stay unchanged;
+frozen v1/v2 outputs remain readable with their original algorithm. New generation
+requires a fresh v3 build.
 
 ## Configuration and budgets
 
@@ -82,9 +74,8 @@ The operational cap is not an evaluated optimum. Verify limits before changing m
 
 ## Outputs and reruns
 
-The build freezes the original bundle, hierarchy, structural memberships/links,
-embeddings, cluster plan, report and integrity manifest. See
-[artifact contracts](artifact-schemas.md). Preserve it for downstream generation and resume.
+Preserve the frozen bundle, hierarchy, links/memberships, embeddings, cluster plan,
+report and manifest for downstream generation/resume; see [contracts](artifact-schemas.md).
 
 Reports separate embedding and token-counting usage. `duration_seconds` covers the
 current invocation; distribution fields count members per group, and `singletons`

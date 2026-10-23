@@ -1,6 +1,7 @@
 """Separate retrieval smoke metrics from mechanical answer and support checks."""
 import copy
 import time
+import unicodedata
 
 from haystack.core.errors import PipelineRuntimeError
 
@@ -30,11 +31,19 @@ def matches_locator(evidence, case):
 
 
 def matches_anchors(evidence, case):
-    """Exact text checks complement draft page locators; they are not entailment."""
+    """Typography-normalized text checks complement locators, not entailment.
+
+    Keep word content and accents; only canonical Unicode composition,
+    apostrophe typography, case and whitespace are equivalent here. Citation
+    resolution separately compares the original saved evidence exactly.
+    """
     if not case.get('text_anchors'):
         return None
-    text = ' '.join(' '.join(e['text'].lower().split()) for e in evidence if matches_locator(e, case))
-    return all(' '.join(anchor.lower().split()) in text for anchor in case['text_anchors'])
+    def normalized(value):
+        return unicodedata.normalize('NFC', ' '.join(value.lower().split())).translate(
+            str.maketrans({'’': "'", '‘': "'"}))
+    text = normalized(' '.join(e['text'] for e in evidence if matches_locator(e, case)))
+    return all(normalized(anchor) in text for anchor in case['text_anchors'])
 
 
 def audit_answer(answer, store):

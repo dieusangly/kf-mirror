@@ -25,6 +25,24 @@ def parsed_source(source_id):
 
 
 class ChunkingTests(unittest.TestCase):
+    def test_nested_list_introduction_is_not_its_own_repeated_context(self):
+        path = ['Equipment handling']
+        lead = 'i) for a unit stored at low temperature, use this preparation:'
+        chunks = self._small_document([
+            ('heading', path[0], 1, path),
+            ('paragraph', 'Choose equipment handling from these methods:', 1, path),
+            ('list_item', '- move the unit indoors;', 1, path),
+            ('paragraph', lead, 1, path),
+            ('list_item', '- check the enclosure;', 1, path),
+            ('list_item', '- inspect the sensor.', 1, path),
+        ], 128)
+        own = next(chunk for chunk in chunks if '- check the enclosure;' in chunk['text'])
+        self.assertEqual(own['text'].count(lead), 1)
+        lead_refs = [ref for ref in own['evidence']
+                     if ref['element_id'] == 'el:' + digest('3')]
+        self.assertEqual(len(lead_refs), 1)
+        self.assertIn('span', lead_refs[0])
+
     def test_oversized_table_row_keeps_header_with_row_content(self):
         value = "Column A | Column B\n" + " ".join(f"value{i}" for i in range(80))
         spans = _parts(value, 40, table=True)

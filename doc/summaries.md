@@ -1,8 +1,6 @@
 # Recursive summaries
 
-Semantic clusters feed two independent outputs: **claims** and **summaries**.
-Claims express atomic propositions; summaries compress related source material.
-Summaries never consume claims.
+Summaries compress semantic clusters independently of claims.
 
 ## Models and inputs
 
@@ -14,10 +12,9 @@ Configured in [`config/summaries.json`](../config/summaries.json):
 | Write higher-level summaries | `gpt-6-luna` | Selected earlier summaries' IDs, levels and text |
 | Group earlier summaries | `text-embedding-3-small` | Summary text, converted into vectors for similarity comparisons |
 
-The embedding model groups text; the LLM writes summaries. Higher levels do not
-reread original chunks. The pipeline preserves source provenance independently
-of the LLM. [Generation instructions](../src/knowledge_foundry/prompts/summary_generation_v1.txt)
-require scope, conditions, exceptions and uncertainty to be retained.
+Higher levels read earlier summaries, not original chunks. Provenance is preserved
+by the pipeline; [instructions](../src/knowledge_foundry/prompts/summary_generation_v1.txt)
+require scope, conditions, exceptions and uncertainty.
 
 ## How levels grow and when they stop
 
@@ -30,22 +27,13 @@ threshold (default **0.80**), the group must have at most **eight** members, and
 its complete LLM request must fit the token budget. An ungrouped summary is kept
 unchanged; it does not get a duplicate at the next level.
 
-Stop as soon as any of these is true:
+Stop with one root, no eligible groups or the level limit (default four;
+`summary_clusters.max_levels` accepts 1–20). Ungrouped lower-level summaries remain
+roots; the highest level alone need not cover the corpus.
 
-- **One summary remains:** everything has been combined into one final summary.
-- **Nothing can be grouped:** no group meets the similarity and size limits.
-- **The level limit is reached:** default **four levels**, even if more grouping
-  might be possible. Set `summary_clusters.max_levels` to change this limit (1–20).
-
-For example, if five summaries form two pairs and one stands alone, the next
-round has two new summaries plus the unchanged one: **three summaries to consider**.
-The process does not force unrelated material into one summary.
-
-Run 20261019 stopped because it reached level four, not because grouping was
-exhausted. It created 321 / 33 / 11 / 4 summaries at levels 1 / 2 / 3 / 4.
-Its final set contains **270 summaries across those levels**; the four level-four
-summaries cover only part of the corpus. `root_summary_ids` lists that final set;
-`stop_reason` is `single_root`, `no_eligible_merges` or `max_levels`.
+Saved run 20261019 produced 321/33/11/4 summaries at levels 1–4 and stopped at the
+limit with 270 roots across levels. `root_summary_ids` lists roots; `stop_reason`
+is `single_root`, `no_eligible_merges` or `max_levels`.
 
 ## Run and saved outputs
 
@@ -88,7 +76,7 @@ supply the improved hierarchy.
 For RAG, import these summaries with the same frozen structural build and
 `--embed-missing`: grouping vectors do not cover every final summary. The importer
 reuses compatible saved vectors and fills gaps, including claim vectors. Continue
-with [indexing and publication](pipeline-runbook.md#7-import-vectors-and-publish-the-selected-snapshot).
+with [indexing and publication](pipeline-runbook.md#7-import-vectors-into-an-unpublished-snapshot).
 
 Summaries remain drafts: provenance identifies their inputs, not proof of every
 sentence. Compression errors can accumulate across levels. There is currently no

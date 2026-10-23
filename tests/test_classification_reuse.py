@@ -6,20 +6,21 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import Mock, patch
 
-import test_evaluate_compilation as evaluation_fixtures
-from test_claim_context import generate_claims
+import tempfile
+from claim_fixtures import prepare_claim_review
+from claim_fixtures import generate_claims
 from knowledge_foundry.claim_generation_and_classification import (
     FixtureProvider, classify_claims,
 )
-from scripts.evaluate_claims import _load
+from scripts.auto_review_claims import _load
 from scripts.classify_claims import main
 
 
 class ClassificationReuseTests(unittest.TestCase):
     def setUp(self):
-        scenario = evaluation_fixtures.CompilationEvaluationTests()
-        scenario.setUp()
-        self.addCleanup(scenario.doCleanups)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        scenario = prepare_claim_review(directory.name)
         self.root, self.source, self.classified = scenario.root, scenario.generated, scenario.classified
         self.config, self.fixture, self.chunked = scenario.config, scenario.fixture, scenario.chunked
         self.taxonomy = scenario.classified.parent / 'taxonomy.json'

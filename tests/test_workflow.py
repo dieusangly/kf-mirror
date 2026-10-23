@@ -2,7 +2,6 @@
 import copy
 import json
 from pathlib import Path
-import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +12,29 @@ from knowledge_foundry import workflow as w
 def limits(**changes):
     return SimpleNamespace(**({'allow_paid': True, 'max_seconds': 3600, 'max_paid_stages': 20,
                               'max_review_sessions': 6, 'max_stage_attempts': 3} | changes))
+
+
+def test_reviewer_runtime_preserves_configuration_and_cleans_private_files(tmp_path, monkeypatch):
+    configured = tmp_path / 'configured-home'
+    configured.mkdir()
+    (configured / 'config.toml').write_text('model = "configured-example"\n')
+    (configured / 'auth.json').write_text('{"test_credential": "not-a-real-secret"}')
+    (configured / 'sessions').mkdir()
+    monkeypatch.setenv('CODEX_HOME', str(configured))
+    before = w.fingerprints(configured)
+    with pytest.raises(RuntimeError, match='review failed'):
+        with w.reviewer_environment('independent-library-audit') as env:
+            runtime = Path(env['CODEX_HOME'])
+            assert runtime != configured
+            assert (runtime.stat().st_mode & 0o777) == 0o700
+            assert w.digest(runtime / 'config.toml') == w.digest(configured / 'config.toml')
+            assert (runtime / 'auth.json').stat().st_mode & 0o777 == 0o600
+            assert not (runtime / 'sessions').exists()
+            (runtime / 'auth.json').write_text('refreshed test credential')
+            raise RuntimeError('review failed')
+    assert not runtime.exists()
+    assert w.fingerprints(configured) == before
+    assert w.os.environ['CODEX_HOME'] == str(configured)
 
 
 @pytest.fixture
@@ -88,6 +110,8 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     calls, _ = commands
     assert set(stage for stage, _ in calls) == set(w.STAGES) - {'publish'}
     assert [s for s, _ in calls].index('summaries') < [s for s, _ in calls].index('claim_review')
+    parsing = next(cmd for stage, cmd in calls if stage == 'parse')
+    assert parsing[parsing.index('--run-id') + 1] == controller.state['run_id']
     retrieval = next(cmd for stage, cmd in calls if stage == 'retrieval')
     assert '--unpublished' in retrieval and '--snapshot-id' in retrieval
     assert controller.state['status'] == 'awaiting_explicit_publication'
@@ -104,47 +128,53 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     assert not any(stage == 'publish' for stage, _ in calls)
 
 
-def test_pending_exit_zero_is_inspected_and_can_resume(controller, commands, monkeypatch):
+@pytest.mark.parametrize('review_stage', ['parsing_review', 'chunk_review'])
+def test_pending_exit_zero_is_inspected_and_can_resume(controller, commands, monkeypatch, review_stage):
     inspections = []
     def inaccessible(self, stage, out):
+        if stage != review_stage:
+            return fixture_judgment(self, stage, out)
         inspections.append(stage)  # no source inspection means no pass judgment
     monkeypatch.setattr(w.Workflow, 'independent_review', inaccessible)
-    with pytest.raises(ValueError, match='chunk_review gate pending'):
+    with pytest.raises(ValueError, match=review_stage + ' gate pending'):
         controller.run(limits())
-    assert inspections == ['chunk_review']
+    assert inspections == [review_stage]
     assert 'structure' not in controller.state['stages']
-    pending_dir = controller.output('chunk_review')
+    pending_dir = controller.output(review_stage)
     assert w.read(pending_dir / 'repair-task.json')['status'] == 'pending'
     report = w.read(controller.directory / 'report.json')
     assert report['status'] == 'blocked' and report['last_error']
-    assert next(s for s in report['stages'] if s['stage'] == 'chunk_review')['status'] == 'pending'
+    assert next(s for s in report['stages'] if s['stage'] == review_stage)['status'] == 'pending'
     monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
-    controller.run(limits(), stop_after='chunk_review')
-    assert controller.output('chunk_review') == pending_dir
-    assert controller.state['stages']['chunk_review']['executions'] == 2
+    controller.run(limits(), stop_after=review_stage)
+    assert controller.output(review_stage) == pending_dir
+    assert controller.state['stages'][review_stage]['executions'] == 2
 
 
-def test_failed_review_preserves_findings_requires_rebuild_and_fresh_review(controller, commands, monkeypatch):
+@pytest.mark.parametrize('review_stage,builder', [('parsing_review', 'parse'), ('chunk_review', 'chunk')])
+def test_failed_review_preserves_findings_requires_rebuild_and_fresh_review(controller, commands, monkeypatch, review_stage, builder):
     def defect(self, stage, out):
+        if stage != review_stage:
+            return fixture_judgment(self, stage, out)
         review = w.read(out / 'review.json')
         review['reviews'][0].update(status='fail', severity='critical', notes='Fixture defect at source location 1')
         w.write(out / 'review.json', review)
     monkeypatch.setattr(w.Workflow, 'independent_review', defect)
     with pytest.raises(ValueError, match='gate failed'):
         controller.run(limits())
-    old = controller.output('chunk_review')
+    old = controller.output(review_stage)
     with pytest.raises(ValueError, match='resolve defect'):
         controller.run(limits())
     with pytest.raises(ValueError, match='requires rebuilding'):
-        controller.repair('chunk_review', 'Attempting to reset a failed review')
-    controller.repair('chunk', 'Corrected fixture chunk builder issue; rebuild and review')
+        controller.repair(review_stage, 'Attempting to reset a failed review')
+    controller.repair(builder, 'Corrected fixture chunk builder issue; rebuild and review')
     monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
-    controller.run(limits(), stop_after='chunk_review')
-    assert old != controller.output('chunk_review')
+    controller.run(limits(), stop_after=review_stage)
+    assert old != controller.output(review_stage)
     assert w.read(old / 'review.json')['reviews'][0]['status'] == 'fail'
-    assert len([e for e in controller.state['history'] if e.get('stage') == 'chunk_review']) == 1
+    assert len([e for e in controller.state['history'] if e.get('stage') == review_stage]) == 1
     report = w.read(controller.directory / 'report.json')
-    attempts = next(s for s in report['stages'] if s['stage'] == 'chunk_review')['attempts']
+    attempts = next(s for s in report['stages'] if s['stage'] == review_stage)['attempts']
     assert [e['status'] for e in attempts] == ['failed', 'complete']
     assert not attempts[0]['current'] and attempts[1]['current']
 
@@ -257,9 +287,29 @@ def test_model_resolution_has_no_fallback_and_layers_project_settings(tmp_path, 
     resolved = w.resolve_reviewer(project)
     assert resolved['settings']['model'] == 'configured-test-model'
     assert resolved['settings']['model_reasoning_effort'] == 'medium'
+    resolved = w.resolve_reviewer(project, {'model': 'workflow-test-model', 'model_reasoning_effort': 'low'})
+    assert resolved['settings'] == {'model': 'workflow-test-model', 'model_reasoning_effort': 'low'}
     (project / '.codex/config.toml').write_text('profile="unsupported"\n')
     with pytest.raises(ValueError, match='unsupported profile'):
         w.resolve_reviewer(project)
+
+
+def test_explicit_workflow_models_need_no_toml_model_defaults(tmp_path, monkeypatch):
+    monkeypatch.setattr(w.Path, 'exists', lambda path: False)
+    configured = {stage: {'model': stage + '-fixture', 'model_reasoning_effort': 'high'} for stage in w.REVIEWS}
+    resolved = w.resolve_reviewers(tmp_path, {'reviewers': configured})
+    assert {stage: value['settings'] for stage, value in resolved.items()} == configured
+    del configured['claim_review']['model']
+    with pytest.raises(ValueError, match='explicitly configured'):
+        w.resolve_reviewers(tmp_path, {'reviewers': configured})
+
+
+@pytest.mark.parametrize('configured', [None, [], {'parsing': {}}, {'parsing_review': None},
+    {'chunk_review': {'reasoning_effort': 'high'}}, {'claim_review': {'model': ''}},
+    {'claim_review': {'model': False}}])
+def test_invalid_workflow_reviewer_settings_are_rejected(tmp_path, configured):
+    with pytest.raises(ValueError, match='reviewer'):
+        w.resolve_reviewers(tmp_path, {'reviewers': configured})
 
 
 def test_branch_invalidation_leaves_independent_summaries():
@@ -268,25 +318,27 @@ def test_branch_invalidation_leaves_independent_summaries():
     assert set(w.STAGES) == w.descendants('ingest')
 
 
-def prepare_independent(controller, monkeypatch, result_overrides=None, inspected=True):
+def prepare_independent(controller, monkeypatch, result_overrides=None, inspected=True, stage='chunk_review'):
     prompt_dir = controller.root / 'src/knowledge_foundry/prompts'
     prompt_dir.mkdir(parents=True)
-    (prompt_dir / 'agent_prompt_chunking_reviewer').write_text('Fixture prompt: read-only source inspection')
-    out = controller.directory / 'chunk_review/attempt-1'
+    (prompt_dir / {'parsing_review': 'agent_prompt_parsing_review', 'chunk_review': 'agent_prompt_chunking_review', 'claim_review': 'agent_prompt_claim_review'}[stage]).write_text('Fixture prompt: read-only source inspection')
+    out = controller.directory / stage / 'attempt-1'
     out.mkdir(parents=True)
     review = {'build_id': 'fixture-build', 'review_policy_sha256': 'policy',
               'reviewer': {'kind': None, 'name': None, 'model': None},
               'reviews': [{'chunk_id': 'x', 'status': 'pending', 'notes': 'inspection pending'}]}
+    if stage != 'chunk_review':
+        review['reviews'][0]['sample_id'] = review['reviews'][0].pop('chunk_id')
     w.write(out / 'review.json', review)
     w.write(out / 'report.json', {'documents': []})
     controller.state['identity'] = w.input_identity(controller.root, controller.config_path)
     controller.limits, controller.started = limits(), w.time.monotonic()
-    monkeypatch.setattr(w, 'resolve_reviewer', lambda root: {'settings': {'model': 'configured-test-model', 'model_reasoning_effort': 'high'}, 'configuration_sha256': {}})
+    monkeypatch.setattr(w, 'resolve_reviewer', lambda root, overrides=None: {'settings': {'model': 'configured-test-model', 'model_reasoning_effort': 'high'} | (overrides or {}), 'configuration_sha256': {}})
     commands = []
     def agent(command, directory, timeout, stdin=None, **kwargs):
         commands.append(command)
         judged = copy.deepcopy(review)
-        judged['reviewer'] = {'kind': 'agent', 'name': 'Fixture session', 'model': 'configured-test-model'}
+        judged['reviewer'] = {'kind': 'agent', 'name': 'Fixture session', 'model': command[command.index('--model') + 1]}
         judged['reviews'][0].update(status='pass', notes='Inspected fixture original; not pilot approval')
         judged.update(result_overrides or {})
         w.write(directory / 'response.json', {'review_json': json.dumps(judged),
@@ -298,9 +350,10 @@ def prepare_independent(controller, monkeypatch, result_overrides=None, inspecte
     return out, commands
 
 
-def test_independent_session_pins_config_records_usage_and_rejects_reused_thread(controller, monkeypatch):
-    out, commands = prepare_independent(controller, monkeypatch)
-    controller.independent_review('chunk_review', out)
+@pytest.mark.parametrize('stage', ['parsing_review', 'chunk_review', 'claim_review'])
+def test_independent_session_pins_config_records_usage_and_rejects_reused_thread(controller, monkeypatch, stage):
+    out, commands = prepare_independent(controller, monkeypatch, stage=stage)
+    controller.independent_review(stage, out)
     command = commands[0]
     assert command[command.index('--model') + 1] == 'configured-test-model'
     assert command[command.index('--sandbox') + 1] == 'read-only'
@@ -310,7 +363,32 @@ def test_independent_session_pins_config_records_usage_and_rejects_reused_thread
     measurement = w.read(review['workflow_session']['measurement'])
     assert measurement['usage'][0]['input_tokens'] == 100 and measurement['cost_usd'] is None
     with pytest.raises(ValueError, match='fresh identifiable session'):
-        controller.independent_review('chunk_review', out)
+        controller.independent_review(stage, out)
+
+
+@pytest.mark.parametrize('stage', ['parsing_review', 'chunk_review', 'claim_review'])
+def test_stage_model_overrides_are_pinned_recorded_and_changes_rejected(controller, monkeypatch, stage):
+    settings = {'model': stage + '-fixture-model', 'model_reasoning_effort': 'medium',
+                'model_provider': 'fixture-provider', 'service_tier': 'default'}
+    controller.config['reviewers'] = {stage: settings}
+    w.write(controller.config_path, controller.config)
+    out, commands = prepare_independent(controller, monkeypatch, stage=stage)
+    controller.independent_review(stage, out)
+    command = commands[0]
+    assert command[command.index('--model') + 1] == settings['model']
+    for key in ('model_reasoning_effort', 'model_provider', 'service_tier'):
+        assert key + '=' + json.dumps(settings[key]) in command
+    assert controller.state['reviewer'][stage]['settings'] == settings
+    assert all(value['settings']['model'] == 'configured-test-model'
+               for name, value in controller.state['reviewer'].items() if name != stage)
+    review = w.read(out / 'review.json')
+    assert w.read(review['workflow_session']['measurement'])['resolved']['settings'] == settings
+    assert w.read(controller.directory / 'report.json')['reviewer'][stage]['settings'] == settings
+    settings['model'] = 'changed-fixture-model'
+    assert any('reviewer settings changed' in issue for issue in controller.stale())
+    with pytest.raises(ValueError, match='reviewer configuration changed'):
+        controller.independent_review(stage, out)
+    assert len(commands) == 1
 
 
 @pytest.mark.parametrize('overrides,inspected,error', [
@@ -408,6 +486,8 @@ def test_existing_findings_cannot_be_discarded_by_a_new_reviewer(controller, mon
 
 def test_repeated_failed_attempts_stop_at_retry_budget(controller, commands, monkeypatch):
     def fail(self, stage, out):
+        if stage != 'chunk_review':
+            return fixture_judgment(self, stage, out)
         review = w.read(out / 'review.json')
         review['reviews'][0].update(status='fail', severity='critical', notes='Fixture unresolved defect')
         w.write(out / 'review.json', review)
@@ -419,3 +499,175 @@ def test_repeated_failed_attempts_stop_at_retry_budget(controller, commands, mon
     with pytest.raises(ValueError, match='retry budget exhausted'):
         controller.run(limits())
     assert len([e for e in controller.state['history'] if e.get('stage') == 'chunk_review']) == 3
+
+
+def test_publication_requires_parsing_review_even_when_other_reviews_have_sessions(controller, commands, monkeypatch):
+    monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
+    controller.run(limits())
+    controller.config.update(test_only=False, retrieval_acceptance='acceptance.json')
+    w.write(controller.root / 'acceptance.json', {'status': 'reviewed', 'reviewer': 'Fixture only',
+            'manifest_sha256': w.digest(controller.manifest_path),
+            'cases_sha256': w.digest(controller.root / 'cases.json')})
+    controller.state['review_thread_ids'] = ['fixture-thread']
+    for stage in ('chunk_review', 'claim_review'):
+        path = controller.output(stage) / 'review.json'
+        review = w.read(path)
+        review['workflow_session'] = {'thread_id': 'fixture-thread', 'measurement': 'fixture-only'}
+        w.write(path, review)
+    controller.state['stages'].pop('parsing_review')
+    with pytest.raises(ValueError, match='independent reviews are incomplete'):
+        controller.publication_ready()
+
+
+def continuing_reviews(controller, monkeypatch, stage='parsing_review'):
+    """Mock fresh agents; synthetic inspection never approves a real corpus."""
+    out, _ = prepare_independent(controller, monkeypatch, stage=stage)
+    key = 'chunk_id' if stage == 'chunk_review' else 'sample_id'
+    review = w.read(out / 'review.json')
+    review['snapshot_sha256'] = 'fixture-snapshot'
+    review['reviews'].append({key: 'y', 'status': 'pending', 'notes': 'Fixture page awaiting inspection'})
+    w.write(out / 'review.json', review)
+    prompts = []
+
+    def dispatch(inspected, mutate=None):
+        def execute(command, directory, timeout, stdin=None, **kwargs):
+            prompts.append(stdin)
+            updated = w.read(out / 'review.json')
+            updated['reviewer'] = {'kind': 'agent', 'name': 'Fixture reviewer ' + directory.name,
+                                  'model': 'configured-test-model'}
+            for row in updated['reviews']:
+                if row[key] in inspected:
+                    row.update(status='pass', notes=row['notes'] + '; inspected fixture original')
+            if mutate:
+                mutate(updated)
+            w.write(directory / 'response.json', {'review_json': json.dumps(updated),
+                    'inspected_sample_ids': inspected, 'requested_pages': []})
+            (directory / 'stdout.log').write_text(json.dumps({'type': 'thread.started',
+                'thread_id': 'fixture-' + directory.name}) + '\n' + json.dumps({
+                    'type': 'turn.completed', 'usage': {'input_tokens': 10, 'output_tokens': 5}}) + '\n')
+            return 0
+        monkeypatch.setattr(w, 'execute', execute)
+        controller.independent_review(stage, out)
+    return out, dispatch, prompts
+
+
+@pytest.mark.parametrize('stage', ['parsing_review', 'chunk_review', 'claim_review'])
+def test_review_continuation_carries_verified_exact_judgments_with_original_attribution(controller, monkeypatch, stage):
+    out, dispatch, prompts = continuing_reviews(controller, monkeypatch, stage)
+    dispatch(['x'])
+    first = w.read(out / 'review.json')['reviews'][0]
+    dispatch(['y'])
+    result = w.read(out / 'review.json')
+    assert result['reviews'][0] == first
+    session = result['workflow_session']
+    assert session['inspected_sample_ids'] == ['y']
+    assert session['carried_inspections']['x']['thread_id'] == 'fixture-session-1'
+    assert session['carried_inspections']['x']['measurement'] == str(out / 'session-1/measurement.json')
+    assert 'verified_prior_inspections' in prompts[1]
+    assert all(row['status'] == 'pass' for row in result['reviews'])
+    # A third continuation keeps both original inspection sessions, not just the latest one.
+    dispatch([])
+    carried = w.read(out / 'review.json')['workflow_session']['carried_inspections']
+    assert {sid: record['thread_id'] for sid, record in carried.items()} == {
+        'x': 'fixture-session-1', 'y': 'fixture-session-2'}
+
+
+@pytest.mark.parametrize('invalid', ['missing_history', 'failed_session', 'different_settings',
+                                   'stale_identity', 'unregistered_thread', 'missing_response',
+                                   'uninspected_response', 'edited_judgment', 'edited_archive'])
+def test_continuation_rejects_unverified_carryover(controller, monkeypatch, invalid):
+    out, dispatch, _ = continuing_reviews(controller, monkeypatch)
+    dispatch(['x'])
+    path = out / 'session-1/after.json'
+    if invalid == 'missing_history':
+        path.unlink()
+    elif invalid in {'failed_session', 'different_settings', 'unregistered_thread'}:
+        if invalid == 'unregistered_thread':
+            controller.state['review_thread_ids'] = []
+        else:
+            measurement = w.read(out / 'session-1/measurement.json')
+            if invalid == 'failed_session':
+                measurement['returncode'] = 1
+            else:
+                measurement['resolved']['settings']['model'] = 'substitute'
+            w.write(out / 'session-1/measurement.json', measurement)
+    elif invalid == 'stale_identity':
+        archived = w.read(path)
+        archived['snapshot_sha256'] = 'stale'
+        w.write(path, archived)
+    elif invalid in {'missing_response', 'uninspected_response'}:
+        response = out / 'session-1/response.json'
+        if invalid == 'missing_response':
+            response.unlink()
+        else:
+            record = w.read(response)
+            record['inspected_sample_ids'] = []
+            w.write(response, record)
+    else:
+        review = w.read(out / 'review.json')
+        review['reviews'][0]['notes'] += '; changed without inspection'
+        w.write(out / 'review.json', review)
+        if invalid == 'edited_archive':
+            archived = w.read(path)
+            archived['reviews'][0] = review['reviews'][0]
+            w.write(path, archived)
+    original = (out / 'review.json').read_bytes()
+    with pytest.raises(ValueError, match='uninspected judgment rejected: x'):
+        dispatch(['y'])
+    assert (out / 'review.json').read_bytes() == original
+
+
+def test_revised_prior_judgment_requires_fresh_inspection_and_preserves_findings(controller, monkeypatch):
+    out, dispatch, _ = continuing_reviews(controller, monkeypatch)
+    dispatch(['x'])
+    def revision(review):
+        review['reviews'][0]['notes'] += '; revision needs fresh inspection'
+    with pytest.raises(ValueError, match='uninspected judgment rejected: x'):
+        dispatch(['y'], revision)
+    dispatch(['x', 'y'], revision)
+    assert w.read(out / 'review.json')['workflow_session']['inspected_sample_ids'] == ['x', 'y']
+
+
+def test_continuation_preserves_failed_findings_and_honors_remaining_session_budget(controller, monkeypatch):
+    out, dispatch, _ = continuing_reviews(controller, monkeypatch)
+    def defect(review):
+        review['reviews'][0].update(status='fail', severity='critical',
+                                   notes='Fixture source-confirmed defect; must remain')
+    dispatch(['x'], defect)
+    failed = w.read(out / 'review.json')['reviews'][0]
+    dispatch(['y'])
+    assert w.read(out / 'review.json')['reviews'][0] == failed
+    assert controller.state['review_sessions_started'] == 2
+    controller.limits.max_review_sessions = 2
+    with pytest.raises(ValueError, match='review-session budget exhausted'):
+        dispatch([])
+    assert not (out / 'session-3').exists()
+
+
+def test_parsing_review_locations_outside_config_are_explicitly_hash_bound(controller):
+    selection = controller.root / 'tests/fixtures/review-pages.json'
+    w.write(selection, [{'source_id': 'src:fixture', 'page': 1}])
+    config = w.read(controller.config_path)
+    config['parsing_review_required_pages'] = 'tests/fixtures/review-pages.json'
+    w.write(controller.config_path, config)
+    controller = w.Workflow('fixture-run', root=controller.root)
+    assert str(selection) in controller.state['identity']
+    assert not controller.stale()
+    controller.state['stages']['parse'] = {'directory': str(controller.directory / 'parse/attempt-1'),
+                                          'status': 'ready'}
+    command = controller.review_command('parsing_review', controller.directory / 'parsing_review/attempt-1')
+    assert command[command.index('--required-pages') + 1] == str(selection)
+    w.write(selection, [{'source_id': 'src:fixture', 'page': 2}])
+    assert any('inputs/configuration/code changed' in issue for issue in controller.stale())
+    with pytest.raises(ValueError, match='conservatively require --repair-from ingest'):
+        controller.repair('parsing_review', 'Changing selection requires affected outputs to invalidate')
+
+
+def test_viewer_assets_remain_hash_bound_outside_scripts(controller):
+    asset = controller.root / 'apps/kpg_viewer/core.js'
+    asset.parent.mkdir(parents=True)
+    asset.write_text('// fixture viewer asset')
+    controller = w.Workflow('fixture-run', root=controller.root)
+    assert str(asset) in controller.state['identity']
+    asset.write_text('// changed fixture asset')
+    assert any('inputs/configuration/code changed' in issue for issue in controller.stale())

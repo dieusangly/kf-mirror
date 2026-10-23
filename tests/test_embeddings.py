@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from knowledge_foundry.embeddings import EmbeddingAdapter, validate_response
 from knowledge_foundry.structural_chunks import stable_hash
-from test_claim_context import fixture_settings
+from claim_fixtures import fixture_settings
 
 
 class EmbeddingTests(unittest.TestCase):

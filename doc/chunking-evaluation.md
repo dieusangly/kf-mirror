@@ -8,15 +8,13 @@ Evaluation leaves inputs unchanged and makes no legal judgment.
 Complete [parsing](parsing.md), [parsing evaluation](parsing-evaluation.md) and
 [chunking](chunking.md) first, using their individual commands in the build session.
 
-For an agent, invoke the [reviewer prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer)
-with the completed run ID. It handles initialization (or validation/reuse of an
-existing review), saved-source review and final evaluation in one task. No
-separate initialization command is needed. Existing judgments are preserved;
-parsing and chunking are not repeated. For example:
+The [agent prompt](../src/knowledge_foundry/prompts/agent_prompt_chunking_review)
+initializes/reuses the review, inspects originals and evaluates judgments without
+rebuilding inputs. Invoke it with the completed run ID:
 
 ```text
 Read AGENTS.md and .agents/AGENTS.md, then follow
-src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer
+src/knowledge_foundry/prompts/agent_prompt_chunking_review
 for RUN_ID="your-build-run-id".
 Complete initialization/reuse, source review and final evaluation.
 Preserve existing judgments and report the final results.
@@ -35,18 +33,15 @@ PARSED_DIR="artifacts/parsed-${RUN_ID}"
 CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
 MANIFEST_PATH="data/manifest.json"
 
-direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
+direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \
   --initialize-review
 ```
 
-This creates automatic results in `chunking-evaluation-report.json` and a pending
-`chunking-review.json` in `CHUNKED_DIR`. A **human or agent** must
-[review the sources](#review-saved-sources), fill the review, then
-[rerun evaluation](#rerun-chunking-evaluation-with-the-human-or-agent-review)
-to finalize the report’s review/overall gates.
+Creates `chunking-evaluation-report.json` and pending `chunking-review.json` in
+`CHUNKED_DIR`. Inspect originals, record judgments, then rerun with `--review-file`.
 
 Optional arguments apply to both evaluation steps:
 
@@ -79,11 +74,10 @@ Sampling selects ≤12 chunks/document: one per available risk, then reading-ord
 coverage; small documents contribute all chunks. Risks: picture-contained prose,
 tables, split elements, short/near-limit chunks, lists and footnotes.
 
-Samples give text, source file/URL/version, locations and selection reasons. Check
-relative `source_file` paths against the selected pipeline's source root (the
-repository root by default). Check
-fidelity, reading order, standalone meaning, headings, boundaries, duplicates and
-whole-chunk support. Inspect layout/figures as needed; never pass uninspected sources.
+Samples include text, source/version, locations and selection reasons. Resolve
+`source_file` against the pipeline root. Check fidelity, order, standalone meaning,
+headings, boundaries, duplicates and whole-chunk support, including PDF layout.
+Uninspected sources stay pending.
 
 In `chunking-review.json`:
 
@@ -99,11 +93,10 @@ In `chunking-review.json`:
 
 ## Rerun chunking evaluation with the human or agent review
 
-After the human or agent fills `chunking-review.json`, rerun with `--review-file`
-to include their judgments. Keep initial inputs, sample size, policy and reference selection:
+Retain initial inputs, sample size, policy and reference selection:
 
 ```sh
-direnv exec . .venv/bin/python scripts/evaluate_chunking.py \
+direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \
@@ -122,9 +115,8 @@ for acceptance. Initial pending review may exit `0`; with `--review-file`, exit
 `0` requires acceptance. Exit `1` means failure or pending supplied review; `2`
 means invalid input. Failed-gate reports are still written.
 
-Keep run-specific findings in the saved review/report. A policy pass can retain
-failed samples and does not certify all chunks or legal correctness. Retrieval
-quality belongs to [retrieval evaluation](knowledge-foundry-implementation-plan.md).
+Keep findings in the saved review/report. A pass can retain non-critical failures
+and does not certify every chunk or legal correctness. See [retrieval evaluation](retrieval-rag.md#validation-and-troubleshooting).
 
 The shared policy file keeps independently versioned subject sections. Chunking
 selects `policies.chunking`; new review files pin that selected policy's hash.

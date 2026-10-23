@@ -1,17 +1,10 @@
 # Knowledge Foundry artifact schemas
 
-The [bundle schema](../schemas/artifact-schema-v1.0.0.json) defines seven normalized
-record types; the [candidate claim schema](../schemas/claim-candidate-artifact-schema-v1.0.0.json)
-defines intermediate candidate claims. `properties`/`required` define fields,
-`$defs`/`$ref` reuse definitions, `oneOf` selects a location format, and
-`additionalProperties: false` rejects unknown fields.
-
-Bundles and records use `schema_version: "1.0.0"` for field layout, independent of
-publisher versions. A bundle contains seven arrays: `sources`, `documents`,
-`elements`, `chunks`, `claims`, `topics`, `builds`; nested definitions cover
-locations, evidence, generation and spans. Bundles may span saved files; the
-schema does not require one JSON file per PDF. Claim generation and classification
-define the export layout.
+The [v1.0.0 bundle schema](../schemas/artifact-schema-v1.0.0.json) contains seven
+arrays: `sources`, `documents`, `elements`, `chunks`, `claims`, `topics`, `builds`.
+The [candidate schema](../schemas/claim-candidate-artifact-schema-v1.0.0.json) covers
+intermediate claims. Unknown fields are rejected. Schema versions describe field
+layout, independently of publisher editions; bundles can span saved files.
 
 ## Records
 
@@ -90,13 +83,10 @@ flowchart LR
   Build -. output .-> Topic
 ```
 
-The [pipeline and record-lineage diagram](images/artifact-record-links-v1.0.0.svg)
-shows canonical bundle records and the separate structural chunks, semantic
-clusters and candidate claim artifacts. Unclassified candidate claims remain
-available. Derived memberships preserve original chunk IDs and exact evidence;
-they do not add record types to the v1.0.0 bundle. Recursive summaries and summary
-clusters are also separate artifacts, governed by the
-[summary manifest/record schema](../schemas/summary-artifact-schema-v1.json).
+The [lineage diagram](images/artifact-record-links-v1.0.0.svg) also shows these links.
+Derived chunks/clusters/candidates preserve original IDs and exact evidence outside
+the canonical bundle; unclassified candidates remain available. Summaries/clusters
+use their [separate schema](../schemas/summary-artifact-schema-v1.json).
 
 | Link | Required relationship |
 | --- | --- |
@@ -110,9 +100,7 @@ clusters are also separate artifacts, governed by the
 | Claim → evidence | Exact element ID/revision, document ID and source ID, resolved as for chunks. |
 | Claim ↔ topic | `topic_id` is the authoritative single assignment; `topic.claim_ids` is its exact inverse within the same build. |
 
-Manifest labels map to stable source IDs. The validator matches entries by
-URL/hash, then checks version and capture date. Builds name inputs/outputs;
-evidence resolves to the element revision and its native location.
+The validator matches manifest entries by URL/hash, then checks version/capture date.
 
 ## Locations and supporting passages
 
@@ -138,9 +126,8 @@ rejected classification. Topic `review_status` concerns its summary.
 `claim.generation` and `claim.classification` separately record `manual`/`model`
 and version; model records also require model ID/prompt hash.
 
-Examples are drafts, not expert reviewed. Current topic exports contain a draft
-notice rather than substantive synthesis; inspect claims/passages before use.
-Do not infer effective dates, exceptions or conflict resolutions from capture dates.
+Examples/topics are drafts, not expert-reviewed synthesis. Inspect source claims
+and passages; capture dates do not establish applicability or resolve conflicts.
 
 ## Examples and validation
 
@@ -155,10 +142,9 @@ parsing or retrieval quality.
 
 ## Frozen structural chunks and semantic clusters
 
-[Structural chunks and semantic clusters build manifest v2](../schemas/claim-context-artifact-schema-v2.json) is separate
-from the canonical chunk, candidate claim and claim schemas. It pins the original bundle,
-configuration, prompt/schema assumptions and exact semantic cluster plan. Live split
-configs are resolved before freezing; saved artifacts need no external config files.
+[Build manifest v2](../schemas/claim-context-artifact-schema-v2.json) pins the original
+bundle, resolved configuration, prompt/schema assumptions and cluster plan. Frozen
+artifacts require no external config files.
 
 | File | Purpose |
 | --- | --- |
@@ -171,21 +157,14 @@ configs are resolved before freezing; saved artifacts need no external config fi
 | `report.json` | Sizes, refinement diagnostics and structural chunk and semantic cluster build telemetry |
 | `build-manifest.json` | File hashes, versions and frozen assumptions |
 
-Link reasons cover shared fragments, governing context, numbered/bulleted list
-introductions, document parents, adjacent sentence/table continuations and
-same-page note markers. Only bounded adjacent fragments/continuations may merge;
-all parent, list, repeated-context and note links are relationships. The schema
-enumerates accepted reasons; heuristic links require source review. The element
-tree represents a section spanning many structural chunks without merging it.
-See the [INTRODUCTION/paragraph 7 example](chunking.md#structural-assembly-after-original-chunking).
+The schema enumerates link reasons. Only bounded adjacent fragments/continuations
+merge; parent, list, context and note links remain relationships. Heuristics need
+source review; see [structural assembly](chunking.md#structural-assembly-after-original-chunking).
 
-The [v1 manifest schema](../schemas/claim-context-artifact-schema-v1.json) and
-frozen v1/v2 assembly remain supported for reading existing structural chunks,
-semantic clusters and claim lineage. New builds require `structural-chunks-v3`
-and manifest v2; migrate by creating a fresh build, optionally passing matching
-`--parsed-dir` sidecars
-for old chunking runs. Original bundle/chunk IDs and claim/candidate schemas do
-not change. Changed derived memberships require fresh downstream claim runs.
+Frozen v1/v2 assembly and the [v1 manifest](../schemas/claim-context-artifact-schema-v1.json)
+remain readable. New builds use `structural-chunks-v3`/manifest v2; old chunking runs
+can supply matching `--parsed-dir` sidecars. Canonical IDs/schemas stay unchanged;
+changed derived memberships require fresh claim runs.
 
 Summary records link `input_cluster_id` to a semantic cluster at level one or a
 summary cluster above level one, with `input_summary_ids` for the latter. They

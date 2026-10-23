@@ -1,9 +1,7 @@
 # Knowledge provenance graph
 
-Create a standalone HTML viewer from a saved classified run; set directories
-separately when claim-generation and classification run IDs differ. For the
-structural-chunk and semantic-cluster pipeline, pass the matching generated
-claims directory as well:
+Create a standalone HTML viewer from matching classified/generated runs; override
+directories when their run IDs differ:
 
 ```sh
 RUN_ID="your-claim-run-id"
@@ -16,19 +14,15 @@ direnv exec . .venv/bin/python scripts/render_knowledge_graph.py \
   --output "$CLASSIFIED_DIR/knowledge-provenance-graph.html"
 ```
 
-Open the HTML in a browser. Add `--force` only to replace an existing viewer,
-or choose a new output name to preserve it. No model calls or claim artifact edits occur.
-For chatbot access, register this exact file as the run's `graph_path` in
-[`retrieval-corpora.json`](../config/retrieval-corpora.json). The chatbot displays
-it directly when the selected snapshot matches; no separate HTTP server is needed.
+Open the HTML locally; `--force` replaces an existing viewer. No model calls or
+artifact edits occur. Register it as `graph_path` in
+[`retrieval-corpora.json`](../config/retrieval-corpora.json) for matching chatbot
+snapshots; no separate server is needed.
 
-Add `--summary-dir "artifacts/summaries-${RUN_ID}"` to include the independent
-[summary branch](summaries.md). It verifies and loads the frozen summary run and
-its structural chunk and semantic cluster build outputs. When both branches
-are provided, their structural chunks and semantic clusters must match.
-To view summaries before any claims exist, use the summary run's
-`preparation/artifact-bundle.json` as `--bundle`, pass `--summary-dir`, and omit
-`--claim-generation-dir`. Original bundle records must match the summary inputs.
+Add `--summary-dir "artifacts/summaries-${RUN_ID}"` for [summaries](summaries.md);
+both branches must share the frozen structural build. For summaries alone, use
+their `preparation/artifact-bundle.json` as `--bundle` and omit
+`--claim-generation-dir`. Original records must match.
 
 ## What is included
 
@@ -38,10 +32,9 @@ semantic clusters, candidate-to-cluster links, and the generated candidate
 claims. Without it, the viewer omits the structural and semantic stages and
 continues to render older bundles.
 
-The **Summaries** view lists all summary levels, with highest levels first and
-document/review/type filters. Summary cards show level, original-chunk count and
-review status. **Document-derived knowledge** includes summaries alongside claims;
-**Topics and claims** retains its existing claim-only behavior.
+**Summaries** lists levels highest-first with filters, chunk counts and review
+status. **Document-derived knowledge** combines claims/summaries; **Topics and claims**
+is claim-only.
 
 Choose a summary and **Explore provenance** to follow summary → summary cluster →
 input summaries → semantic cluster → structural chunk → original chunk → element
@@ -51,19 +44,13 @@ claim evidence. Related-record buttons expose direct input and output links.
 Full/local graphs also show structural context and element parent relationships;
 these do not assert that an entire section was merged into one chunk.
 
-Summary provenance uses separate columns for each summary level and its input
-cluster. Read right to left to follow generation: semantic cluster → level-one
-summary → cluster for level two → level-two summary. Read left to right to trace
-a summary back to its inputs. Ungrouped lower-level inputs can skip levels.
+Summary columns separate levels/clusters: generation flows right-to-left,
+provenance left-to-right. Ungrouped inputs can skip levels.
 
-Candidate nodes are separate from classified claim nodes. Classified
-candidates also appear as claims with topic links; candidates that did not
-produce a claim have no topic link. The viewer displays candidate status from
-the adjacent classification `report.json` and matching claim records.
-Local provenance and document views omit candidate nodes whose classified claim
-is available under the active filters. Unclassified candidates remain visible.
-Candidates remain accessible through **Connected records**, an explicit candidate
-selection/type filter, and full/debug views.
+Candidates are distinct from classified claims; only the latter link to topics.
+Status comes from classification `report.json` and claim records. Local/document
+views hide candidates when their classified claim is visible; unclassified ones
+remain. **Connected records**, candidate filters and debug views expose all candidates.
 `--claim-candidates "$CANDIDATES_DIR/claim-candidates.jsonl"` can add candidates
 without loading the structural and semantic stages.
 

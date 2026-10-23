@@ -1,10 +1,8 @@
 # Knowledge Foundry — implementation plan
 
-Build a configurable document-to-knowledge pipeline with traceable claims and
-summaries. Retain parsed documents/chunks as evidence; derive retrieval, graph
-and dataset views.
-Start with one domain and reuse [benchmarked components](open-source-project-benchmark.md).
-Estimates include implementation, review and validation; revise after representative tests.
+Roadmap for traceable claims/summaries and retrieval, graph and dataset views.
+Start with one domain and [benchmarked components](open-source-project-benchmark.md).
+Estimates include review/validation and are planning assumptions, not completion status.
 
 ## Core pipeline
 
@@ -19,10 +17,8 @@ Saved source
         |→ level-one summaries → clusters of summaries → higher-level summaries ↻
 ```
 
-Original chunks remain immutable. The structural chunk and semantic cluster build
-preserves hierarchy across focused chunks and bounds clusters to request budgets.
-Claims and summaries are independent outputs; higher-level summaries combine earlier ones.
-Both retain provenance, while claims also follow grounding/classification review.
+Immutable chunks feed hierarchy/budget-aware clusters. Claims and recursive
+summaries retain provenance independently; claims require grounding/classification review.
 
 | Task | Working days | Deliverable / completion criteria |
 | --- | --- | --- |
@@ -36,17 +32,12 @@ Both retain provenance, while claims also follow grounding/classification review
 | 8. Recursive summaries | 2–4 | Summarize each semantic cluster independently of claims, then cluster/summarize earlier summaries within similarity, member, token and level limits. Export stable IDs, transitive provenance, draft status and model/runtime metadata. |
 | 9. Repeat builds | 3–5 | Cache/resume stages; invalidate affected chunks, clusters, claims, summaries and topics after source/settings changes. Test additions, updates, removals, conflicts and stale-artifact cleanup; retain prior editions. |
 
-Keep parser adapters small and parsed artifacts rebuildable. Compare alternatives
-when required formats expose limits. Configure topics for the selected domain
-and verify synthesis against full context.
-
-**Milestone:** one reproducible command builds a traceable knowledge base from
-mixed documents and handles collection changes.
+**Milestone:** reproducible mixed-document builds with small parser adapters,
+domain topics, validated synthesis and collection-change handling.
 
 ## Knowledge views and downstream validation
 
-Choose reviewed claims, summaries or source passages according to each use;
-neither generated output requires the other.
+Choose reviewed passages, claims or summaries for the task.
 
 | Task | Working days | Deliverable / completion criteria |
 | --- | --- | --- |
@@ -55,11 +46,8 @@ neither generated output requires the other.
 | 12. Knowledge graph | 2–4 | Inspect claim or summary provenance. Optionally derive typed entities/relations from reviewed claims under a domain schema, with passage evidence, conservative identity rules and edge/query checks. |
 | 13. Training data | 3–5 | Extraction/classification examples from reviewed claims, or synthesis examples from reviewed summaries. Split document families before generation; retain evidence/rejections and export JSONL/Parquet with a dataset card. |
 
-RAG combines retrieval with generation. Keep source chunks for precise citations;
-combine claims and summaries only when that improves the selected downstream task.
-
-**Milestone:** one knowledge base supports retrieval, a domain graph and grounded
-training examples, all traceable to saved files.
+**Milestone:** retrieval, domain graphs and training examples traceable to saved
+files. Retain source chunks for citations; combine outputs only when useful.
 
 ## Integration and release
 
@@ -76,14 +64,10 @@ scope and measured limits.
 
 ## Dependencies and execution
 
-- Define scope/schemas before shared interfaces; ingest/parse and chunk before
-  the structural chunk and semantic cluster build. Claims and summaries then run
-  independently from clusters.
-- Validate the chosen inputs before downstream use. Retrieval, graph and dataset
-  views can use passages, claims or summaries independently, or combine them.
-- Give agents bounded tasks and acceptance criteria; parallelize adapters/exporters
-  after contracts stabilize.
-- If estimates grow, narrow scope or defer a downstream view; retain provenance/evaluation.
+- Stabilize scope/schemas before shared interfaces; follow the pipeline above.
+- Validate inputs before downstream use.
+- Bound agent tasks/acceptance criteria; parallelize after contracts stabilize.
+- If estimates grow, defer scope while retaining provenance/evaluation.
 
 Consider further formats, connectors, graph retrieval, entity matching, training,
 review interfaces and deployment after release evaluation.

@@ -13,8 +13,8 @@ from knowledge_foundry.structural_chunks import assemble_structural_chunks, stab
 from knowledge_foundry.summaries import generate_summaries, load_summaries, _summary_id
 from scripts.render_knowledge_graph import build_graph, main as graph_main
 from scripts.generate_summaries import main as summary_main
-from test_claim_context import fixture_settings
-import test_compilation_context as context_tests
+from claim_fixtures import fixture_settings
+import claim_fixtures as context_fixtures
 
 
 class SummariesTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class SummariesTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         chunked = self.root / 'chunked'
         chunked.mkdir()
-        self.bundle = context_tests.CompilationContextTests().bundle([
+        self.bundle = context_fixtures.bundle([
             ('paragraph', 'Banking requirements.', 1), ('paragraph', 'Insurance requirements.', 2),
             ('paragraph', 'Reporting requirements.', 3)], [[0], [1], [2]])
         self.original = json.dumps(self.bundle).encode()

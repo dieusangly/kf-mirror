@@ -27,7 +27,7 @@ class OpenAIToolsTests(unittest.TestCase):
     def test_complete_payload_counts_schema_metadata_and_output_reasoning_reserve(self):
         import tempfile
         from knowledge_foundry.generation_context import RequestCounter, generation_payload, usable_input_budget
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings()
         config['steps']['claim_generation']['provider'] = 'openai'
         payload = generation_payload(config, '{"sources":["source metadata"],"eligible_evidence":["exact"]}',
@@ -54,7 +54,7 @@ class OpenAIToolsTests(unittest.TestCase):
     def test_provider_counter_failure_is_explicit_and_bounded(self):
         import tempfile
         from knowledge_foundry.generation_context import RequestCounter
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings(); config['steps']['claim_generation'].update(provider='openai', retries=1)
         with tempfile.TemporaryDirectory() as name, \
                 patch('knowledge_foundry.generation_context.urlopen', side_effect=TimeoutError('offline')) as send, \
@@ -71,7 +71,7 @@ class OpenAIToolsTests(unittest.TestCase):
         import tempfile
         from urllib.error import HTTPError
         from knowledge_foundry.generation_context import RequestCounter, generation_payload
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings()
         config['steps']['claim_generation'].update(provider='openai', retries=0)
         payload = generation_payload(config, '{"sources":["metadata"],"eligible_evidence":["exact text"]}',
@@ -105,7 +105,7 @@ class OpenAIToolsTests(unittest.TestCase):
         from pathlib import Path
         from urllib.error import HTTPError
         from knowledge_foundry.generation_context import RequestCounter
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings(); config['steps']['claim_generation'].update(provider='openai', retries=2)
         body = {'error': {'message': 'Unknown parameter: max_output_tokens; credential=test-secret',
                           'code': 'unknown_parameter', 'param': 'max_output_tokens'}}
@@ -130,7 +130,7 @@ class OpenAIToolsTests(unittest.TestCase):
         import tempfile
         from urllib.error import HTTPError
         from knowledge_foundry.generation_context import RequestCounter
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings(); config['steps']['claim_generation'].update(provider='openai', retries=1)
         for status in (429, 503):
             error = HTTPError('https://api.openai.com/v1/responses/input_tokens', status, 'transient', {},
@@ -154,7 +154,7 @@ class OpenAIToolsTests(unittest.TestCase):
         import tempfile
         from urllib.error import HTTPError
         from knowledge_foundry.generation_context import RequestCounter
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings(); config['steps']['claim_generation'].update(provider='openai', retries=0)
         error = HTTPError('https://api.openai.com/v1/responses/input_tokens', 400, 'Bad Request', None,
                           io.BytesIO(b'<html>proxy error</html>'))
@@ -167,7 +167,7 @@ class OpenAIToolsTests(unittest.TestCase):
         from pathlib import Path
         from knowledge_foundry.generation_context import RequestCounter
         from knowledge_foundry.structural_chunks import stable_hash
-        from test_claim_context import fixture_settings
+        from claim_fixtures import fixture_settings
         config = fixture_settings(); config['steps']['claim_generation']['provider'] = 'openai'
         payload = {'model': 'test', 'input': 'full input', 'max_output_tokens': 100}
         legacy = {'version': 'response-input-count-v1', 'method': 'provider', 'payload': payload}

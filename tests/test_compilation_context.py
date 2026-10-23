@@ -7,17 +7,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_claim_context import generate_claims, prepare_fixture, fixture_settings
+from claim_fixtures import bundle, generate_claims, fixture_settings
 
 from knowledge_foundry.claim_generation_and_classification import (
-    ROOT, FixtureProvider, _candidate_record, _evidence_choices,
-    _validate_candidate, canonical, classify_claims, digest,
+    FixtureProvider, _candidate_record, _evidence_choices,
+    _validate_candidate, classify_claims, digest,
 )
 from knowledge_foundry.chunking import build_collection
 from knowledge_foundry.parsing import parse_collection
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
-from scripts.evaluate_claims import evaluate as evaluate_compilation
-from scripts.evaluate_parsing import evaluate as evaluate_parsing
+from scripts.auto_review_claims import evaluate as evaluate_compilation
+from scripts.auto_review_parsing import evaluate as auto_review_parsing
 from scripts.validate_artifact_examples import check
 
 
@@ -29,39 +29,7 @@ def generation_batches(chunks, elements, _legacy_size):
 
 
 class CompilationContextTests(unittest.TestCase):
-    def bundle(self, passages, groups):
-        """Create saved exact spans; a tuple in a group denotes spanless context."""
-        bundle = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
-        bundle['claims'], bundle['topics'], bundle['elements'], bundle['chunks'] = [], [], [], []
-        document = bundle['documents'][0]
-        for index, (kind, text, page) in enumerate(passages):
-            locator = f'pdf:p{page}:test-{index}'
-            bundle['elements'].append({
-                'schema_version': '1.0.0', 'id': 'el:' + digest(document['id'] + '\n' + locator),
-                'document_id': document['id'], 'locator_key': locator,
-                'revision': digest(kind + '\n' + text), 'kind': kind, 'ordinal': index,
-                'text': text, 'location': {'format': 'pdf', 'page': page, 'label': f'test {index}'}})
-        for group in groups:
-            refs, texts = [], []
-            for item in group:
-                context = isinstance(item, tuple)
-                element = bundle['elements'][item[0] if context else item]
-                ref = {'source_id': document['source_id'], 'document_id': document['id'],
-                       'element_id': element['id'], 'element_revision': element['revision']}
-                if not context:
-                    ref['span'] = {'start': 0, 'end': len(element['text'])}
-                refs.append(ref)
-                texts.append(element['text'])
-            text = '\n\n'.join(texts)
-            bundle['chunks'].append({
-                'schema_version': '1.0.0', 'document_id': document['id'],
-                'id': 'chunk:' + digest(document['id'] + '\ntest-v1\n' + canonical(refs) + '\n' + text),
-                'build_id': bundle['builds'][0]['id'], 'chunker_version': 'test-v1',
-                'sequence': len(bundle['chunks']), 'text': text, 'evidence': refs})
-        bundle['builds'][0].update(output_chunk_ids=[c['id'] for c in bundle['chunks']],
-                                   output_claim_ids=[], output_topic_ids=[])
-        check(bundle)
-        return bundle
+    bundle = staticmethod(bundle)
 
     def test_inline_structural_text_preserves_order_context_and_citation_map(self):
         from knowledge_foundry.claim_generation_and_classification import _candidate_input
@@ -241,7 +209,7 @@ class CompilationContextTests(unittest.TestCase):
             parsed, chunked = root / 'parsed', root / 'chunked'
             parsing = parse_collection(pipeline, parsed)
             self.assertEqual(parsing['outcomes'][0]['status'], 'parsed', parsing)
-            audit = evaluate_parsing(parsed, source_root=root)
+            audit = auto_review_parsing(parsed, source_root=root)
             self.assertEqual(audit['gate']['status'], 'pass', audit)
             self.assertEqual(audit['reference_status'], 'not_supplied')
             self.assertEqual(audit['totals']['passages_checked'], 0)
@@ -250,12 +218,12 @@ class CompilationContextTests(unittest.TestCase):
                 'source': 'observatory', 'text': 'Operators must calibrate the telescope annually.'}],
                 'structure': [], 'reading_order': []}
             reference.write_text(json.dumps(landmarks))
-            verified = evaluate_parsing(parsed, reference, source_root=root)
+            verified = auto_review_parsing(parsed, reference, source_root=root)
             self.assertEqual(verified['gate']['status'], 'pass', verified)
             self.assertEqual(verified['totals']['passages_checked'], 1)
             landmarks['passages'][0]['text'] = 'An absent maintenance requirement.'
             reference.write_text(json.dumps(landmarks))
-            missing = evaluate_parsing(parsed, reference, source_root=root)
+            missing = auto_review_parsing(parsed, reference, source_root=root)
             self.assertEqual(missing['gate']['status'], 'fail')
             self.assertEqual(missing['corpus']['error_codes']['MISSING_PASSAGE'], 1)
             build_collection(pipeline, parsed, chunked)

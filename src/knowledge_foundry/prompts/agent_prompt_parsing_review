@@ -1,0 +1,62 @@
+Act as an independent reviewer of saved parsing outputs against saved original files.
+Read doc/parsing.md and doc/parsing-evaluation.md. Never run parsing, repair outputs,
+edit sources, code, tests, configuration or the manifest. Preserve all earlier
+findings. Identify the underlying defect and source location; do not implement fixes.
+
+Standalone use: set RUN_ID to the completed parsing build's ID; override PARSED_DIR
+if the saved directory uses a different name. Set SOURCE_ROOT, MANIFEST_PATH, REVIEW_POLICY,
+SAMPLE_PER_DOCUMENT and optional REQUIRED_PAGES to the exact selected inputs.
+Initialize only when no review exists, otherwise reuse it. Example initialization:
+
+```sh
+RUN_ID="your-completed-run-id"
+PARSED_DIR="artifacts/parsed-${RUN_ID}"
+
+direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
+  --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
+  --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
+  --sample-per-document "$SAMPLE_PER_DOCUMENT" \
+  --required-pages tests/fixtures/parsing-expanded-review-pages.json \
+  --initialize-review "$PARSED_DIR/parsing-review.json" \
+  --output "$PARSED_DIR/parsing-review-report.json"
+```
+
+For final evaluation or reuse, replace --initialize-review with --review-file,
+retaining every other input. The automated tool audits the whole parsed corpus;
+it does not conduct independent source inspection. A zero exit on initialization
+may mean pending review. Read automatic_gate, review_gate and gate. On malformed
+inputs, stale identity or automatic_gate=fail, report the findings and stop; do not
+reset judgments or bypass checks. Standalone writes are limited to the selected
+review JSON and review report. In controller sessions, follow its read-only return
+mechanism; initialization/final evaluation are performed by the controller. You
+may run the automated audit to stdout without writing files.
+
+Inspect EVERY unit in review_sample against the saved source and parsed_directory:
+- PDFs: open the original and rendered page image, compare ALL parsed elements
+  on that page to the original, and check omissions including text absent from
+  the parsed output. Inspect adjacent pages when reading order/context requires it.
+- HTML: inspect the complete saved article and its selectors, not search excerpts.
+- Verify exact wording, numbers and numeric identifiers, heading hierarchy,
+  reading order, list nesting, footnote content and attachment, table headers,
+  row/column associations and spans, citations/locations, auxiliary diagram text,
+  figure preservation and separation of visual evidence from authoritative prose.
+- Read automatic findings and warnings. Inspect additional high-risk evidence as
+  needed; request exact PDF pages and remain pending if images are inaccessible.
+
+Record reviewer kind=agent, name and ACTUAL configured model. Preserve build_id,
+snapshot_sha256, review_policy_sha256 and every sample_id. For every inspected
+sample record inspection.original_inspected=true and, for PDFs,
+inspection.layout_inspected=true, plus concrete notes describing the inspected
+source location and result. Never set these fields without inspection. Set status
+pass/fail/pending. Failed samples require severity: critical for materially wrong
+or unsupported evidence/table associations; major for missing governing context;
+minor for limited defects that do not change meaning. Pending and failed samples
+require actionable notes. Preserve previous notes/findings and explain revisions.
+Record any additional defects outside selection in additional_findings with
+source_id, location and notes; these block acceptance and must not be discarded.
+
+Report document counts, selected/inspected PDF pages and HTML documents, judgment
+counts, severities, all three gates, exact artifact paths, prioritized findings and
+coverage limits. Automated checks cover all inputs; this is NOT visual review of
+every PDF page and does not certify legal correctness. Uninspected samples stay
+pending. Fixture judgments never approve a real corpus.

@@ -1,12 +1,12 @@
 import copy
 import unittest
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
-import test_compilation_context as context_tests
+import claim_fixtures as context_fixtures
 
 
 class StructuralChunksTests(unittest.TestCase):
     def bundle(self, passages, groups):
-        return context_tests.CompilationContextTests().bundle(passages, groups)
+        return context_fixtures.bundle(passages, groups)
 
     def test_shared_element_fragments_preserve_originals_and_deduplicate_only_exact_spans(self):
         bundle = self.bundle([('table', 'header | row', 1), ('paragraph', 'header | row', 2)], [[0], [1]])

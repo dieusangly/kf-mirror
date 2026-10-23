@@ -45,6 +45,69 @@ def _config(root, entries):
 
 
 class ParsingTests(unittest.TestCase):
+    def test_short_numbered_native_picture_notes_preserve_document_evidence(self):
+        values = [('footnote', '14 Keep the calibration certificate'),
+                  ('caption', '15 Sensor wiring'), ('footnote', '16 sensor-manual.pdf')]
+        picture = SimpleNamespace(label='picture', text='', marker=None, self_ref='#/pictures/0',
+                                  parent=SimpleNamespace(cref='#/body'),
+                                  prov=[SimpleNamespace(page_no=1, bbox=None)])
+        nodes = [{'self_ref': f'#/texts/{i}', 'label': label, 'text': value,
+                  'parent': {'$ref': picture.self_ref}, 'prov': [{'page_no': 1}]}
+                 for i, (label, value) in enumerate(values)]
+        native = {'texts': nodes, 'pictures': [{'self_ref': picture.self_ref,
+                  'prov': [{'page_no': 1}], 'children': [{'$ref': n['self_ref']} for n in nodes]}],
+                  'tables': [], 'groups': []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(picture, 1)]),
+                                   pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: native)
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual(warnings, [])
+        self.assertEqual([item['kind'] for item in items], ['figure', 'footnote', 'caption', 'footnote'])
+        self.assertEqual([item['details']['evidence_role'] for item in items],
+                         ['structural', 'authoritative', 'auxiliary', 'structural'])
+        self.assertIsNone(items[1]['parent_key'])
+        self.assertEqual(items[2]['parent_key'], items[0]['locator_key'])
+        self.assertEqual(items[3]['details']['link_text_role'], 'non_substantive_filename')
+
+    def test_picture_caption_yielded_again_by_outer_traversal_is_represented_once(self):
+        caption = 'Bench arrangement for sensor testing.'
+        picture = SimpleNamespace(label='picture', text='', marker=None, self_ref='#/pictures/0',
+                                  parent=SimpleNamespace(cref='#/body'),
+                                  prov=[SimpleNamespace(page_no=1, bbox=None)])
+        child = SimpleNamespace(label='caption', text=caption, marker=None, self_ref='#/texts/0',
+                                parent=SimpleNamespace(cref='#/pictures/0'),
+                                prov=[SimpleNamespace(page_no=1, bbox=None)])
+        native = {'texts': [{'self_ref': child.self_ref, 'label': 'caption', 'text': caption,
+                             'parent': {'$ref': picture.self_ref}, 'prov': [{'page_no': 1}]}],
+                  'pictures': [{'self_ref': picture.self_ref, 'prov': [{'page_no': 1}],
+                                'children': [{'$ref': child.self_ref}]}], 'tables': [], 'groups': []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter([(picture, 1), (child, 2)]),
+                                   pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+                                   export_to_dict=lambda: native)
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual(warnings, [])
+        self.assertEqual([item['kind'] for item in items], ['figure', 'caption'])
+        self.assertEqual(items[1]['details']['evidence_role'], 'auxiliary')
+        self.assertEqual(items[1]['parent_key'], items[0]['locator_key'])
+
+    def test_explicit_run_identity_for_independent_markdown_document(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = _fixture(root, "library.md", "text/markdown",
+                             "# Library\n\nReturn borrowed books within fourteen days.\n")
+            config = _config(root, [entry])
+            report = parse_collection(config, root / "output", run_id="library-audit")
+            self.assertEqual(report["run_id"], "library-audit")
+            self.assertEqual(report["outcomes"][0]["status"], "parsed")
+            self.assertEqual(json.loads((root / "output/report.json").read_text())["run_id"],
+                             "library-audit")
+            with self.assertRaisesRegex(ValueError, "safe directory name"):
+                parse_collection(config, root / "invalid", run_id="../other")
+
     def test_parse_pdf_uses_supplied_converter(self):
         document = SimpleNamespace(iterate_items=lambda with_groups: iter(()), pages={},
                                    export_to_dict=lambda: {"texts": [], "pictures": [],
@@ -469,6 +532,32 @@ class ParsingTests(unittest.TestCase):
                          ["auxiliary", "auxiliary"])
         self.assertEqual(warnings[0]["code"], "excluded_picture_ocr_fragments")
         self.assertEqual(warnings[0]["refs"], ["#/texts/2", "#/texts/5", "#/texts/6"])
+
+    def test_long_equipment_diagram_labels_do_not_establish_document_prose(self):
+        note = ("The equipment labels in this schematic describe routing only and do not establish "
+                "which maintenance team is authorised to approve a replacement request.")
+        items, warnings, _ = self._picture_fixture(1, [
+            ("footnote", note, (20, 100, 550, 70)),
+            ("text", "Department responsible for calibration and inspection of all portable instruments used by the northern observatory", (20, 700, 180, 660)),
+            ("text", "Committee responsible for the allocation and replacement of all laboratory equipment at the southern observatory", (300, 700, 460, 660)),
+            ("text", "Operators responsible for the inspection and maintenance of", (20, 600, 180, 580)),
+        ])
+        recovered_note = next(item for item in items if item["text"] == note)
+        self.assertEqual(recovered_note["details"]["evidence_role"], "authoritative")
+        labels = [item for item in items if item["kind"] != "figure" and item["text"] != note]
+        self.assertTrue(labels)
+        self.assertTrue(all(item["details"]["evidence_role"] == "auxiliary" for item in labels))
+        self.assertNotIn("potential_picture_text", {warning["code"] for warning in warnings})
+        self.assertIn("excluded_figure_text_uncertain", {warning["code"] for warning in warnings})
+
+    def test_unfinished_picture_prose_stays_pending_amid_real_document_flow(self):
+        items, warnings, _ = self._picture_fixture(1, [
+            ("text", "The maintenance department records each instrument inspection and retains the results until the instrument is retired.", (20, 700, 550, 670)),
+            ("text", "The observatory director reviews these records every month and approves any necessary changes to the inspection schedule.", (20, 640, 550, 610)),
+            ("text", "The audit operator must retain all maintenance records for the lifetime of", (20, 580, 550, 560)),
+        ])
+        self.assertEqual(sum(item["details"]["evidence_role"] == "authoritative" for item in items), 2)
+        self.assertIn("potential_picture_text", {warning["code"] for warning in warnings})
 
     def test_pdf_picture_two_word_label_and_unresolved_fragment(self):
         items, warnings, _ = self._picture_fixture(1, [

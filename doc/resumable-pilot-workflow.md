@@ -1,102 +1,99 @@
 # Resumable AML/CFT workflow
 
-All 17 saved files use one ingestion pipeline. The [source inventory and evaluation
-notes](french-aml-cft-pilot-sources-and-evaluation.md) list the corpus and ingestion
-commands; `data/manifest.json` holds source metadata and coverage
-decisions. All saved filenames use their manifest ID prefix.
+The [17-file scope](french-aml-cft-pilot-sources-and-evaluation.md) shares one
+pipeline, including the accepted historical PPE limitation. See [manual commands](pipeline-runbook.md).
 
-Prerequisites: repository Python environment, Poppler (`pdfinfo`, `pdftotext`,
-`pdftoppm`), authenticated Codex CLI with writable runtime storage and explicit
-reviewer model/reasoning settings, existing API credentials, PostgreSQL/pgvector
-and existing migrations. The [underlying runbook](pipeline-runbook.md) documents
-individual stage commands.
+Prerequisites: Python environment, Tesseract with French/English data, Poppler,
+authenticated Codex CLI, explicit reviewer model/reasoning settings, API credentials,
+and migrated PostgreSQL/pgvector.
+
+## Commands and budgets
 
 ```sh
-# Offline ingestion only; no paid stages or reviewer sessions.
+# Offline preflight only.
 direnv exec . .venv/bin/python scripts/workflow.py run \
   --run-id aml-cft-pilot --stop-after ingest --max-seconds 300 \
   --max-paid-stages 0 --max-review-sessions 0
 
 direnv exec . .venv/bin/python scripts/workflow.py status --run-id aml-cft-pilot
 
-# Continue only when paid execution is authorized.
+# Example limits; execute only within the authorized budget.
 direnv exec . .venv/bin/python scripts/workflow.py resume \
   --run-id aml-cft-pilot --allow-paid --max-seconds 14400 \
   --max-paid-stages 6 --max-review-sessions 4 --max-stage-attempts 3
-```
 
-Stages: ingestion → parsing → parsing evaluation → chunking → independent chunk
-review → structural chunks/semantic clusters → summaries and claim generation /
-classification → independent claim review → provenance graph → indexing → retrieval
-evaluation. Existing scripts, prompts, thresholds and compatible caches are reused.
-
-Both reviews use fresh independent read-only Codex sessions. Reviewers inspect saved
-originals and rendered PDF pages, and can request additional pages while pending.
-Initialization can exit zero while pending; automatic, review and overall gate fields
-control progress. Uninspected judgments, stale reviews, discarded findings and model
-substitutions are rejected. Explicit TOML configuration currently resolves to
-`gpt-6.1-sol`, reasoning `high`, service tier `default`; each session resolves again,
-pins settings and records configuration hashes, thread identity and available usage.
-Unsupported configuration layering fails closed.
-
-Failed reviews preserve findings in `repair-task.json`. The controlling agent inspects
-evidence, corrects the underlying defect and resumes with `--repair-from chunk` (or
-the affected builder) and a concrete `--repair-note`. Review-only resets after failure
-are rejected. Code/config/source changes require `--repair-from ingest` or a new run.
-Downstream outputs are invalidated; earlier attempts and snapshots remain preserved.
-Interrupted resumable builders use existing checkpoints.
-
-State in `artifacts/workflow/<run-id>/state.json` records input identities, paths,
-attempts, failures and measurements. A lock prevents concurrent execution of the
-same run. Budgets bound cumulative seconds, paid stage starts, review sessions and
-stage attempts; resume/repair retains counters. They are not hard dollar/token caps;
-unavailable cost measurements remain null. Ambiguity, inaccessible evidence, scope
-expansion and repeated lack of progress require escalation, not threshold changes.
-
-Each run also writes `artifacts/workflow/<run-id>/report.json` at checkpoints and
-on completion, failure or interruption. It summarizes recorded stage/gate outcomes,
-current and invalidated attempts, artifact paths, execution time, budgets, reviewer
-settings, measured usage and cost components. Stage reports remain beside their bundles.
-After a hard kill, the summary retains its last checkpoint until regeneration/resume.
-
-`cost.known_subtotal_usd` sums available model/API estimates across all attempts.
-`cost.estimated_total_usd` is null while any component is unpriced; those components
-are listed explicitly. Resumed cumulative telemetry is counted once, generation
-recovery carryovers are excluded from the new attempt, and copied upstream costs
-and full-build projections are excluded. Summary generation uses usage and rate cards
-saved with its build. Reviewer USD costs and unreported failed calls remain unknown.
-These estimates exclude hardware/subscription charges and are not billing statements
-or forecasts for unstarted work. Malformed/missing telemetry is visible in the report.
-
-Regenerate a summary for an existing run without executing stages or changing state:
-
-```sh
 direnv exec . .venv/bin/python scripts/workflow.py report --run-id aml-cft-pilot
 ```
 
-Report generation holds the run lock. Gate results are reported as recorded; use
-`status` to check current staleness. Reporting never approves reviews or publishes.
-Older state files may lack timing/configuration measurements; unavailable costs stay null.
+Limits are cumulative across resume/repair: time, paid-stage starts, sessions and
+attempts, not dollar/token caps. Allow at least three reviews plus continuations
+or external sessions. Execute only with authorization/budgets; escalate ambiguity,
+inaccessible evidence or repeated lack of progress.
 
-Retrieval development checks cover every saved file and both languages. PostgreSQL
-`simple` text search avoids applying French stemming to English; multilingual
-embeddings support cross-language matching. Keyword/vector baselines remain diagnostic.
-The combined hit-rate target remains 0.875 in each passage/claim/summary mode.
+## Stages and reviews
 
-Publication is explicit and local. It requires complete fresh gates, real independent
-review evidence and `data/retrieval-expanded-acceptance.json` with `status: reviewed`,
-a concrete reviewer and matching manifest/cases hashes. Fixtures and development
-labels cannot authorize publication. After those checks:
+Ingestion → parsing → automated parsing audit → independent parsing review →
+chunking → independent chunk review → structural chunks/semantic clusters →
+summaries and claim generation/classification → independent claim review →
+provenance graph → indexing → retrieval evaluation → explicit publication.
+
+Reviews use fresh read-only Codex sessions, saved originals and PDF page images.
+`auto_review_{parsing,chunking,claims}.py` audits artifacts/scores judgments;
+`agent_prompt_*_review` directs inspection. See [parsing coverage](parsing-evaluation.md#independent-parsing-review).
+Initialization can exit zero while pending: automatic, review and overall gates
+must pass. Fixtures, uninspected judgments and substituted models cannot approve.
+
+Configure `reviewers.parsing_review`, `chunk_review` and `claim_review` in
+`config/workflow.json`: `model`, `model_reasoning_effort`, optional `model_provider`
+and `service_tier`. Workflow values override explicit system/user/ancestor-project
+Codex TOML settings. Missing model/effort, unknown keys and unsupported profiles/catalogs
+fail closed; there is no model fallback. Manual sessions must be launched with
+these settings explicitly; the prompts cannot select their own running model.
+
+Settings, configuration hashes, thread IDs and usage are pinned in state/report
+and session measurements. Disposable private runtime settings/authentication are
+removed afterward. Parsing retains the workflow run ID.
+
+Pending continuations carry only unchanged judgments with verified prior responses,
+measurements, threads, settings and identities. Attribution remains original;
+missing/stale history or revised judgments require reinspection. Preserve findings.
+
+## Repair and publication
+
+Inspect `repair-task.json`. Resolve pending evidence/inspection; after failure,
+correct the defect, rebuild affected outputs and request fresh review. Use
+`--repair-from chunk` (or affected builder) with a concrete `--repair-note`.
+Code/config/source/reviewer changes require repair from `ingest` or a new run;
+review-only resets after failure are rejected. Downstream outputs invalidate;
+caches, prior attempts and snapshots remain. Generation/classification can resume checkpoints.
+
+Retrieval uses multilingual embeddings and PostgreSQL `simple` search. Each mode's
+combined hit-rate must reach 0.875; baselines are diagnostic. Publication requires
+fresh reviews and a source-checked acceptance record bound to manifest/case hashes.
+`retrieval_acceptance` is currently `null`, blocking publication; development/fixture
+labels cannot approve. After all checks:
 
 ```sh
 direnv exec . .venv/bin/python scripts/workflow.py publish \
   --run-id aml-cft-pilot --max-seconds 14400
 ```
 
-Earlier runs and snapshots retain their original source/input identities. Reviews
-apply to their exact inputs. The PPE historical-body limitation is recorded in source
-metadata; quality-review gates remain unchanged.
+## Saved files and costs
 
-Source paths and manifest configuration are part of run identity. After a rename or
-manifest change, start a new run or resume with `--repair-from ingest` and a concrete
-`--repair-note`; earlier artifacts/reviews retain their original identities.
+`artifacts/workflow/<run-id>/` holds state, consolidated `report.json`, a lock and
+per-stage `attempt-N` commands, logs, bundles, gate reports and sessions. PDF bundles
+retain layout JSON/figure PNGs. Failed attempts remain; diagnostic/staging replays
+are not approved stages. `artifacts/` is ignored by Git.
+
+Retain referenced evidence/frozen outputs. Retiring a run requires resolving its
+references and retaining evidence or explicitly retiring approvals. Deletion or
+fresh parsing never transfers approval or resets legitimate budgets.
+
+The report updates at checkpoints/completion/failure/interruption; hard kills leave
+the last checkpoint. `report` regenerates under lock without approving; `status`
+checks staleness. Stage reports stay with bundles. `cost.known_subtotal_usd` sums
+saved model/API estimates; `estimated_total_usd` stays null while costs are unknown.
+Usage is deduplicated, including external sessions and resume; recovery carryovers,
+copied costs and projections are excluded. Saved rate cards price summaries.
+Missing/malformed usage stays visible. Estimates exclude hardware/subscriptions
+and are neither invoices nor forecasts.

@@ -23,9 +23,8 @@ mkdir -p "$INGESTION_DIR"
 direnv exec . .venv/bin/python scripts/ingest.py --config config/pipeline.json --output "$INGESTION_DIR/ingestion-report.json"
 ```
 
-Omit `--output` for stdout. Report every source, including failures. Exits: `0`
-all ingested, `1` any failure, `2` invalid config/manifest. Run from the checkout
-without package installation; dependencies include validation’s `jsonschema`.
+Omit `--output` for stdout. Every source gets an outcome. Exits: `0` all ingested,
+`1` any failure, `2` invalid config/manifest. No package installation is needed.
 
 ## Configuration and results
 
@@ -33,26 +32,18 @@ In [config/pipeline.json](../config/pipeline.json), `root` is relative to the
 configuration file; `manifest_file` and source `local_path` values are relative
 to `root`. `manifest_ids` selects/orders the short IDs defined in the manifest.
 
-[Manifest entries](../data/manifest.json) hold short `manifest_id`, stable `source_id`,
-title, class, publisher version, file metadata and explicit coverage decisions.
-Saved pilot filenames use `<manifest_id>-<filename>`; `local_path` records
-the current path. Renaming a file leaves its bytes and source/document IDs unchanged.
-Retain `source_id` across URL/edition changes; update `source_version` for new editions. Collections need
-matching config/manifests.
+[Manifest entries](../data/manifest.json) hold IDs, publisher/file metadata and
+coverage decisions. Pilot filenames use `<manifest_id>-<filename>`. Renaming leaves
+hashes and IDs unchanged; retain `source_id` across URL/edition changes and update
+`source_version` for new editions.
 
-The CLI detects PDF/HTML by signature, DOCX by ZIP members and UTF-8 Markdown by
-extension. It verifies size, SHA-256 and media type. Successful outcomes contain
-v1.0.0 source/document records; failures contain an error and no document.
-`content_sha256` is calculated from saved bytes and repeated in successful
-document records. A read file with a mismatching hash also reports the manifest
-hash as `error.expected_sha256`, even when size mismatch was reported first;
-matching hashes omit this field.
+Detection uses PDF/HTML signatures, DOCX ZIP members and UTF-8 Markdown extensions.
+Size, SHA-256 and media type must match. Success returns v1.0.0 source/document
+records with the saved-byte hash; failure returns an error without a document.
+Hash mismatches include `error.expected_sha256`, even if size mismatch is reported first.
 
-Embedding, generation and classification commands also require `OPENAI_API_KEY`
-in the environment.
-
-This inventory is not an artifact bundle. Continue with [parsing](parsing.md).
-For development, run the tests and artifact validator:
+Continue with [parsing](parsing.md); this inventory is not an artifact bundle.
+Development checks:
 
 ```sh
 direnv exec . env PYTHONPATH=src:.:tests .venv/bin/python -m pytest tests -q

@@ -10,7 +10,7 @@ from knowledge_foundry.claim_context import (
 )
 from knowledge_foundry.claim_generation_and_classification import generate_claims
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
-from test_claim_context import fixture_settings
+from claim_fixtures import fixture_settings
 
 
 def write_split(root, config):

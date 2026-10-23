@@ -1,5 +1,4 @@
 """Frozen context integration tests; fixtures validate mechanics, not semantic quality."""
-import copy
 import json
 from pathlib import Path
 import tempfile
@@ -7,36 +6,11 @@ import unittest
 from unittest.mock import patch
 
 from knowledge_foundry.claim_generation_and_classification import generate_claims as generate_prepared, ROOT
-from knowledge_foundry.claim_context import prepare_claim_context, load_preparation, load_settings
+from knowledge_foundry.claim_context import prepare_claim_context, load_preparation
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 
 
-def fixture_settings():
-    config = load_settings(ROOT / 'config/claim-generation-and-classification.json')
-    config['steps']['claim_generation']['provider'] = 'fixture'
-    config['steps']['topic_classification']['provider'] = 'fixture'
-    config['pricing']['providers']['fixture'] = copy.deepcopy(config['pricing']['providers']['openai'])
-    config['steps']['embeddings'].update(provider='fixture', dimensions=2, expected_dimensions=2, retries=0)
-    return config
-
-
-def prepare_fixture(chunked, config_path, on_progress=None):
-    """Explicit test preparation shared by existing generation regression suites."""
-    chunked, config_path = Path(chunked), Path(config_path)
-    context = chunked.parent / ('context-' + stable_hash([str(chunked), str(config_path), (chunked / 'artifact-bundle.json').read_text(), config_path.read_text()])[:12])
-    if not context.exists():
-        bundle = json.loads((chunked / 'artifact-bundle.json').read_text())
-        records, _ = assemble_structural_chunks(bundle)
-        fixture = chunked.parent / 'embedding-fixture.json'
-        fixture.write_text(json.dumps({'embedding_vectors': {stable_hash(r['text']): [1., 0.] for r in records}}))
-        prepare_claim_context(chunked, context, config_path, chunked.parent / 'cache', fixture,
-                              on_progress=on_progress)
-    return context
-
-
-def generate_claims(chunked, output, config_path, fixture_path=None, **kwargs):
-    return generate_prepared(chunked, output, config_path, fixture_path,
-                             context_dir=prepare_fixture(chunked, config_path), **kwargs)
+from claim_fixtures import fixture_settings, prepare_fixture
 
 
 class ClaimContextTests(unittest.TestCase):
@@ -64,8 +38,8 @@ class ClaimContextTests(unittest.TestCase):
             prepare_claim_context(self.chunked, directory, self.config)
 
     def test_parsed_sidecars_are_frozen_and_hierarchy_tampering_is_rejected(self):
-        from test_document_structure import DocumentStructureTests
-        bundle, snapshot = DocumentStructureTests().introduction()
+        from claim_fixtures import introduction_bundle
+        bundle, snapshot = introduction_bundle()
         (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
         parsed = self.root / 'parsed'
         document = bundle['documents'][0]['id']
@@ -96,10 +70,10 @@ class ClaimContextTests(unittest.TestCase):
             load_preparation(output)
 
     def test_preparation_round_trips_bulleted_lists_and_box_continuations_through_schema(self):
-        from test_compilation_context import CompilationContextTests
+        from claim_fixtures import bundle as context_bundle
         from jsonschema import Draft202012Validator, ValidationError
 
-        bundle = CompilationContextTests().bundle([
+        bundle = context_bundle([
             ('paragraph', 'Operators must perform these checks:', 1),
             ('list_item', '- Inspect the sensor.', 1),
             ('table', 'Requirement | Operators must retain the', 2),
@@ -236,7 +210,7 @@ class ClaimContextTests(unittest.TestCase):
 
     def test_multiple_cross_document_claims_survive_classification_export_and_evaluation(self):
         from knowledge_foundry.claim_generation_and_classification import digest, classify_claims
-        from scripts.evaluate_claims import evaluate
+        from scripts.auto_review_claims import evaluate
         from scripts.validate_artifact_examples import check
         first = json.loads((self.chunked / 'artifact-bundle.json').read_text())
         second = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())
@@ -298,8 +272,8 @@ class ClaimContextTests(unittest.TestCase):
         self.assertEqual(evaluate(generated, classified)['automatic_gate'], 'fail')
 
     def test_exact_request_size_refinement_and_unique_membership(self):
-        import test_compilation_context as context_tests
-        bundle = context_tests.CompilationContextTests().bundle(
+        import claim_fixtures as context_fixtures
+        bundle = context_fixtures.bundle(
             [('paragraph', 'Dogs rest.', 1), ('paragraph', 'Dogs sleep.', 1),
              ('paragraph', 'Dogs eat.', 1)], [[0], [1], [2]])
         (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
@@ -355,9 +329,9 @@ class ClaimContextTests(unittest.TestCase):
 
     def test_resume_rejects_candidate_from_another_actual_request_cluster(self):
         from knowledge_foundry.claim_generation_and_classification import _load_generation_checkpoints, _candidate_record
-        import test_compilation_context as context_tests
+        import claim_fixtures as context_fixtures
         from knowledge_foundry.claim_generation_and_classification import _evidence_choices
-        bundle = context_tests.CompilationContextTests().bundle(
+        bundle = context_fixtures.bundle(
             [('paragraph', 'Dogs rest.', 1), ('paragraph', 'Cats eat.', 1)], [[0], [1]])
         elements = {e['id']: e for e in bundle['elements']}
         first, second = bundle['chunks']

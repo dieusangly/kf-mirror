@@ -14,7 +14,7 @@ from knowledge_foundry.claim_generation_and_classification import (
 )
 from knowledge_foundry.embeddings import EmbeddingAdapter
 from knowledge_foundry.review import read_review_policy, review_policy_digest
-from test_claim_context import fixture_settings, prepare_fixture
+from claim_fixtures import fixture_settings, prepare_fixture
 
 
 class ClaimConfigurationTests(unittest.TestCase):

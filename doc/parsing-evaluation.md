@@ -1,70 +1,78 @@
 # Parsing evaluation
 
-Check normalized elements against Docling output/source-verified landmarks and
-validate bundles against the configured [manifest](../data/manifest.json).
-Save findings in `parsing-evaluation-report.json`.
+`scripts/auto_review_parsing.py` audits saved parsing outputs; the
+[agent prompt](../src/knowledge_foundry/prompts/agent_prompt_parsing_review) adds
+independent inspection against saved originals. Both must pass before chunking.
 
-## Run
-
-From the repository root, select a saved parsing run:
+## Automated audit
 
 ```sh
 RUN_ID="your-parsing-run-id"
 PARSED_DIR="artifacts/parsed-${RUN_ID}"
-
-direnv exec . .venv/bin/python scripts/evaluate_parsing.py \
-  --input-dir "$PARSED_DIR" \
+direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
+  --input-dir "$PARSED_DIR" --source-root . \
   --output "$PARSED_DIR/parsing-evaluation-report.json"
 ```
 
+The audit checks bundles, locations, evidence roles, duplicates, headings/lists,
+figure assets and provenance. PDF checks compare native Docling nodes, including
+substantive prose, short picture text, multi-page character spans and numeric
+identifiers verified against local PDF glyphs. Counts are complete; reports show
+at most five examples per finding code. Identical text at distinct source locations
+is genuine repetition. Missing canonical text/assets and invalid structures are
+errors; documented furniture/visual/OCR limitations may remain warnings.
+
 | Option | Use |
 | --- | --- |
-| Omit `--output` | Print the report to stdout. |
-| `--additional-input-dir PATH` | Include subset reruns; select the newest valid outcome per manifest source. |
-| `--source-root PATH` | Resolve saved source paths against another root (default: repository root). |
-| `--reference PATH` | Opt into source-checked landmarks matching the selected corpus; omit when no matching fixture exists. |
+| Omit `--output` | Print JSON to stdout. |
+| `--additional-input-dir PATH` | Combine subset reruns, retaining each source's newest valid outcome. |
+| `--source-root PATH` | Resolve saved originals against another root. |
+| `--reference PATH` | Check matching source-verified passages, structure and reading order. |
 
-Write the report before exit: `0` pass, `1` fail. When combining runs, record the input directories and selected source outcomes.
+The report contains selected run IDs, metrics, findings and `gate.status`.
+Exit `0` means automatic pass; `1` means fail. Without a reference,
+`reference_status: not_supplied` claims no landmark coverage. Record all input
+selections when combining runs. The workflow additionally requires every parse
+outcome to be `parsed`.
 
-## Checks and acceptance
+## Independent parsing review
 
-Passing requires parsed/partial outcomes for every manifest source, valid
-locations/bundles/links, any supplied landmarks/order checks and zero errors.
-Without `--reference`, `reference_status` is `not_supplied`: no source-landmark
-coverage is claimed. Missing canonical text/
-figure images are errors. Unresolved flow means `partial`; documented graphics/
-OCR, furniture and uncertain labels may remain warnings on `parsed` outcomes.
+Initialize once, then invoke the agent prompt:
 
-Reference fixtures contain source-checked locators, not approved domain labels.
-Use only fixtures that match the selected source versions. Checks cover:
+```sh
+direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
+  --input-dir "$PARSED_DIR" --source-root . \
+  --manifest data/manifest.json --review-policy config/review-policy.json \
+  --required-pages tests/fixtures/parsing-expanded-review-pages.json \
+  --sample-per-document 12 \
+  --initialize-review "$PARSED_DIR/parsing-review.json" \
+  --output "$PARSED_DIR/parsing-review-report.json"
+```
 
-- **Coverage:** substantive Docling text (at least five normalized words and 30
-  alphanumeric characters), including picture-contained prose. Short picture text
-  is checked separately; assembled fragments retain provenance in `parse.json`.
-- **Figures:** safe linked PNGs with matching hashes, pages and boxes. Auxiliary
-  labels are not independent text evidence.
-- **Duplication:** repeated same-location text, repeated picture text and table/cell
-  overlap. Identical text at distinct PDF boxes is genuine repetition.
-- **Provenance:** multi-page elements match Docling `charspan` slices rather than
-  repeating the full node on each page.
-- **Structure:** empty elements, invalid parents/headings, list typing and depth.
-  A sizeable PDF with only depth-one headings produces a warning.
-- **Docling output:** unknown labels, missing pictures/tables, nonempty forms or
-  key-value collections, warnings and excluded furniture.
+After inspection, repeat with `--review-file` instead of `--initialize-review`,
+keeping every other selection. Initialization refuses to overwrite a review and
+may exit zero while pending. Read `automatic_gate`, `review_gate` and `gate`;
+`--review-file` exits nonzero unless the overall gate passes.
 
-Reports include document/corpus metrics, landmark/location measurements, run IDs
-and `gate`. Findings show at most five examples per code; counts are complete.
+Automated checks cover all documents. Visual inspection covers every selected PDF
+page (all its elements and possible omissions), and complete HTML articles.
+Selection includes all table/warning pages, configured mandatory pages and spread
+samples; 12 is a target, not a cap. Unlocated warnings select the whole document.
+The [mandatory locations](../tests/fixtures/parsing-expanded-review-pages.json)
+retain 30 source-confirmed pages after warnings disappear. They select inspection
+evidence, not approval judgments. Reports distinguish selected, inspected and total units.
 
-## Limits and development
+Approval binds sources, artifacts, audit, selection, policy and review-tool code.
+Missing inspection stays pending; off-sample findings block acceptance. Thresholds:
+80% pass rate, weighted score ≥90 and zero critical failures, with all samples
+assessed. The [workflow](resumable-pilot-workflow.md) verifies prior-session evidence
+before carrying unchanged judgments forward; revised judgments need reinspection.
 
-Checks cannot find text Docling missed, verify OCR, interpret diagrams or judge
-legal meaning. Diagnose corrupt OCR/uncertain labels rather than treating them
-as prose. Landmarks sample the source. HTML gets DOM-location, landmark, structure,
-duplication and bundle checks, without Docling/figure checks. Table overlap does
-not establish retrieval behaviour.
-Markdown and DOCX checks replay native line/block/cell locations against saved
-files; Markdown heading paths can come from canonical locations. This requires
-no PDF model downloads and does not prove semantic completeness.
+## Limits
 
-Reports under `artifacts/` are ignored by Git. Test evaluator changes with
-`direnv exec . .venv/bin/python -m unittest discover -s tests -p 'test_evaluate_parsing.py' -v`.
+Neither automated nor sampled review proves completeness or legal correctness.
+The audit cannot detect everything Docling missed or interpret diagram meaning;
+PDF-specific native checks currently depend on Docling. Another parser needs an
+adapter and equivalent checks, not silent omission of native validation. HTML uses
+DOM checks; Markdown/DOCX replay native line/block/cell locations without PDF models.
+Fixtures test mechanics and never approve the pilot. Reports are ignored by Git.

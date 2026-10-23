@@ -1,10 +1,35 @@
 """Conservative layout repairs for PDF text blocks; no document-specific rules."""
 
 import re
+import copy
 from collections import defaultdict
 
 
 NOTE_MARKER = re.compile(r"^(\d{1,3})\s+(?=\D)")
+FILENAME_FOOTNOTE = re.compile(
+    r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
+
+
+def pdf_page_characters(path, page):
+    """Read literal PDF glyphs with top-left geometry, without inferring text."""
+    import pypdfium2 as pdfium
+
+    with pdfium.PdfDocument(path) as pdf:
+        pdf_page = pdf[page - 1]
+        try:
+            height = pdf_page.get_height()
+            text_page = pdf_page.get_textpage()
+            try:
+                characters = []
+                for index in range(text_page.count_chars()):
+                    left, bottom, right, top = text_page.get_charbox(index)
+                    characters.append({'index': index, 'text': text_page.get_text_range(index, 1),
+                                       'bbox': [left, height - top, right, height - bottom]})
+                return characters
+            finally:
+                text_page.close()
+        finally:
+            pdf_page.close()
 
 
 def _mentions(text, number):
@@ -23,11 +48,47 @@ def repair_footnotes(items, page_sizes):
         if item['location'].get('bbox') and not item['details'].get('visual_annotation'):
             pages[item['location']['page']].append(item)
     removed = set()
+
+    def note_role(block):
+        details = block['details']
+        filename = bool(FILENAME_FOOTNOTE.fullmatch(block['text']))
+        details['evidence_role'] = 'structural' if filename else 'authoritative'
+        if filename:
+            details['link_text_role'] = 'non_substantive_filename'
+        else:
+            details.pop('link_text_role', None)
+
+    def merge(first, second, separator):
+        refs = first['details'].setdefault('docling_refs', [first['details']['docling_ref']])
+        refs.extend(second['details'].get('docling_refs', [second['details']['docling_ref']]))
+        first['text'] += separator + second['text']
+        a, b = first['location']['bbox'], second['location']['bbox']
+        first['location']['bbox'] = [min(a[0], b[0]), min(a[1], b[1]),
+                                     max(a[2], b[2]), max(a[3], b[3])]
+        removed.add(second['locator_key'])
+
     for page, blocks in pages.items():
         height = page_sizes.get(page)
         if not height:
             continue
         blocks.sort(key=lambda b: (b['location']['bbox'][1], b['location']['bbox'][0]))
+        # A separately extracted note number belongs to the following native
+        # note, never to the preceding note's continuation. Require both body
+        # reference and nearby same-column note geometry.
+        for index, block in enumerate(blocks[:-1]):
+            marker = re.fullmatch(r'\d{1,3}', block['text'].strip())
+            following = blocks[index + 1]
+            a, b = block['location']['bbox'], following['location']['bbox']
+            if (marker and block['kind'] == 'paragraph' and a[1] >= height * .5 and
+                    following['kind'] == 'footnote' and not NOTE_MARKER.match(following['text']) and
+                    abs(a[0] - b[0]) <= height * .02 and
+                    0 <= b[1] - a[3] <= max(4, (b[3] - b[1]) * 1.5) and
+                    any(_mentions(prior['text'], marker[0]) for prior in blocks
+                        if prior['location']['bbox'][3] < a[1] and
+                        prior['kind'] not in {'footnote', 'heading'})):
+                merge(block, following, ' ')
+                block['kind'] = 'footnote'
+        blocks = [block for block in blocks if block['locator_key'] not in removed]
         starts = []
         for block in blocks:
             box = block['location']['bbox']
@@ -56,6 +117,7 @@ def repair_footnotes(items, page_sizes):
                 block['parent_key'] = None
                 block['details']['heading_path'] = []
                 block['details']['layout_repair'] = 'bottom_note_run'
+                note_role(block)
                 active = block
                 continue
             if active is None:
@@ -67,17 +129,14 @@ def repair_footnotes(items, page_sizes):
             if (block['kind'] != 'paragraph' or
                     block['details'].get('evidence_role') != 'authoritative' or
                     re.match(r'^\d{1,3}[.)]?\s', block['text']) or
+                    re.fullmatch(r'\d{1,3}', block['text'].strip()) or
                     abs(box[0] - previous[0]) > height * .02 or
                     not 0 <= gap <= max(4, line_height * 1.5) or
                     line_height > height * .025):
                 active = None
                 continue
-            refs = active['details'].setdefault('docling_refs', [active['details']['docling_ref']])
-            refs.extend(block['details'].get('docling_refs', [block['details']['docling_ref']]))
-            active['text'] += '\n' + block['text']
-            active['location']['bbox'] = [min(previous[0], box[0]), previous[1],
-                                          max(previous[2], box[2]), box[3]]
-            removed.add(block['locator_key'])
+            merge(active, block, '\n')
+            note_role(active)
     return [item for item in items if item['locator_key'] not in removed]
 
 
@@ -109,6 +168,44 @@ def table_text_groups(box, characters):
         group['text'] = ''.join(c['text'] for c in characters if c['index'] in indices or
                                first <= c['index'] <= last and not c['text'].strip())
     return groups
+
+
+def rotated_header_rows(cells, characters, comparable):
+    """Join wrapped rotated headers across native cell boundaries from glyphs."""
+    rows = defaultdict(list)
+    for cell in cells:
+        box = getattr(cell, 'bbox', None)
+        if (getattr(cell, 'column_header', False) and box and hasattr(box, 'b') and
+                abs(box.b - box.t) > 3 * (box.r - box.l)):
+            rows[(cell.start_row_offset_idx, getattr(cell, 'row_span', 1) or 1)].append(cell)
+    replacements = {}
+    for row in rows.values():
+        if len(row) < 2 or not characters:
+            continue
+        box = copy.copy(row[0].bbox)
+        box.l = min(c.bbox.l for c in row)
+        box.r = max(c.bbox.r for c in row)
+        box.t = min(c.bbox.t for c in row)
+        box.b = max(c.bbox.b for c in row)
+        groups = table_text_groups(box, characters)
+        if comparable(''.join(c.text for c in row)) != comparable(''.join(g['text'] for g in groups)):
+            continue
+        local = [g for c in row for g in table_text_groups(c.bbox, characters)]
+        if [comparable(g['text']) for g in local] == [comparable(g['text']) for g in groups]:
+            continue
+        rewritten = []
+        for index, group in enumerate(groups):
+            cell = copy.copy(row[0])
+            cell.text = ' '.join(group['text'].split())
+            cell.start_col_offset_idx = min(c.start_col_offset_idx for c in row) + index
+            cell.col_span = 1
+            cell.bbox = copy.copy(box)
+            cell.bbox.l, cell.bbox.r = group['left'], group['right']
+            rewritten.append(cell)
+        for cell in row:
+            replacements[id(cell)] = []
+        replacements[id(row[0])] = rewritten
+    return [item for cell in cells for item in replacements.get(id(cell), [cell])], bool(replacements)
 
 
 def restore_numeric_identifiers(text, box, characters):

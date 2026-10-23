@@ -9,39 +9,14 @@ from knowledge_foundry.document_structure import (
 )
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
 from knowledge_foundry.claim_generation_and_classification import _candidate_input
-import test_compilation_context as context_tests
+import claim_fixtures as context_fixtures
+
+
+from claim_fixtures import introduction_bundle
 
 
 class DocumentStructureTests(unittest.TestCase):
-    def introduction(self):
-        # Condensed source order, kinds and locations from the saved ACPR parse:
-        # body introduction, numbered paragraphs, hanging sector leads, lists,
-        # page-bottom notes, and the next independent numbered paragraph.
-        passages = [('heading', 'INTRODUCTION', 3),
-                    ('list_item', '6. Les textes réglementaires sont complétés.', 3),
-                    ('list_item', '7. Le cadre juridique repose sur deux volets :', 4),
-                    ('paragraph', 'Dans le secteur de la banque :', 4),
-                    ('list_item', '- Les établissements de crédit 6 ;', 4),
-                    ('list_item', '- Les entreprises d’investissement ;', 4),
-                    ('footnote', '6 Cf 1° de l’article L. 561-2', 4),
-                    ('paragraph', "Dans le secteur de l'assurance :", 4),
-                    ('list_item', '- Les entreprises d’assurance ;', 4),
-                    ('list_item', '- Les mutuelles et unions.', 5),
-                    ('list_item', '8. Un nouveau paragraphe indépendant.', 5),
-                    ('heading', '1. Obligations de vigilance', 6),
-                    ('heading', '1.1. Identification', 6),
-                    ('paragraph', 'Identifier le client.', 6)]
-        bundle = context_tests.CompilationContextTests().bundle(passages, [[i] for i in range(len(passages))])
-        rows = []
-        for i, e in enumerate(bundle['elements']):
-            x = 94 if i == 3 else 76 if i in {4, 5, 7, 8, 9} else 58
-            e['location']['bbox'] = [x, 40 + i * 15, 500, 50 + i * 15]
-            parent = None if i in {0, 6, 11} else bundle['elements'][11 if i == 12 else 12 if i == 13 else 0]['id']
-            rows.append({'element_id': e['id'], 'parent_element_id': parent,
-                         'level': 2 if i == 12 else 1 if e['kind'] == 'heading' else None,
-                         'heading_path': ['INTRODUCTION'] if i < 11 else ['1. Obligations de vigilance'],
-                         'docling_ref': f'#/texts/{i}', 'docling_parent_ref': '#/body'})
-        return bundle, structure_snapshot(rows)
+    introduction = staticmethod(introduction_bundle)
 
     def test_introduction_paragraph_seven_and_sector_lists_have_explicit_parents(self):
         bundle, snapshot = self.introduction()
@@ -72,7 +47,7 @@ class DocumentStructureTests(unittest.TestCase):
             assemble_document_hierarchy(bundle, snapshot)
 
     def test_distant_content_does_not_inherit_a_numbered_rule(self):
-        bundle = context_tests.CompilationContextTests().bundle([('list_item', '7. A local rule:', 1),
+        bundle = context_fixtures.bundle([('list_item', '7. A local rule:', 1),
                                                    ('list_item', '- Local alternative.', 1),
                                                    ('paragraph', 'Distant independent prose.', 9)], [[0], [1], [2]])
         hierarchy = {r['element_id']: r for r in assemble_document_hierarchy(bundle)}
@@ -91,7 +66,7 @@ class DocumentStructureTests(unittest.TestCase):
         self.assertEqual(payload['eligible_evidence'][0]['reference']['element_id'], bundle['elements'][9]['id'])
 
     def test_transitive_shared_fragments_are_bounded_and_remote_context_does_not_merge(self):
-        bundle = context_tests.CompilationContextTests().bundle([('paragraph', 'Long shared paragraph.', 1),
+        bundle = context_fixtures.bundle([('paragraph', 'Long shared paragraph.', 1),
                                                    ('paragraph', 'Remote text.', 10)], [[0], [(0,), 1]])
         first, remote = bundle['chunks']
         bundle['chunks'] = [copy.deepcopy(first) for _ in range(9)] + [remote]
@@ -126,7 +101,7 @@ class DocumentStructureTests(unittest.TestCase):
                 self.assertEqual(hierarchy[e['id']]['parent_element_id'], insurance)
 
     def test_unmarked_list_continuation_preserves_lead_across_page_notes(self):
-        bundle = context_tests.CompilationContextTests().bundle([
+        bundle = context_fixtures.bundle([
             ('heading', 'INTRODUCTION', 3), ('list_item', '7. These institutions:', 4),
             ('paragraph', 'Insurance:', 4), ('list_item', '- The retirement institutions governed by the', 4),
             ('footnote', '6 A detached note.', 4), ('list_item', 'supplementary retirement provisions;', 5),
@@ -148,7 +123,7 @@ class DocumentStructureTests(unittest.TestCase):
                     ('heading', 'New topic', 10), ('heading', 'Keywords', 11),
                     ('heading', 'O Other topic', 12), ('heading', 'Case n° 13: another case', 12),
                     ('paragraph', 'A different case rule.', 12)]
-        bundle = context_tests.CompilationContextTests().bundle(passages,
+        bundle = context_fixtures.bundle(passages,
                     [[i] if i != 4 else [(0,), i] for i in range(len(passages))])
         levels = [1, 2, 3, 2, None, 3, 1, 2, 2, 2, None]
         parents = [None, 0, 1, 0, 0, 3, None, 6, 6, 6, 9]
@@ -191,7 +166,7 @@ class DocumentStructureTests(unittest.TestCase):
         self.assertEqual(bundle, before)
 
     def test_boxed_caption_ends_prior_numbered_scope_without_merging_its_contents(self):
-        bundle = context_tests.CompilationContextTests().bundle([
+        bundle = context_fixtures.bundle([
             ('heading', 'Section', 12), ('list_item', '37. A preceding rule.', 13),
             ('paragraph', 'Encadré n° 5 : An independent discussion', 13),
             ('paragraph', 'The box explains its own subject.', 13),

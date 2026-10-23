@@ -1,4 +1,3 @@
-from test_claim_context import generate_claims, prepare_fixture, fixture_settings
 """Source-review gates are deterministic; fixtures test mechanics, not model quality."""
 
 import copy
@@ -10,34 +9,20 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+
 from knowledge_foundry.claim_generation_and_classification import ROOT, canonical, classify_claims, digest
 from knowledge_foundry.review import apply_reviews, read_review_policy
-from scripts.evaluate_claims import DEFAULT_POLICY, _select, evaluate, main
+from scripts.auto_review_claims import DEFAULT_POLICY, _select, evaluate, main
+
+
+from claim_fixtures import generate_claims, prepare_claim_review
 
 
 class CompilationEvaluationTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
-        self.chunked, self.generated, self.classified = [self.root / name for name in ('chunked', 'generated', 'classified')]
-        self.chunked.mkdir()
-        bundle = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
-        bundle['claims'], bundle['topics'] = [], []
-        bundle['builds'][0].update(output_claim_ids=[], output_topic_ids=[])
-        (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
-        config = fixture_settings()
-        config['steps']['claim_generation']['retries'] = 0
-        config['steps']['topic_classification']['retries'] = 0
-        self.config = self.root / 'config.json'
-        self.config.write_text(json.dumps(config))
-        self.fixture = self.root / 'fixture.json'
-        self.fixture.write_text(json.dumps({'candidate_clusters': {bundle['chunks'][0]['id']: {'claims': [
-            {'text': text, 'evidence': ['E1']} for text in ['Assertion A.', 'Assertion B.', 'Récit sans règle.']]}},
-            'classifications': {'Assertion A.': 'topic:beneficial-ownership',
-                                'Assertion B.': 'topic:ongoing-vigilance', 'Récit sans règle.': None}}))
-        generate_claims(self.chunked, self.generated, self.config, self.fixture)
-        classify_claims(self.generated, self.classified, self.config, fixture_path=self.fixture)
+        self.__dict__.update(vars(prepare_claim_review(self.directory.name)))
 
     def evaluate(self, **kwargs):
         return evaluate(self.generated, self.classified, **kwargs)

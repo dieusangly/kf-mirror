@@ -9,10 +9,9 @@ and earlier snapshots were preserved.
 
 ## Search comparison
 
-The [original eight questions](french-aml-cft-pilot-sources-and-evaluation.md) have
-**draft annotations, not reviewed ground truth**. Four additional cases cover risk
-scope, updates, representatives and digital documents. These twelve development
-cases are not independent acceptance tests.
+The [eight original cases](../tests/fixtures/retrieval-pilot-smoke.json) and
+[four additional cases](../tests/fixtures/retrieval-additional-smoke.json) have
+**draft annotations**, not independently reviewed acceptance labels.
 
 All methods used the same snapshot, budgets, top five results and candidate pool
 of 30, without model reranking. Cells show **source/location hits; complete text
@@ -63,25 +62,18 @@ prompt hashes to distinguish the scope correction.
 
 ## Validation and usage
 
-- Full suite, real PostgreSQL/pgvector: **394 passed, 11 skipped, 80 subtests passed**.
-  Ten skips require older parsed/chunked pilot directories; OCR integration is
-  opt-in. Current frozen import artifacts were validated separately.
-- Command audit checks documented script options against executable CLIs. A
-  deterministic Markdown/DOCX/HTML fixture runs ingestion through parsing,
-  review-gate mechanics, structural build, claims, recursive summaries, graph,
-  vector import/publication, queries, evaluation and rendered chat. It verifies
-  saved-vector reuse, missing claim/final-summary vectors, idempotency and unchanged
-  frozen files. Native parsing-location and unknown-cost CLI failures were fixed;
-  retrieval execution errors now exit 1. No paid calls or pilot rebuild were added.
-- Coverage includes import idempotency, publication/snapshot isolation, compatible
-  vector reuse, all three navigation modes, exact lineage, filters, atomic context
-  budgets, private histories, follow-ups, feedback and rendered Streamlit flows.
-- Playwright/Chrome at `http://127.0.0.1:8503`, desktop 1440×1000 and mobile
-  390×844: page/content, inventory, graph rendering, record details, summary view,
-  feedback and cached claim/summary vector queries passed. Screenshots inspected;
-  no application errors or framework overlays. Streamlit's iframe produces nine
-  browser capability/sandbox warnings; only trusted configured HTML is embedded.
-  Browser plugin unavailable; Playwright was used. Browser checks made no model calls.
+- Historical full suite with PostgreSQL/pgvector: **394 passed, 11 skipped,
+  80 subtests passed**. Ten skips need older artifacts; OCR is opt-in. Current
+  frozen imports were checked separately.
+- CLI audit and offline Markdown/DOCX/HTML end-to-end fixtures covered ingestion
+  through rendered chat, review mechanics, vector reuse/gaps, idempotency and frozen
+  file preservation. Tests also cover snapshot isolation, lineage, filters, context
+  budgets, private histories, follow-ups and feedback. Retrieval execution errors
+  exit 1. No paid pilot rebuild was performed.
+- Playwright/Chrome at `http://127.0.0.1:8503`, desktop 1440×1000/mobile 390×844:
+  inventory, graph/details, summaries, feedback and cached vector queries passed;
+  screenshots showed no application errors. Nine Streamlit iframe capability/sandbox
+  warnings remain. Only trusted HTML is embedded; browser tests made no model calls.
 - `pip check`, compilation and `git diff --check` passed.
 
 This revision used **31 Responses calls** (12 routing/rewrites, ten rankings,
@@ -91,11 +83,10 @@ requests (91,682 tokens, USD 0.00183364); four query embedding requests added 94
 tokens (USD 0.00000188). Total estimate: **USD 0.016567845**, under the configured
 2026-10-19 rate cards; not an invoice. Offline comparisons reused caches.
 
-Local reports: ignored `artifacts/retrieval-evaluation/search-20261021.json` and
-`live-20261021.json`; older reports retain their historical results. The earlier
-2026-10-20 revision used 21 Responses calls (USD 0.015760075), one 101-token
-embedding request (USD 0.00000202), plus five separately recorded diagnostic
-answer calls (USD 0.002002125).
+Reports: ignored `artifacts/retrieval-evaluation/search-20261021.json` and
+`live-20261021.json`; older reports retain historical results. On 2026-10-20:
+21 Responses calls (USD 0.015760075), one 101-token embedding (USD 0.00000202)
+and five separate diagnostic answers (USD 0.002002125).
 
 ## Remaining limits
 

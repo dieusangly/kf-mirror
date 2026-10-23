@@ -7,7 +7,25 @@
   "taxonomy": "config/topics-v1.json",
   "retrieval": "config/retrieval-multilingual.json",
   "retrieval_cases": "tests/fixtures/retrieval-expanded-development.json",
-  "retrieval_acceptance": "data/retrieval-expanded-acceptance.json",
+  "retrieval_acceptance": null,
   "sample_per_document": 12,
-  "minimum_retrieval_hit_rate": 0.875
+  "reviewers": {
+    "parsing_review": {
+      "model": "gpt-6.1-sol",
+      "model_reasoning_effort": "high",
+      "service_tier": "default"
+    },
+    "chunk_review": {
+      "model": "gpt-6.1-sol",
+      "model_reasoning_effort": "high",
+      "service_tier": "default"
+    },
+    "claim_review": {
+      "model": "gpt-6.1-sol",
+      "model_reasoning_effort": "high",
+      "service_tier": "default"
+    }
+  },
+  "minimum_retrieval_hit_rate": 0.875,
+  "parsing_review_required_pages": "tests/fixtures/parsing-expanded-review-pages.json"
 }

@@ -108,7 +108,7 @@ def test_import_does_not_publish_implicitly(tmp_path):
 
 def test_summary_branch_requires_identical_frozen_preparation(tmp_path):
     import shutil
-    from test_claim_context import fixture_settings, prepare_fixture
+    from claim_fixtures import fixture_settings, prepare_fixture
     from knowledge_foundry.claim_context import load_preparation
     from knowledge_foundry.summaries import generate_summaries
     settings = fixture_settings()

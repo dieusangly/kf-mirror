@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_claim_context import generate_claims, prepare_fixture, fixture_settings
+from claim_fixtures import generate_claims, prepare_fixture, fixture_settings
 
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, CANDIDATE_SCHEMA, FixtureProvider, OpenAIProvider, _candidate_input, _candidate_record,

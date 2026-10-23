@@ -19,7 +19,7 @@ const context = {window: {}};
 vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 const KPG = context.window.KPG;
 """
-        result = subprocess.run(['node', '-e', bootstrap + script, str(ROOT / 'scripts/kpg_viewer/core.js')],
+        result = subprocess.run(['node', '-e', bootstrap + script, str(ROOT / 'apps/kpg_viewer/core.js')],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 

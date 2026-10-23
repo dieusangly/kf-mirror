@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from knowledge_foundry.chunking import ROOT, _chunk_document, build_collection, digest
-from scripts.evaluate_chunking import (
+from scripts.auto_review_chunking import (
     _apply_reviews, _audit_document, _audit_figures, _audit_references,
     _read_review_policy, _read_sample_per_document, _write_review_seed, evaluate, main,
 )
@@ -34,7 +34,7 @@ class ChunkEvaluationTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             chunked = Path(directory) / "chunked"
-            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
                 self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review"]), 0)
             review_path = chunked / "chunking-review.json"
             self.assertEqual(json.loads(review_path.read_text(encoding="utf-8")), report["review_template"])
@@ -44,11 +44,11 @@ class ChunkEvaluationTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 _write_review_seed(review_path, report)
             custom_path = chunked / "custom-review.json"
-            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
                 self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review",
                                        str(custom_path)]), 0)
             self.assertEqual(json.loads(custom_path.read_text(encoding="utf-8")), report["review_template"])
-            with redirect_stdout(io.StringIO()), patch("scripts.evaluate_chunking.evaluate", return_value=report):
+            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
                 self.assertEqual(main(["--chunked-dir", str(chunked), "--review-file",
                                        str(review_path)]), 1)
 

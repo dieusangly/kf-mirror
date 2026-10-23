@@ -1,10 +1,8 @@
 # Run the document assistant
 
-Run these commands from the repository root in VS Code's terminal. Prerequisites:
-Python 3.11+ (tested on 3.12), direnv, and a running PostgreSQL server with pgvector
-installed. PostgreSQL runs separately; Docker is not required.
-These commands reuse the saved pilot. For new source files, follow the
-[source-to-chatbot runbook](pipeline-runbook.md); import that run's explicit paths.
+From the repository root, reuse the saved pilot with Python 3.11+ (tested on 3.12),
+direnv and PostgreSQL/pgvector; Docker is optional. For new inputs use the
+[runbook](pipeline-runbook.md) and explicit output paths.
 
 ## 1. Create the local database once
 
@@ -36,8 +34,7 @@ export KF_DATABASE_URL="postgresql://knowledge_foundry:baracoda2026@127.0.0.1:54
 export OPENAI_API_KEY="your-api-key"
 ```
 
-Run `direnv allow` after editing. The commands below use `direnv exec .` so they
-also work without a shell hook. Do not rely on `source .envrc`.
+Run `direnv allow` after editing. `direnv exec .` needs no shell hook or `source .envrc`.
 
 ## 3. Migrate, import and publish
 
@@ -49,12 +46,10 @@ SNAPSHOT_ID=$(.venv/bin/python -c "import json; print(json.load(open('/tmp/kf-im
 direnv exec . .venv/bin/python scripts/index_artifacts.py publish --corpus aml-cft-pilot --snapshot-id "$SNAPSHOT_ID"
 ```
 
-For offline setup, omit `--embed-missing`; keyword search and compatible saved
-vectors remain available. Validation of the saved pilot can take several minutes.
-Import validates frozen artifacts and stores searchable projections, exact source
-lineage and compatible saved vectors. It does not regenerate chunks, claims or
-summaries. Identical imports are idempotent. Publication is explicit; failed or
-incomplete imports cannot become active, and earlier snapshots remain available.
+Offline, omit `--embed-missing` for keywords/saved vectors. Import validates frozen
+artifacts and stores projections/lineage without regeneration; allow several minutes.
+Identical imports are idempotent. Only successful complete imports can be explicitly
+published; earlier snapshots remain available.
 
 ## 4. Start the chatbot
 
@@ -107,28 +102,17 @@ direnv exec . .venv/bin/python scripts/index_artifacts.py list --corpus aml-cft-
 direnv exec . .venv/bin/python scripts/query.py 'Your question' --corpus aml-cft-pilot --method vector --provider openai
 ```
 
-Claims/summaries are optional. `--build-id` selects a chunk build; `--snapshot-id`
-pins a published snapshot. Repeat `--source-id` or `--document-id` for explicit
-filters. `--embed-missing` embeds missing projections and may incur API costs.
-Vectors are reused only when text, model, dimensions and preprocessing match.
+`--build-id` selects a chunk build; `--snapshot-id` pins a published snapshot.
+Repeat `--source-id`/`--document-id` for filters. All modes support keyword, vector
+and combined search. Vectors reuse matching text/model/dimensions/preprocessing;
+`--embed-missing` fills gaps through the cache/client and may cost money. The
+sidebar shows coverage; [evaluation](retrieval-rag-evaluation.md) measures quality.
 
-All three retrieval modes support keyword, vector and combined search. Imports
-reuse compatible saved passage and summary vectors, then `--embed-missing` fills
-remaining claim/summary vectors through the existing cache/client. Publish the
-returned snapshot explicitly; prior snapshots and upstream files remain intact.
-The sidebar shows vector coverage for the selected mode. See measured limits in
-[the evaluation](retrieval-rag-evaluation.md); navigation vectors do not guarantee
-better answers.
+**Open provenance graph** embeds trusted local HTML without another server.
+Set `graph_path` under the run's `claims_dir`; its manifest hash must match the snapshot.
 
-**Open provenance graph** displays the local HTML inside the chatbot; no second
-server or port 8502 is needed. Set a run's `graph_path` under its `claims_dir` in
-`retrieval-corpora.json`. The graph appears only when that branch's manifest hash
-matches the selected snapshot. Configure only trusted, generated graph HTML.
-
-**Documents in corpus** lists snapshot metadata with the selected source filter,
-without a model call. Generated chat also routes inventory questions to this
-metadata; other questions retrieve evidence. Offline chat requires the button
-for inventory questions. No source's table of contents is a corpus inventory.
+**Documents in corpus** lists filtered snapshot metadata without model calls.
+Generated inventory questions use that metadata; offline inventory requires the button.
 
 ## Understanding retrieval.json
 
@@ -151,11 +135,9 @@ in environment variables; `version` labels the configuration, not the corpus.
 
 ## Optional feedback
 
-Type an optional comment (up to 2,000 characters), then click **Helpful** (+1) or
-**Needs work** (-1). Typing alone does not save. The button stores the rating and
-comment in PostgreSQL's `kf_feedback`, attached to that answer and checked against
-your session. Clicking again updates the same feedback. It supports later review;
-it does not automatically train the model or change retrieval.
+Click **Helpful** (+1) or **Needs work** (-1), optionally with a ≤2,000-character
+comment, to save session-checked `kf_feedback` for that answer. Clicking again
+updates it. Typing alone does not save; feedback does not train or alter retrieval.
 
 ## Behavior and limits
 
@@ -167,18 +149,16 @@ Prompts: `rag_query_v2.txt` routes/rewrites questions; `rag_rank_v1.txt` selects
 candidates; `rag_answer_v1.txt` grounds answers and distinguishes source scopes.
 They live in `src/knowledge_foundry/prompts/`.
 
-Context expands saved hierarchy and explicit local relationships, completes bounded
-lists and deduplicates exact evidence. Passages retain governing context or are
-excluded together when request/count/depth budgets are full. Headings provide
-uncitable scope. Claim/summary text helps locate evidence and is never cited as proof.
+Context follows saved hierarchy/local links, completes bounded lists and deduplicates
+exact evidence. Governing context stays with passages or both are excluded at budget
+limits. Headings are uncitable; claim/summary text locates evidence without proving it.
 
-Follow-ups retrieve again in the pinned snapshot using bounded recent user
-questions. Standalone questions ignore unrelated history. Excerpt mode has no
-semantic reranker/rewrite; ask standalone questions. Generated streams are drafts
-until citation validation completes. Validation checks citation identity/coverage,
-**not semantic entailment**; inspect original text, qualifications and editions.
-Missing evidence is reported; capture dates never prove legal effectiveness.
-Model, usage, latency and available cost estimates are saved in request details.
+Follow-ups retrieve within the pinned snapshot using bounded user history;
+standalone questions ignore unrelated history. Excerpt mode lacks semantic
+reranking/rewriting. Streams remain drafts until citation validation, which checks
+identity/coverage, **not entailment**. Inspect original qualifications/editions;
+capture dates do not establish effectiveness. Request details save missing-evidence
+warnings, model, usage, latency and available cost estimates.
 
 ## Validation and troubleshooting
 

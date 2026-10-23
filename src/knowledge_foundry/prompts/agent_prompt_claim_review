@@ -18,8 +18,8 @@ REVIEW_FILE="$CLASSIFIED_DIR/compilation-review.json"
 1. Read `doc/claim-generation-and-classification.md`, `doc/claim-evaluation.md` and the taxonomy. Initialize evaluation when the review file is absent; otherwise validate and reuse it without resetting judgments. Use the same arguments for initialization and final evaluation:
 
 ```sh
-evaluate_claims() {
-  direnv exec . .venv/bin/python scripts/evaluate_claims.py \
+auto_review_claims() {
+  direnv exec . .venv/bin/python scripts/auto_review_claims.py \
     --candidates-dir "$CANDIDATES_DIR" \
     --classified-dir "$CLASSIFIED_DIR" \
     --manifest "$MANIFEST_PATH" \
@@ -31,9 +31,9 @@ evaluate_claims() {
 }
 
 if [ -e "$REVIEW_FILE" ]; then
-  evaluate_claims --review-file "$REVIEW_FILE"
+  auto_review_claims --review-file "$REVIEW_FILE"
 else
-  evaluate_claims --initialize-review "$REVIEW_FILE"
+  auto_review_claims --initialize-review "$REVIEW_FILE"
 fi
 ```
 
@@ -49,7 +49,7 @@ Inspect the command's exit code and written report. Stop on exit 2, stale build/
 9. After recording source-review judgments, run the final policy evaluation using the same arguments:
 
 ```sh
-evaluate_claims --review-file "$REVIEW_FILE"
+auto_review_claims --review-file "$REVIEW_FILE"
 ```
 
 The evaluator scores your recorded judgments; it does not conduct the source review. Report the exit code, automatic/review/overall gates, sample counts, severity counts, coverage, pass rate, combined score and dimension scores, reviewer measurements, and concise findings with candidate-claim, classified-claim, chunk and topic IDs and source locations. Link the review/report files. Explain any pending items and limits of the sample. A failed or pending result is honest; do not change artifacts or conceal findings to obtain a pass.

@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import math
 import os
+import re
 import resource
 import shutil
 import subprocess
@@ -249,7 +250,7 @@ def _save_pdf_figure_assets(pdf_path, elements, sidecar, staged, warnings):
         pdf.close()
 
 
-def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None):
+def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None, *, run_id=None):
     """Parse verified manifest entries; report each selected source as it finishes."""
     config_path = Path(config_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -291,7 +292,9 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
     settings_digest = _digest(json.dumps(settings, ensure_ascii=False, sort_keys=True,
                                        separators=(",", ":")))
     started_at = datetime.now(timezone.utc)
-    run_id = f"{started_at:%Y%m%d-%H-%M-%S}-{uuid.uuid4().hex[:8]}"
+    if run_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", run_id):
+        raise ValueError("run ID must be a safe directory name")
+    run_id = run_id or f"{started_at:%Y%m%d-%H-%M-%S}-{uuid.uuid4().hex[:8]}"
     report = {"report_version": 1, "schema_version": SCHEMA_VERSION,
               "run_id": run_id, "started_at": started_at.isoformat(),
               "manifest": str(Path(ingestion_report["manifest"])),
@@ -407,9 +410,11 @@ def main(argv=None):
                         help="output directory (default: artifacts/parsed)")
     parser.add_argument("--source", action="append", default=[], metavar="ID",
                         help="manifest ID to parse; repeatable (default: all)")
+    parser.add_argument("--run-id", help="retain the controlling workflow's run identity")
     args = parser.parse_args(argv)
     try:
-        report = parse_collection(args.config, args.output_dir, args.source, on_progress=_print_progress)
+        report = parse_collection(args.config, args.output_dir, args.source,
+                                  on_progress=_print_progress, run_id=args.run_id)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"parsing setup error: {exc}\n")
     report_path = Path(args.output_dir).resolve() / "report.json"

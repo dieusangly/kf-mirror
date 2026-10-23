@@ -20,7 +20,7 @@ def context_maps(bundle):
 def load_reuse(classified_dir, candidates_dir, candidates, bundle, config, taxonomy_path, prompt_hash,
                classifier=None):
     """Reuse matching requests, including explicit nulls; never reuse errors."""
-    from scripts.evaluate_claims import _load
+    from scripts.auto_review_claims import _load
 
     classified_dir, candidates_dir = Path(classified_dir), Path(candidates_dir)
     saved = _load(candidates_dir, classified_dir, taxonomy_path)

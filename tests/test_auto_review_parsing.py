@@ -11,10 +11,57 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from evaluate_parsing import audit_document, select_outcomes  # noqa: E402
+from auto_review_parsing import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
+    def test_identifier_repairs_require_matching_local_pdf_glyphs(self):
+        from knowledge_foundry.pdf_structure import pdf_page_characters
+
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            source = folder / 'equipment.pdf'
+            phrase = 'Inspect sensor 482-17 before returning the equipment to service.'
+            stream = f'BT /F1 12 Tf 40 700 Td ({phrase}) Tj ET'.encode()
+            objects = [b'<< /Type /Catalog /Pages 2 0 R >>',
+                       b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                       b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] '
+                       b'/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+                       b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+                       b'<< /Length ' + str(len(stream)).encode() + b' >>\nstream\n' + stream + b'\nendstream']
+            data, offsets = b'%PDF-1.4\n', [0]
+            for index, value in enumerate(objects, 1):
+                offsets.append(len(data))
+                data += f'{index} 0 obj\n'.encode() + value + b'\nendobj\n'
+            xref = len(data)
+            data += b'xref\n0 6\n0000000000 65535 f \n'
+            data += b''.join(f'{offset:010d} 00000 n \n'.encode() for offset in offsets[1:])
+            data += f'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
+            source.write_bytes(data)
+            self.assertIn('482-17', ''.join(c['text'] for c in pdf_page_characters(source, 1)))
+            native_text = phrase.replace('482-17', '48217')
+            native = {'pages': {'1': {'size': {'width': 600, 'height': 800}}},
+                      'texts': [{'self_ref': '#/texts/0', 'label': 'text', 'text': native_text,
+                                 'prov': [{'page_no': 1, 'charspan': [0, len(native_text)],
+                                           'bbox': {'l': 35, 't': 715, 'r': 570, 'b': 690,
+                                                    'coord_origin': 'BOTTOMLEFT'}}]}]}
+            (folder / 'docling.json').write_text(json.dumps(native))
+            (folder / 'parse.json').write_text('{"warnings": []}')
+            elements = [{'id': 'sensor', 'kind': 'paragraph', 'ordinal': 0, 'text': phrase,
+                         'location': {'format': 'pdf', 'page': 1}}]
+            sidecar = [{'element_id': 'sensor', 'docling_ref': '#/texts/0',
+                        'evidence_role': 'authoritative'}]
+            outcome = {'manifest_id': 'equipment', 'status': 'parsed', 'warnings': []}
+            result = audit_document(outcome, elements, sidecar, folder, source_path=source)
+            self.assertEqual(result['metrics']['source_text_lost'], 0)
+            unverified = audit_document(outcome, elements, sidecar, folder)
+            self.assertEqual(unverified['metrics']['source_text_lost'], 1)
+            for wrong in (phrase.replace('482-17', value)
+                          for value in ('482-71', '48217', '482/17', '482+17', '482 17')):
+                elements[0]['text'] = wrong
+                result = audit_document(outcome, elements, sidecar, folder, source_path=source)
+                self.assertEqual(result['metrics']['source_text_lost'], 1)
+
     def test_filename_only_note_role_is_valid_but_substantive_note_cannot_be_hidden(self):
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name)

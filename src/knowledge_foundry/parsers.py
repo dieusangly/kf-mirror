@@ -5,7 +5,10 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-from knowledge_foundry.pdf_structure import repair_footnotes, restore_numeric_identifiers, table_text_groups
+from knowledge_foundry.pdf_structure import (
+    FILENAME_FOOTNOTE, NOTE_MARKER, pdf_page_characters, repair_footnotes,
+    restore_numeric_identifiers, rotated_header_rows, table_text_groups,
+)
 
 
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
@@ -21,8 +24,6 @@ FIGURE_HEADING = re.compile(r"\b(?:schéma|diagramme|figure|flowchart|diagram)\b
 URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
-FILENAME_FOOTNOTE = re.compile(
-    r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
 
 
 def _pdf_text(value):
@@ -37,7 +38,14 @@ def _pdf_table_cells(item, characters=None):
         return []
     raw = sorted(cells, key=lambda cell: (cell.start_row_offset_idx,
                                           cell.start_col_offset_idx))
+    def comparable(text):
+        return ''.join(unicodedata.normalize('NFKC', text).translate(
+            str.maketrans({'’': "'", '‘': "'", '‐': '-', '‑': '-'})).split())
+
+    native_columns = max(c.start_col_offset_idx + (getattr(c, 'col_span', 1) or 1) for c in raw)
+    raw, reconstructed = rotated_header_rows(raw, characters, comparable)
     header_cells = [cell for cell in raw if getattr(cell, "column_header", False)]
+    leaf_row = max((c.start_row_offset_idx for c in header_cells), default=-1)
     parts_by_cell = {}
     for cell in raw:
         value = " ".join(_pdf_text(cell.text).split())
@@ -47,15 +55,11 @@ def _pdf_table_cells(item, characters=None):
         markers = bool(re.fullmatch(r'(\S)(?:\s+\1)+', value))
         groups = table_text_groups(box, characters) if vertical or markers else []
         # Glyphs must reproduce the complete recognised cell text.
-        def comparable(text):
-            return ''.join(unicodedata.normalize('NFKC', text).translate(
-                str.maketrans({'’': "'", '‘': "'", '‐': '-', '‑': '-'})).split())
-
         if len(groups) > 1 and comparable(value) == comparable(''.join(g['text'] for g in groups)):
             parts_by_cell[id(cell)] = [(" ".join(g['text'].split()), g['left']) for g in groups]
         else:
             parts_by_cell[id(cell)] = [(value, getattr(box, 'l', None))]
-    repaired_headers = any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
+    repaired_headers = reconstructed or any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
     header_slots = []
     # Text cells delimit rows independently of the extractor's marker indices.
     # Multi-row labels cannot establish a unique marker row.
@@ -66,17 +70,20 @@ def _pdf_table_cells(item, characters=None):
                 and (getattr(cell, 'row_span', 1) or 1) == 1
                 and len(''.join(cell.text.split())) > 1
                 and not re.fullmatch(r'(\S)(?:\s+\1)+', cell.text.strip())):
-            row_anchors.append((cell.start_row_offset_idx, min(box.t, box.b), max(box.t, box.b)))
+            row_anchors.append((cell.start_row_offset_idx, cell.start_col_offset_idx,
+                                min(box.t, box.b), max(box.t, box.b)))
     normalized = []
-    next_header_column = 0
+    column_mapping = {}
+    broad_headers = []
+    next_header_columns = {}
     for cell in raw:
         row = cell.start_row_offset_idx
         column = cell.start_col_offset_idx
         values = parts_by_cell[id(cell)]
         is_header = getattr(cell, "column_header", False)
         if is_header:
-            column = max(column, next_header_column)
-            next_header_column = column + len(values)
+            column = max(column, next_header_columns.get(row, 0))
+            next_header_columns[row] = column + len(values)
         for offset, (value, left) in enumerate(values):
             slot = column + offset
             marker = bool(re.fullmatch(r'[^\W\d_]|[✓✔●•+*]', value)) and not is_header
@@ -85,15 +92,25 @@ def _pdf_table_cells(item, characters=None):
             box = getattr(cell, 'bbox', None)
             if marker and box is not None and row_anchors:
                 center = (box.t + box.b) / 2
-                matches = {index for index, top, bottom in row_anchors if top - 1 <= center <= bottom + 1}
+                # A category label in a more distant column may span several
+                # prose rows even when native row_span metadata says one. Use
+                # the nearest text-label column(s); conflicting nearby anchors
+                # remain uncertain rather than borrowing a distant category.
+                distance = min(abs(anchor_column - column)
+                               for _, anchor_column, _, _ in row_anchors)
+                matches = {index for index, anchor_column, top, bottom in row_anchors
+                           if abs(anchor_column - column) == distance
+                           and top - 1 <= center <= bottom + 1}
                 if len(matches) == 1:
                     marker_row = matches.pop()
                 else:
                     uncertain = True
             if is_header:
-                if left is not None:
+                if left is not None and row + (getattr(cell, 'row_span', 1) or 1) - 1 >= leaf_row:
                     header_slots.append((slot, left))
-            elif (repaired_headers or len(values) > 1 or len(value) == 1) and left is not None and header_slots:
+            # A one-character numeric cell does not by itself justify remapping
+            # its recognized column to a header's left edge.
+            elif (repaired_headers or len(values) > 1 or marker) and left is not None and header_slots:
                 slot = min(header_slots, key=lambda entry: abs(entry[1] - left))[0]
             normalized.append({
                 "row": marker_row,
@@ -106,6 +123,33 @@ def _pdf_table_cells(item, characters=None):
                 "bbox": getattr(cell, "bbox", None),
                 "alignment_uncertain": uncertain,
             })
+            if reconstructed:
+                if not is_header:
+                    column_mapping.setdefault(cell.start_col_offset_idx, set()).add(slot)
+                elif row + (getattr(cell, 'row_span', 1) or 1) - 1 < leaf_row:
+                    broad_headers.append((normalized[-1], cell.start_col_offset_idx,
+                                          cell.start_col_offset_idx + (getattr(cell, 'col_span', 1) or 1)))
+    if reconstructed and header_slots:
+        column_mapping[native_columns] = {max(slot for slot, _ in header_slots) + 1}
+
+        def boundary(index):
+            if index in column_mapping:
+                values = column_mapping[index]
+                return next(iter(values)) if len(values) == 1 else None
+            before = max((i for i in column_mapping if i < index), default=None)
+            after = min((i for i in column_mapping if i > index), default=None)
+            if before is not None and after is not None:
+                a, b = boundary(before), boundary(after)
+                if a is not None and b is not None and b - a == after - before:
+                    return a + index - before
+            return None
+
+        for header, start, end in broad_headers:
+            a, b = boundary(start), boundary(end)
+            if a is None or b is None or b <= a:
+                header['alignment_uncertain'] = True
+            else:
+                header['column'], header['col_span'] = a, b - a
     positions = [(cell['row'], cell['column']) for cell in normalized]
     if len(positions) != len(set(positions)):
         # Conflicting geometry is not permission to overwrite a recognised cell.
@@ -197,12 +241,19 @@ def _picture_contact_furniture(group, pages):
 def _picture_group_roles(groups):
     """Separate document flow from text whose context is the figure image."""
     values = [" ".join(node.get("text", "").strip() for node in group) for group in groups]
+    # Long labels alone cannot establish document prose inside a diagram.
+    # Require sentence/list structure before letting prose govern nearby text.
     flow_page = sum(len(re.findall(r"[^\W\d_]+", value)) >= 12 and len(value) >= 80
-                    for value in values) >= 2
+                    and (value.rstrip().endswith((".", "?", "!", ";", ":")) or
+                         group[0].get("label") in {"list_item", "checkbox_selected", "checkbox_unselected"})
+                    for group, value in zip(groups, values)) >= 2
     diagram = not flow_page
     roles = []
     for group, value in zip(groups, values):
         label = group[0].get("label", "text")
+        if label == "footnote" and NOTE_MARKER.match(value):
+            roles.append("flow")
+            continue
         if label in {"section_header", "title"} and FIGURE_HEADING.search(value):
             roles.append("flow" if flow_page else "visual")
             diagram = True
@@ -212,7 +263,7 @@ def _picture_group_roles(groups):
                             value.lstrip().startswith(("- ", "• ")) or
                             len(re.findall(r"[^\W\d_]+", value)) >= 9 and len(value) >= 55):
             roles.append("flow")
-        elif (diagram and label == "text" and len(value) >= 120 and
+        elif (diagram and label in {"text", "footnote"} and len(value) >= 120 and
               value.rstrip().endswith((".", "?", "!")) and not FIGURE_HEADING.search(value)):
             roles.append("flow")
         else:
@@ -763,26 +814,7 @@ def parse_pdf(path, _source, options, converter=None):
             return []
         page = provenance[0]['page_no'] if isinstance(provenance[0], dict) else provenance[0].page_no
         if page not in character_cache:
-            # PDFium is already required by Docling. The text layer supplies
-            # geometry and literal identifiers; OCR-only input retains its text.
-            import pypdfium2 as pdfium
-
-            with pdfium.PdfDocument(path) as pdf:
-                pdf_page = pdf[page - 1]
-                try:
-                    height = pdf_page.get_height()
-                    text_page = pdf_page.get_textpage()
-                    try:
-                        characters = []
-                        for index in range(text_page.count_chars()):
-                            left, bottom, right, top = text_page.get_charbox(index)
-                            characters.append({'index': index, 'text': text_page.get_text_range(index, 1),
-                                               'bbox': [left, height - top, right, height - bottom]})
-                        character_cache[page] = characters
-                    finally:
-                        text_page.close()
-                finally:
-                    pdf_page.close()
+            character_cache[page] = pdf_page_characters(path, page)
         return character_cache[page]
 
     def add_block(kind, text, ref, parent_ref, provenance, stack, *, evidence_role="authoritative",
@@ -985,12 +1017,17 @@ def parse_pdf(path, _source, options, converter=None):
             marker = group[0].get("marker")
             if kind == "list_item" and len(group) == 1:
                 value = group[0].get("orig") or (f"{marker} {value}" if marker else value)
+            filename_note = kind == 'footnote' and FILENAME_FOOTNOTE.fullmatch(value)
             first_key = add_block(kind, value, ref, picture_ref, provenance, local_stack,
-                                  evidence_role="auxiliary" if role == "visual" else "authoritative",
+                                  evidence_role=('structural' if filename_note else
+                                                 'auxiliary' if role == 'visual' else 'authoritative'),
                                   picture_child=role == "visual",
                                   minimum_heading_level=child_heading_level,
                                   checkbox_state=("selected" if label == "checkbox_selected" else "unselected")
                                   if label in {"checkbox_selected", "checkbox_unselected"} else None)
+            if first_key and filename_note:
+                next(item for item in reversed(items) if item['locator_key'] == first_key)[
+                    'details']['link_text_role'] = 'non_substantive_filename'
             if first_key and len(group) > 1:
                 represented_refs.update(refs)
                 element = next(item for item in reversed(items) if item["locator_key"] == first_key)
@@ -1020,6 +1057,10 @@ def parse_pdf(path, _source, options, converter=None):
 
     flow_items = list(doc.iterate_items(with_groups=False))
     for flow_index, (item, level) in enumerate(flow_items):
+        # Some Docling children (notably captions) are yielded again in the
+        # outer traversal after their picture has already represented them.
+        if getattr(item, "self_ref", None) in represented_refs:
+            continue
         label = str(getattr(item, "label", "")).lower()
         if "section_header" in label or "title" in label:
             kind = "heading"

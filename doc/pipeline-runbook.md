@@ -1,22 +1,20 @@
 # Source-to-chatbot runbook
 
-Run from the repository root, one command at a time. Stop at a failed or pending
-required gate. [Set up Python/direnv](ingestion.md) first. Model steps require
-`OPENAI_API_KEY`; RAG also needs [PostgreSQL/pgvector](retrieval-rag.md#1-create-the-local-database-once).
-The commands below build a new run. To reuse the saved pilot, start with the
-[RAG shortcut](retrieval-rag.md).
+Run from the repository root in one shell. Stop dependent stages on failed/pending
+gates. Prerequisites: [Python/direnv](ingestion.md), [Tesseract French/English](parsing.md#setup),
+Poppler, `OPENAI_API_KEY` for model steps and [PostgreSQL/pgvector](retrieval-rag.md#1-create-the-local-database-once).
+For saved-pilot reuse see [RAG setup](retrieval-rag.md).
 
-For persisted run/status/resume, independent review sessions, budgets and gated local
-publication, use the [resumable pilot workflow](resumable-pilot-workflow.md).
-The checked-in selection contains 17 saved files and records the accepted historical
-PPE limitation.
+Manual commands do not populate [controller state/reports](resumable-pilot-workflow.md).
+Launch fresh independent reviewers with `reviewers` settings from
+`config/workflow.json`; retain session identities, judgments and usage.
+The [17-file scope](french-aml-cft-pilot-sources-and-evaluation.md) includes the accepted PPE limitation.
 
 ## Inputs and paths
 
-Save the original PDF, HTML, Markdown or DOCX files before ingestion: it validates
-local files, not downloads. Update the manifest's paths, hashes, sizes and editions;
-select its IDs in the pipeline config. Match HTML selectors, OCR languages and
-review fixtures to the corpus. The checked-in defaults select the AML/CFT pilot.
+Save originals and update manifest paths, hashes, sizes and editions; ingestion
+does not download. Select IDs and matching HTML selectors, OCR languages and
+review fixtures. Defaults select the AML/CFT pilot.
 
 ```sh
 RUN_ID="your-new-run-id"
@@ -25,6 +23,9 @@ CORPUS_ID="aml-cft-expanded-pilot"  # matches config/workflow.json
 SOURCE_ROOT="."  # same source root as pipeline.json's resolved root
 MANIFEST_PATH="data/manifest.json"
 PIPELINE_CONFIG="config/pipeline.json"
+REVIEW_POLICY="config/review-policy.json"
+SAMPLE_PER_DOCUMENT=12
+PARSING_REVIEW_PAGES="tests/fixtures/parsing-expanded-review-pages.json"
 STRUCTURAL_CONFIG="config/structural-chunks-and-semantic-clusters.json"
 CLAIM_CONFIG="config/claim-generation-and-classification.json"
 SUMMARY_CONFIG="config/summaries.json"
@@ -41,16 +42,18 @@ IMPORT_RESULT="artifacts/retrieval-import-${RUN_ID}.json"
 ```
 
 Use fresh output directories. For another corpus, select matching configs,
-manifest, source root and taxonomy. The structural config and claim config must
+manifest, source root, review locations and taxonomy. The structural config and
+claim config must
 [reference each other](structural-chunks-and-semantic-clusters.md#configuration-and-budgets).
 Set the retrieval text-search language and embedding profile before importing.
 
-## 1. Ingest, parse and evaluate
+## 1. Ingest, parse and review
 
 ```sh
 direnv exec . .venv/bin/python scripts/ingest.py --config "$PIPELINE_CONFIG"
-direnv exec . .venv/bin/python scripts/parse.py --config "$PIPELINE_CONFIG" --output-dir "$PARSED_DIR"
-direnv exec . .venv/bin/python scripts/evaluate_parsing.py \
+direnv exec . .venv/bin/python scripts/parse.py --config "$PIPELINE_CONFIG" \
+  --output-dir "$PARSED_DIR" --run-id "$INPUT_RUN_ID"
+direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
   --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
   --output "$PARSED_DIR/parsing-evaluation-report.json"
 ```
@@ -58,6 +61,26 @@ direnv exec . .venv/bin/python scripts/evaluate_parsing.py \
 **Gate:** each command exits 0; parsing evaluation has `gate.status: pass`.
 [Source-checked reference fixtures](parsing-evaluation.md) are optional and must
 match the selected source editions. Unresolved/partial outputs need inspection.
+Then initialize independent parsing review:
+
+```sh
+direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
+  --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
+  --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
+  --sample-per-document "$SAMPLE_PER_DOCUMENT" --required-pages "$PARSING_REVIEW_PAGES" \
+  --initialize-review "$PARSED_DIR/parsing-review.json" \
+  --output "$PARSED_DIR/parsing-review-report.json"
+```
+
+Initialization can exit 0 while pending. Ask a fresh agent to follow
+[`agent_prompt_parsing_review`](../src/knowledge_foundry/prompts/agent_prompt_parsing_review)
+with these paths/settings. It inspects originals and evaluates with `--review-file`.
+Reuse existing reviews; never initialize over them. Keep mandatory-page selection
+consistent, replacing/omitting it for another corpus.
+
+**Review gate:** `automatic_gate`, `review_gate` and `gate` must all be `pass` in
+`$PARSED_DIR/parsing-review-report.json` before step 2. See
+[coverage and limitations](parsing-evaluation.md#independent-parsing-review).
 
 ## 2. Build and review original chunks
 
@@ -67,8 +90,9 @@ direnv exec . .venv/bin/python scripts/chunk.py --config "$PIPELINE_CONFIG" \
 ```
 
 **Gate:** exit 0. Then ask an agent to follow
-[`agent_prompt_chunking_reviewer`](../src/knowledge_foundry/prompts/agent_prompt_chunking_reviewer)
-with the exact parsed/chunked paths, manifest, source root and sample settings.
+[`agent_prompt_chunking_review`](../src/knowledge_foundry/prompts/agent_prompt_chunking_review)
+with the exact parsed/chunked paths, manifest, source root, `REVIEW_POLICY` and
+`SAMPLE_PER_DOCUMENT`.
 It initializes/reuses the review, inspects saved originals and evaluates judgments.
 [Manual commands](chunking-evaluation.md) are also available.
 
@@ -85,10 +109,9 @@ direnv exec . .venv/bin/python scripts/build_structural_chunks_and_semantic_clus
   --cache-dir artifacts/embeddings-and-token-counts
 ```
 
-**Gate:** exit 0 and a complete validated build. This creates structural passage
-vectors, hierarchy, links and the cluster plan. Both branches below consume this
-same frozen directory; neither requires the other. There is no separate structural
-agent-review stage. [Settings and rebuild rules](structural-chunks-and-semantic-clusters.md).
+**Gate:** exit 0 and a complete validated build of vectors, hierarchy, links and
+clusters. Claims/summaries consume it independently; there is no separate structural
+review. [Settings/rebuild rules](structural-chunks-and-semantic-clusters.md).
 
 ## 4. Generate, classify and review claims
 
@@ -101,8 +124,9 @@ direnv exec . .venv/bin/python scripts/classify_claims.py \
 ```
 
 **Gate:** both exit 0, reports are complete and have no request errors.
-Then invoke [`agent_prompt_claim_reviewer`](../src/knowledge_foundry/prompts/agent_prompt_claim_reviewer)
-with the exact candidate/classified paths, manifest, source root and taxonomy.
+Then invoke [`agent_prompt_claim_review`](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
+with the exact candidate/classified paths, manifest, source root, taxonomy,
+`REVIEW_POLICY` and `SAMPLE_PER_DOCUMENT`.
 [Manual review commands](claim-evaluation.md) are also available.
 
 **Review gate:** automatic, review and overall gates must pass in
@@ -117,10 +141,9 @@ direnv exec . .venv/bin/python scripts/generate_summaries.py \
   --config "$SUMMARY_CONFIG" --cache-dir artifacts/summary-cache
 ```
 
-**Gate:** exit 0 and successful frozen-artifact validation. Summaries need step 3,
-not claims. Summary grouping can save vectors for earlier levels; final summaries
-may still lack vectors. The RAG import below fills them. Summaries remain drafts;
-there is no independent fidelity-review gate. [Details](summaries.md).
+**Gate:** exit 0 and frozen-artifact validation. Summaries need only step 3 and
+remain drafts without an independent fidelity gate. Import fills missing final
+summary vectors. [Details](summaries.md).
 
 ## 6. Build the combined provenance graph
 
@@ -177,12 +200,11 @@ direnv exec . .venv/bin/python scripts/evaluate_retrieval.py \
   --no-rerank --check-excerpts --output "artifacts/retrieval-evaluation-${RUN_ID}.json"
 ```
 
-**Gate:** inspect the saved metrics and rows, not just exit 0. All cases must
-complete and combined retrieval must meet the corpus's acceptance target in each
-required mode. Compare keyword/vector baselines separately. Review semantic
-relevance against originals: source/page overlap and excerpt anchors alone cannot
-approve acceptance. The expanded controller enforces a 0.875 combined hit rate
-and requires a separate source-checked acceptance attestation before publication.
+**Gate:** all cases complete and each mode meets the acceptance target; inspect
+rows/metrics and semantic relevance against originals. Baselines, page overlap and
+anchors alone cannot approve. The controller requires combined hit rate ≥0.875
+and a source-checked attestation. Its `retrieval_acceptance: null` blocks publication;
+the checked-in 22 cases remain unreviewed development data.
 
 ## 9. Explicitly publish, query and start chat
 
@@ -194,8 +216,10 @@ direnv exec . .venv/bin/python scripts/index_artifacts.py publish \
 ```
 
 **Gate:** exit 0. Publication is explicit; prior snapshots and histories remain.
-Use `scripts/workflow.py publish` for persisted enforcement of the complete
-expanded-pilot gates; this low-level command remains an operator primitive.
+For controller-managed runs, `scripts/workflow.py publish` enforces the complete
+expanded-pilot gates. Manual outputs cannot be published through controller state
+automatically; the low-level command above relies on the operator verifying all
+required gates and acceptance evidence.
 
 ```sh
 direnv exec . .venv/bin/python scripts/query.py 'Which documents are in this corpus?' \

@@ -122,12 +122,12 @@
     "query_language": "en",
     "source_language": "fr",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      4
+      13
     ],
     "text_anchors": [
-      "Définition de la notion de PPE"
+      "La qualité de PPE n’induit pas à elle seule un soupçon",
+      "en l’absence d’autres éléments structurant un soupçon"
     ]
   },
   {
@@ -137,7 +137,6 @@
     "query_language": "en",
     "source_language": "fr",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
       5
     ],
@@ -152,12 +151,14 @@
     "query_language": "en",
     "source_language": "en",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      96
+      96,
+      42
     ],
     "text_anchors": [
-      "Entry into force and application"
+      "It shall apply from 10 July 2027",
+      "football agents",
+      "professional football clubs"
     ]
   },
   {
@@ -167,12 +168,14 @@
     "query_language": "fr",
     "source_language": "en",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      96
+      96,
+      42
     ],
     "text_anchors": [
-      "Entry into force and application"
+      "It shall apply from 10 July 2027",
+      "football agents",
+      "professional football clubs"
     ]
   },
   {
@@ -182,12 +185,14 @@
     "query_language": "fr",
     "source_language": "fr",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      96
+      96,
+      42
     ],
     "text_anchors": [
-      "Entrée en vigueur et application"
+      "Il est applicable à partir du 10 juillet 2027",
+      "les agents de football",
+      "les clubs de football professionnel"
     ]
   },
   {
@@ -197,7 +202,6 @@
     "query_language": "en",
     "source_language": "fr",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
       96
     ],
@@ -212,7 +216,6 @@
     "query_language": "en",
     "source_language": "en",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
       86
     ],
@@ -227,12 +230,17 @@
     "query_language": "fr",
     "source_language": "en",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      21
+      21,
+      22,
+      23
     ],
     "text_anchors": [
-      "Information accompanying transfers of crypto-assets"
+      "Information accompanying transfers of crypto-assets",
+      "following information on the originator",
+      "following information on the beneficiary",
+      "shall not be required to be attached directly",
+      "Batch file transfers of crypto-assets"
     ]
   },
   {
@@ -242,12 +250,18 @@
     "query_language": "en",
     "source_language": "en",
     "label_status": "development_unreviewed",
-    "locator_status": "development locator inspected in saved original; independent relevance review required",
     "pages": [
-      21
+      21,
+      22,
+      23,
+      24,
+      25
     ],
     "text_anchors": [
-      "Tasks"
+      "Tasks",
+      "Powers of the Authority",
+      "With respect to the selected obliged entities",
+      "With respect to FIUs in Member States"
     ]
   },
   {
@@ -262,8 +276,7 @@
     ],
     "text_anchors": [
       "élevé en ce qui concerne les trusts"
-    ],
-    "locator_status": "development locator inspected in saved original; independent relevance review required"
+    ]
   },
   {
     "id": "AMFRA24-fr",
@@ -277,8 +290,7 @@
     ],
     "text_anchors": [
       "échelle de cotation à quatre niveaux"
-    ],
-    "locator_status": "development locator inspected in saved original; independent relevance review required"
+    ]
   },
   {
     "id": "COLB24-fr",
@@ -292,8 +304,7 @@
     ],
     "text_anchors": [
       "vérification de l’intérêt légitime des utilisateurs"
-    ],
-    "locator_status": "development locator inspected in saved original; independent relevance review required"
+    ]
   },
   {
     "id": "BASEL20-fr-en",
@@ -307,8 +318,7 @@
     ],
     "text_anchors": [
       "The three lines of defence"
-    ],
-    "locator_status": "development locator inspected in saved original; independent relevance review required"
+    ]
   },
   {
     "id": "EUROPOL23-en",
@@ -322,7 +332,6 @@
     ],
     "text_anchors": [
       "Professional experts provide a wide range of services to criminal networks"
-    ],
-    "locator_status": "development locator inspected in saved original; independent relevance review required"
+    ]
   }
 ]

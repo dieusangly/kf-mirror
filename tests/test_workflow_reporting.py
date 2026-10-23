@@ -79,6 +79,35 @@ def test_review_sessions_keep_usage_and_unknown_cost_separate(reporting):
     assert len(report['cost']['unpriced_components']) == 1
 
 
+def test_external_review_cost_is_unknown_and_duplicate_measurements_are_not_recharged(reporting, tmp_path):
+    state, add, summary = reporting
+    add('generate', {'telemetry': measured(.75)})
+    measurement = tmp_path / 'library-source-review/measurement.json'
+    w.write(measurement, {'cost_usd': None, 'usage': None,
+                         'resolved': {'settings': {'model': 'configured-review-model'}}})
+    review = {'purpose': 'library_source_labels', 'measurement': str(measurement)}
+    state['external_reviews'] = [review, copy.deepcopy(review)]
+    report = summary()
+    assert report['cost']['known_subtotal_usd'] == .75
+    assert report['cost']['estimated_total_usd'] is None
+    assert len(report['external_reviews']) == len(report['cost']['unpriced_components']) == 1
+    w.write(measurement, {'cost_usd': .25, 'usage': {'input_tokens': 20},
+                         'resolved': {'settings': {'model': 'configured-review-model'}}})
+    assert summary()['cost']['estimated_total_usd'] == 1
+
+
+def test_external_review_measurement_already_in_stage_is_counted_once(reporting):
+    state, add, summary = reporting
+    _, path = add('chunk_review', {})
+    measurement = path.parent / 'session-1/measurement.json'
+    w.write(measurement, {'cost_usd': .25, 'usage': {'input_tokens': 20},
+                         'resolved': {'settings': {'model': 'configured-review-model'}}})
+    state['external_reviews'] = [{'purpose': 'source_review', 'measurement': str(measurement)}]
+    report = summary()
+    assert report['cost']['estimated_total_usd'] == .25
+    assert not report['external_reviews']
+
+
 def test_repairs_and_resumes_count_cumulative_telemetry_once(reporting):
     state, add, summary = reporting
     old, _ = add('generate', {'telemetry': measured(2, requests=2, usage={'input_tokens': 20})})

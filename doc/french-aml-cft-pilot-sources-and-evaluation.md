@@ -1,16 +1,13 @@
 # AML/CFT pilot sources and evaluation
 
-One corpus of **17 saved and selected files**: 15 PDFs and two official HTML
-articles, in French (11) and English (6). All use the same manifest, ingestion
-function and pipeline selection. See the [workflow](resumable-pilot-workflow.md)
-for run/status/resume commands. Quality approval of the 17-file corpus is pending.
+**17 saved/selected files:** 15 PDFs, two official HTML articles; 11 French, six
+English. They share one [manifest](../data/manifest.json) and pipeline. Corpus
+quality approval is pending; commands are in the [workflow](resumable-pilot-workflow.md).
 
 ## Selected sources
 
-The [manifest](../data/manifest.json) records IDs, titles/classes, URLs, versions,
-saved files, dates, media types, sizes and hashes. Selection rationale:
-
-All saved filenames carry their manifest ID prefix.
+The manifest owns URLs, editions, dates, paths, sizes, hashes and language
+relationships. Filenames carry their manifest ID prefix. Coverage:
 
 | ID | Source | Document class | Representative material |
 | --- | --- | --- | --- |
@@ -34,15 +31,14 @@ All saved filenames carry their manifest ID prefix.
 
 PDF page numbers are one-based file pages.
 
-AMLR's language variants have distinct source IDs, a shared `work_id` and reciprocal
-`language_variant_of` references. The historical PPE body is accepted for this pilot
-without its intended annex pairing; it is not complete current guidance. Reports
-and international guidance do not substitute legally for French statutory provisions.
-AMF material covers its own sector, rather than banking guidance.
+AMLR variants have distinct source IDs, a shared `work_id` and reciprocal
+`language_variant_of` links. The accepted historical PPE body lacks its unresolved
+annex and is not complete current guidance. Reports/international guidance do not
+legally replace French statutes; AMF material has its own sector scope.
 
-Edition, publication, reporting period, application, retrieval and import dates remain
-separate in the manifest; unknown dates remain unknown. Europol's document is the
-2023 assessment's executive summary, listed by the Publications Office in 2024.
+Manifest dates distinguish edition, publication, report period, application,
+retrieval and import; unknowns stay unknown. Europol is the 2023 executive summary,
+listed by the Publications Office in 2024.
 
 Check all saved files and the active selection directly from the manifest:
 
@@ -50,30 +46,15 @@ Check all saved files and the active selection directly from the manifest:
 .venv/bin/python scripts/ingest.py --config config/pipeline.json
 ```
 
-Ingestion verifies presence, media type, size and SHA-256 against the manifest.
-It uses saved originals without network requests; see [ingestion](ingestion.md).
+This verifies saved originals offline; see [ingestion](ingestion.md).
 
 ## Draft passage annotations
 
-**Draft paraphrases/locators, not approved gold data.** A French AML/CFT reviewer
-must verify them before acceptance testing.
-
 The [development cases](../tests/fixtures/retrieval-expanded-development.json)
-cover all 17 files with 22 French/English questions, including cross-language
-queries and the AMLR language pair. The examples below cover French source passages.
-BankLLM was used only as read-only reference metadata; authored Q&A was not imported
-as approved evaluation data.
-
-| ID | French evaluation question | Expected answer, paraphrased | Supporting passage |
-| --- | --- | --- | --- |
-| A1 | Les lignes directrices ACPR–Tracfin ont-elles un caractère contraignant ? | Elles sont explicatives et non contraignantes. | A, p. 3, introduction §1 |
-| A2 | Une COSI exige-t-elle un soupçon, comme une déclaration de soupçon ? | Non. Elle est systématique lorsque ses conditions sont remplies, indépendamment d'un soupçon. | A, p. 5, introduction §12 |
-| T1 | Quel schéma illustre le cas n° 16 de Tracfin ? | Des sociétés éphémères ouvrent des comptes de paiement, reçoivent des virements puis transfèrent rapidement les fonds vers l'étranger. | T, p. 45, cas n° 16, étapes 1–4 |
-| T2 | Quels signes d'alerte du cas n° 16 concernent les flux d'une société récente ? | Volume élevé pour une société récente, mouvements rapides au crédit et au débit, et sorties vers l'étranger figurent parmi les signes cités. | T, pp. 45–46, « Critères d'alerte » du cas n° 16 |
-| M1 | Quelle différence la doctrine AMF fait-elle entre identifier et vérifier un bénéficiaire effectif ? | Identifier consiste à recueillir les éléments d'identité; vérifier consiste à les confirmer avec des documents probants avant la relation d'affaires. | M, p. 18, §§2.2, 2.2.1 et 2.2.2 |
-| M2 | La doctrine AMF prévoit-elle une exception d'identification pour une société cotée ? | Oui, sous les conditions de cotation ou de transparence précisées dans la doctrine, que l'assujetti doit pouvoir justifier. | M, p. 18, §2.2.1 |
-| L1a | Qui peut être bénéficiaire effectif au sens du code ? | Une ou plusieurs personnes physiques contrôlant finalement le client, directement ou indirectement, ou pour lesquelles une opération ou activité est réalisée. | L1, art. L. 561-2-2, 1°–2° |
-| L2a | Pendant combien de temps la vigilance sur une relation d'affaires s'exerce-t-elle ? | Pendant toute la relation d'affaires, avec examen des opérations à la lumière d'une connaissance actualisée de cette relation. | L2, art. L. 561-6 |
+contain 22 French/English questions across all 17 files, including cross-language
+queries and the AMLR pair. These draft locators/paraphrases require independent
+source review before acceptance; none is configured. BankLLM supplied read-only
+reference metadata, never approved authored Q&A.
 
 ## Provisional quality and cost targets
 

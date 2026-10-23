@@ -46,7 +46,15 @@ def test_saved_corpus_and_development_cases_have_consistent_scope():
     assert [e['manifest_id'] for e in result['accepted_limitations']] == ['P']
     cases = json.loads((root / 'tests/fixtures/retrieval-expanded-development.json').read_text())
     assert {c['source_id'] for c in cases} == {e['source_id'] for e in entries.values()}
-    assert all(c['label_status'] == 'development_unreviewed' for c in cases)
+    assert all(c['label_status'] in {'development_unreviewed', 'source_reviewed'} for c in cases)
+    reviewed = {c['id'] for c in cases if c['label_status'] == 'source_reviewed'}
+    if reviewed:
+        config = json.loads((root / 'config/workflow.json').read_text())
+        acceptance = json.loads((root / config['retrieval_acceptance']).read_text())
+        assert acceptance['status'] == 'reviewed' and acceptance['reviewer']
+        assert acceptance['manifest_sha256'] == hashlib.sha256((root / 'data/manifest.json').read_bytes()).hexdigest()
+        assert acceptance['cases_sha256'] == hashlib.sha256((root / config['retrieval_cases']).read_bytes()).hexdigest()
+        assert reviewed <= set(acceptance['case_ids'])
 
 
 @pytest.mark.parametrize('mutation', ['missing_file', 'changed_bytes', 'unknown_selection', 'unselected_source'])
@@ -98,3 +106,19 @@ def test_language_counterparts_must_remain_reciprocal(corpus, defect):
         fr['work_id'] = 'another-work'
     write(root / 'manifest.json', manifest)
     assert not readiness(root / 'pipeline.json')['ready']
+
+
+def test_mandatory_parsing_review_locations_retain_known_defect_pages():
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / 'config/workflow.json').read_text())
+    locations = json.loads((root / config['parsing_review_required_pages']).read_text())
+    pairs = {(row['source_id'], row['page']) for row in locations}
+    assert len(pairs) == len(locations)
+    manifest = json.loads((root / 'data/manifest.json').read_text())
+    assert {sid for sid, _ in pairs} <= {e['source_id'] for e in manifest['sources']}
+    # Source-confirmed split note, rotated table and recovered picture notes must
+    # remain mandatory even when future parsing fixes remove their warnings.
+    assert ('src:fr-colb-national-risk-assessment-2023', 50) in pairs
+    assert ('src:tracfin-threat-report-tome-3', 75) in pairs
+    assert {('src:amf-sector-risk-assessment-2024', p) for p in [35, 49]} <= pairs
+    assert all(type(page) is int and page > 0 for _, page in pairs)

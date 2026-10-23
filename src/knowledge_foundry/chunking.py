@@ -265,7 +265,7 @@ def _chunk_document(bundle, sidecar, build_id, settings):
                    following is not None and following["kind"] == "list_item" and
                    tuple(info[following["id"]].get("heading_path") or []) == path)
         is_unmarked_list_continuation = (
-            active_lead is not None and element["kind"] == "paragraph" and
+            not is_lead and active_lead is not None and element["kind"] == "paragraph" and
             last_flow is not None and last_flow["kind"] == "list_item" and
             tuple(info[last_flow["id"]].get("heading_path") or []) == path and
             re.match(r"^[a-zà-ÿ]", cleaned)

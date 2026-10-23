@@ -21,6 +21,7 @@ from knowledge_foundry.parsers import (  # noqa: E402
     _pdf_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
 )
+from knowledge_foundry.pdf_structure import pdf_page_characters, restore_numeric_identifiers  # noqa: E402
 
 SUBSTANTIVE_TOKENS = 5
 SUBSTANTIVE_CHARS = 30
@@ -72,7 +73,18 @@ def substantive(value):
     return len(words) >= SUBSTANTIVE_TOKENS and sum(map(len, words)) >= SUBSTANTIVE_CHARS
 
 
-def audit_document(outcome, elements, sidecar, folder):
+def identifier_counts(value):
+    """Numeric separators carry meaning even when prose punctuation does not."""
+    return Counter(re.sub(r"\s+", "", token).translate(str.maketrans({'‐': '-', '‑': '-'}))
+                   for token in re.findall(r"(?<![\w-])\d+(?:[-‐‑]\s*\d+)+(?![\w-])", value))
+
+
+def covers_source_fragment(expected, actual):
+    return (normalized(expected) in normalized(actual) and
+            not (identifier_counts(expected) - identifier_counts(actual)))
+
+
+def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
     """Compare retrievable elements with the saved Docling source when available."""
     metrics = {key: 0 for key in METRIC_KEYS}
     metrics["heading_depth_distribution"] = dict(sorted(Counter(
@@ -244,6 +256,25 @@ def audit_document(outcome, elements, sidecar, folder):
     if native_path.is_file():
         native = json.loads(native_path.read_text(encoding="utf-8"))
         pages = native.get("pages", {})
+        character_cache = {}
+
+        def source_fragment(node, part):
+            value = node.get("text", "")
+            value = _pdf_text(value[slice(*part.get("charspan", [0, len(value)]))])
+            box = part.get("bbox")
+            page = part.get("page_no")
+            size = native.get("pages", {}).get(str(page), {}).get("size", {})
+            if (source_path and Path(source_path).is_file() and box and size.get("height")
+                    and re.search(r"\b\d{3,}\b", value)):
+                location = ([box["l"], box["t"], box["r"], box["b"]] if
+                            box.get("coord_origin") == "TOPLEFT" else
+                            [box["l"], size["height"] - box["t"], box["r"],
+                             size["height"] - box["b"]])
+                if page not in character_cache:
+                    character_cache[page] = pdf_page_characters(source_path, page)
+                value = restore_numeric_identifiers(value, location, character_cache[page])
+            return value
+
         pictures_by_ref = {node["self_ref"]: node for node in native.get("pictures", [])}
         valid_figure_assets = set()
         for element in elements:
@@ -372,6 +403,8 @@ def audit_document(outcome, elements, sidecar, folder):
                         for item in by_ref[node["self_ref"]]:
                             actual_role = details.get(item["id"], {}).get("evidence_role")
                             expected_role = "auxiliary" if role == "visual" else "authoritative"
+                            if item['kind'] == 'footnote' and FILENAME_FOOTNOTE.fullmatch(item['text']):
+                                expected_role = 'structural'
                             if actual_role != expected_role:
                                 flag("FIGURE_TEXT_PROMOTED" if role == "visual" else
                                      "FLOW_TEXT_ROLE_INVALID", "error",
@@ -451,10 +484,10 @@ def audit_document(outcome, elements, sidecar, folder):
             pages = {part.get("page_no") for part in provenance}
             represented = by_ref[ref]
             pieces_covered = bool(provenance) and all(
-                normalized(source_text[slice(*part.get("charspan", [0, len(source_text)]))]) and
+                normalized(source_fragment(node, part)) and
                 any(element["location"].get("page") == part.get("page_no") and
-                    normalized(source_text[slice(*part.get("charspan", [0, len(source_text)]))])
-                    in normalized(element["text"]) for element in represented)
+                    covers_source_fragment(source_fragment(node, part), element["text"])
+                    for element in represented)
                 for part in provenance)
             if not pieces_covered:
                 if (disposition and disposition[0] == "visual" and
@@ -489,9 +522,9 @@ def audit_document(outcome, elements, sidecar, folder):
                           "element_ids": [item["id"] for item in represented]})
                 elif len(represented) == len(provenance):
                     for part, item in zip(provenance, represented):
-                        start, end = part.get("charspan", [0, len(source_text)])
                         if (item["location"].get("page") != part.get("page_no") or
-                                normalized(item["text"]) != normalized(source_text[start:end])):
+                                normalized(item["text"]) != normalized(source_fragment(node, part)) or
+                                identifier_counts(item['text']) != identifier_counts(source_fragment(node, part))):
                             flag("MULTI_PROVENANCE_CHARSPAN_MISMATCH", "error",
                                  {"ref": ref, "element_id": item["id"]})
         for collection in ("pictures", "tables"):
@@ -573,7 +606,8 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
             sidecar = json.loads((folder / "parse.json").read_text(encoding="utf-8"))
             corpus[outcome["manifest_id"]] = (bundle["elements"], sidecar["elements"])
             formats[outcome['manifest_id']] = bundle['sources'][0]['format']
-            document = audit_document(outcome, bundle["elements"], sidecar["elements"], folder)
+            document = audit_document(outcome, bundle["elements"], sidecar["elements"], folder,
+                                      source_path=Path(source_root) / outcome["local_path"])
             try:
                 validate_bundle(bundle)
                 document["artifact_valid"] = True
@@ -768,14 +802,40 @@ def main(argv=None):
     parser.add_argument("--source-root", type=Path, default=ROOT,
                         help="root for saved source paths (repository root by default)")
     parser.add_argument("--output", type=Path, help="write measurements here (stdout by default)")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "data/manifest.json")
+    parser.add_argument("--review-policy", type=Path, default=ROOT / "config/review-policy.json")
+    parser.add_argument("--sample-per-document", type=int, default=12)
+    parser.add_argument("--required-pages", type=Path, help="JSON list of source_id/page objects")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--initialize-review", type=Path)
+    group.add_argument("--review-file", type=Path)
     args = parser.parse_args(argv)
+    if args.initialize_review and args.initialize_review.exists():
+        parser.error("review file already exists; reuse --review-file")
+    if (args.initialize_review or args.review_file) and args.output and (args.initialize_review or args.review_file).resolve() == args.output.resolve():
+        parser.error("review and output paths must differ")
     result = evaluate(args.input_dir, args.reference, args.additional_input_dir, args.source_root)
+    if args.initialize_review or args.review_file:
+        from knowledge_foundry.parsing_review import prepare, seed
+        try:
+            result = prepare(result, select_outcomes(args.input_dir, args.additional_input_dir),
+                             args.source_root, args.manifest, args.review_policy, args.sample_per_document,
+                             json.loads(args.required_pages.read_text()) if args.required_pages else [],
+                             args.review_file, args.reference)
+            if args.initialize_review:
+                args.initialize_review.parent.mkdir(parents=True, exist_ok=True)
+                args.initialize_review.write_text(json.dumps(seed(result), ensure_ascii=False, indent=2) + "\n")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            parser.exit(2, f"parsing review failed: {exc}\n")
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(rendered, encoding="utf-8")
     else:
         sys.stdout.write(rendered)
-    return 0 if result["gate"]["status"] == "pass" else 1
+    if isinstance(result["gate"], dict):
+        return 0 if result["gate"]["status"] == "pass" else 1
+    return 1 if result["gate"] == "fail" or args.review_file and result["gate"] != "pass" else 0
 
 
 if __name__ == "__main__":

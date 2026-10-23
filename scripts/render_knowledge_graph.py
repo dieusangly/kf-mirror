@@ -353,7 +353,7 @@ def _json_for_script(value):
 
 def render_html(graph, title="Knowledge provenance graph"):
     """Return a deterministic, standalone local HTML viewer for a built graph."""
-    asset_dir = Path(__file__).with_name("kpg_viewer")
+    asset_dir = Path(__file__).resolve().parents[1] / "apps/kpg_viewer"
     template = (asset_dir / "index.html").read_text(encoding="utf-8")
     styles = (asset_dir / "styles.css").read_text(encoding="utf-8")
     scripts = [

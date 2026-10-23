@@ -7,19 +7,11 @@ not tested failures; hosted products may differ.
 
 ## 1. Executive summary
 
-Closest references: [RAGFlow](https://github.com/infiniflow/ragflow) for topic
-compilation, [Docling Graph](https://github.com/docling-project/docling-graph) for
-grounded graphs and [Data Prep Kit](https://github.com/data-prep-kit/data-prep-kit)
-for reusable transforms. Parser candidates are [Docling](https://github.com/docling-project/docling),
-[Unstructured](https://github.com/Unstructured-IO/unstructured) and
-[MinerU](https://github.com/opendatalab/MinerU); [GraphRAG](https://github.com/microsoft/graphrag)
-is a graph-index reference.
-
+References: RAGFlow for topics, Docling Graph for grounded graphs, Data Prep Kit
+for transforms; Docling/Unstructured/MinerU for parsing and GraphRAG for indexing.
 The shared flow is **ingest → parse → normalize → chunk → enrich → export**.
-Knowledge Foundry adds durable **claim → topic** records before retrieval, graph
-and dataset views. This is an architectural inference; RAGFlow Wiki is the
-closest direct example. Preserve structure during normalization and source
-locations through provenance.
+Knowledge Foundry's durable claim/topic layer is an architectural inference;
+RAGFlow Wiki is the closest comparator.
 
 Abbreviations: OCR = optical character recognition; VLM = vision-language model;
 ETL = extract, transform, load; SFT = supervised fine-tuning.
@@ -79,16 +71,8 @@ Sources for snapshot fields: the [GitHub repository API](https://docs.github.com
 
 ## 4. Common architecture patterns
 
-1. **Route by format:** use appropriate PDF/scan, HTML and email parsers; record
-   parser/settings.
-2. **Normalize before chunking:** preserve hierarchy, tables, pages, source IDs
-   and boundaries in a common model.
-3. **Separate replaceable stages:** conversion, cleaning, extraction, indexing
-   and dataset writing should run/change independently.
-4. **Compile grounded topics:** validate claim fields/evidence; group across
-   documents and review summaries/conflicts against the underlying claims.
-5. **Export portable views:** documents, chunks, topics, graphs and training rows
-   serve different consumers; keep records independent of an index/model.
+Route by format, preserve structure/locations, separate replaceable stages,
+validate topic evidence/conflicts and export portable records independently of indexes.
 
 ## 5. Gaps and opportunities
 
@@ -104,36 +88,22 @@ Design opportunities across the selection, not universal missing features:
 
 ## 6. Recommendations for Knowledge Foundry
 
-Use portable artifacts as the contract; RAGFlow, LlamaIndex, Haystack and LangChain
-are possible consumers. Other projects supply parser, graph or dataset patterns.
-These are architectural options, not dependency commitments.
-
-1. Define canonical document/claim/topic/provenance schemas, source versions,
-   locations and transformation lineage. Start with JSON/JSONL; derive other views.
-2. Benchmark born-digital PDFs, scans, forms, tables, HTML and email for fidelity,
-   reading order, locations, throughput and license fit; select default/fallback parsers.
-3. Chunk structurally, generate atomic passage-linked/versioned claims, then
-   group reviewed claims across documents under stable topic IDs.
-4. Export readable topic pages/RAG chunks, followed by reviewed graph and training/
-   evaluation data. Use human annotations to measure parsing, grounding, topic
-   consistency, citation accuracy and cost.
-
-The canonical contract keeps parsers, indexes and models replaceable without
-losing the source-to-output trail.
+Use JSON/JSONL contracts with stable IDs, editions, locations and lineage.
+Benchmark representative layouts for fidelity, throughput and license fit before
+choosing parsers. Generate atomic evidence-linked claims under curated topics;
+evaluate parsing, grounding, topic consistency, citations and cost before exporting
+graph/training data. Frameworks are possible consumers, not automatic dependencies.
 
 ## 7. What Knowledge Foundry uses and adapts
 
-Implementation mapping checked on **16 October 2026**. The survey above describes
-external projects; this table distinguishes actual use from design comparisons.
-Similarity alone does not establish historical influence or copied code.
+Local dependencies and design comparisons; similarity does not imply copied code.
 
 | Project | Relationship | Knowledge Foundry implementation |
 | --- | --- | --- |
 | **Docling** | Direct PDF-parsing dependency, pinned in [requirements](../requirements.txt). Its [document model](https://docling-project.github.io/docling/concepts/docling_document/) provides structure and provenance. | [PDF conversion](../src/knowledge_foundry/parsers.py) uses `DocumentConverter` for text, layout, tables and configured OCR. Normalization, [original chunking](../src/knowledge_foundry/chunking.py) and [structural assembly](../src/knowledge_foundry/structural_chunks.py) are custom; we do not use Docling's chunker. |
-| **RAPTOR** | Conceptual comparison, not a dependency or implementation of its [recursive embedding/clustering/summarization tree](https://arxiv.org/abs/2401.18059). | We also group evidence using embeddings before generation. Our [clustering](../src/knowledge_foundry/semantic_clusters.py) is deterministic, nonoverlapping and constrained by every member's cosine similarity. Clusters produce atomic candidate claims, without recursive summaries or a retrieval tree. |
+| **RAPTOR** | Comparison with its [recursive embedding/clustering/summarization tree](https://arxiv.org/abs/2401.18059), not a dependency. | [Clustering](../src/knowledge_foundry/semantic_clusters.py) is deterministic, nonoverlapping and every-member constrained. Claims and [recursive summaries](summaries.md) are independent branches. |
 | **Docling Graph** | Design reference in this survey: [source-linked graph provenance](https://docling-project.github.io/docling-graph/fundamentals/graph-management/provenance/). No integration. | Our [artifact contract](artifact-schemas.md) preserves original chunk IDs and exact source/element spans; [candidate-claim validation](../src/knowledge_foundry/claim_generation_and_classification.py) resolves evidence labels against saved passages. These are local implementations. |
-| **Other surveyed frameworks** | RAGFlow, LlamaIndex, Haystack, LangChain, GraphRAG and the corpus/dataset tools above remain comparison references or possible consumers. | No framework integration is implemented. Our saved JSON/JSONL artifacts, curated topics, numerical clustering, cache and review workflow remain repository-owned components. |
+| **Haystack** | Direct retrieval dependency. | [Retrieval pipeline](../src/knowledge_foundry/retrieval/pipeline.py) orchestrates search, ranking and evidence/context assembly. |
+| **Other surveyed frameworks** | Comparison references or possible consumers. | Canonical artifacts, topics, clustering, caches and review workflow remain repository-owned. |
 
-The implemented flow is **original chunks → structural chunks → semantic clusters
-→ claims → topics**. Structural assembly uses document structure; semantic
-clustering uses embeddings. These stages serve different purposes.
+See the [current pipeline](artifact-schemas.md#how-the-records-connect).

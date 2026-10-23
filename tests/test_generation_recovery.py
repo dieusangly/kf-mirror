@@ -8,7 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from test_claim_context import fixture_settings
+from claim_fixtures import fixture_settings
 from knowledge_foundry.claim_context import prepare_claim_context
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, FixtureProvider, _build_id, _candidate_manifest, classify_claims, generate_claims,

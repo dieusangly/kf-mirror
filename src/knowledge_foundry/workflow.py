@@ -13,22 +13,24 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import time
+import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-STAGES = ('ingest', 'parse', 'parsing_evaluation', 'chunk', 'chunk_review', 'structure',
+STAGES = ('ingest', 'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'structure',
           'summaries', 'generate', 'classify', 'claim_review', 'graph', 'index', 'retrieval', 'publish')
 DEPS = {'ingest': (), 'parse': ('ingest',), 'parsing_evaluation': ('parse',),
-        'chunk': ('parsing_evaluation',), 'chunk_review': ('chunk',), 'structure': ('chunk_review',),
+        'parsing_review': ('parsing_evaluation',), 'chunk': ('parsing_review',), 'chunk_review': ('chunk',), 'structure': ('chunk_review',),
         'summaries': ('structure',), 'generate': ('structure',), 'classify': ('generate',),
         'claim_review': ('classify',), 'graph': ('claim_review', 'summaries'), 'index': ('graph',),
         'retrieval': ('index',), 'publish': ('retrieval',)}
 PAID = {'structure', 'summaries', 'generate', 'classify', 'index', 'retrieval'}
-REVIEWS = {'chunk_review', 'claim_review'}
+REVIEWS = {'parsing_review', 'chunk_review', 'claim_review'}
 RESUMABLE = {'generate', 'classify'}
 
 
@@ -71,13 +73,19 @@ def run_lock(directory):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def resolve_reviewer(root=ROOT):
-    """Resolve explicit TOML settings; pin these in each fresh CLI session.
+def resolve_reviewer(root=ROOT, overrides=None):
+    """Resolve TOML defaults and workflow overrides for each fresh CLI session.
 
     Do not infer a model from generation configs or invent a fallback. Profiles
     require explicit resolution outside this controller; unrecognized layering
     is rejected rather than guessed.
     """
+    keys = ('model', 'model_reasoning_effort', 'model_provider', 'service_tier')
+    if overrides is None:
+        overrides = {}
+    if (not isinstance(overrides, dict) or set(overrides) - set(keys)
+            or any(not isinstance(value, str) or not value.strip() for value in overrides.values())):
+        raise ValueError('reviewer settings must use supported keys with nonempty string values')
     home = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
     paths = [Path('/etc/codex/config.toml'), home / 'config.toml']
     paths += [p / '.codex/config.toml' for p in [*reversed(root.parents), root]]
@@ -89,17 +97,49 @@ def resolve_reviewer(root=ROOT):
         if config.get('profile') or config.get('model_catalog_json'):
             raise ValueError('reviewer configuration requires unsupported profile/catalog resolution')
         identities[str(path)] = digest(path)
-        settings.update({k: config[k] for k in ('model', 'model_reasoning_effort', 'model_provider', 'service_tier') if k in config})
+        settings.update({k: config[k] for k in keys if k in config})
+    settings.update(overrides)
     if not settings.get('model') or not settings.get('model_reasoning_effort'):
         raise ValueError('reviewer model and reasoning effort must be explicitly configured; no fallback')
     return {'settings': settings, 'configuration_sha256': identities,
-            'resolution': 'explicit system/user/ancestor project TOML; pinned CLI settings; no profile override'}
+            'resolution': 'explicit system/user/ancestor project TOML, then workflow stage settings; pinned CLI settings; no profile override'}
+
+
+def resolve_reviewers(root, config):
+    overrides = config.get('reviewers', {})
+    if not isinstance(overrides, dict) or set(overrides) - REVIEWS:
+        raise ValueError('reviewers must map parsing_review, chunk_review or claim_review to settings')
+    if any(not isinstance(settings, dict) for settings in overrides.values()):
+        raise ValueError('reviewer stage settings must be objects')
+    return {stage: resolve_reviewer(root, overrides.get(stage)) for stage in sorted(REVIEWS)}
+
+
+@contextmanager
+def reviewer_environment(run_id):
+    """Give fresh read-only reviewers writable, disposable CLI runtime storage.
+
+    Keep the configured user settings and authentication, but never write runtime
+    locks/databases or credential refreshes into the controlling user's home.
+    Credential copies are private and removed even when the review fails.
+    """
+    source = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+    with tempfile.TemporaryDirectory(prefix=f'kf-{run_id}-reviewer-') as directory:
+        runtime = Path(directory)
+        for name in ('config.toml', 'auth.json', 'AGENTS.md'):
+            original = source / name
+            if original.is_file():
+                target = runtime / name
+                shutil.copyfile(original, target)
+                target.chmod(0o600)
+        yield {**os.environ, 'CODEX_HOME': str(runtime)}
 
 
 def input_identity(root, config_path):
     workflow_config = read(config_path)
     files = [config_path, root / 'requirements.txt', root / workflow_config['retrieval_cases']]
-    for directory in ('config', 'src', 'scripts', 'schemas'):
+    if workflow_config.get('parsing_review_required_pages'):
+        files.append(root / workflow_config['parsing_review_required_pages'])
+    for directory in ('config', 'src', 'scripts', 'schemas', 'apps/kpg_viewer'):
         files += [p for p in (root / directory).rglob('*') if p.is_file()
                   and '__pycache__' not in p.parts and p.suffix != '.pyc']
     pipeline_path = root / read(config_path)['pipeline']
@@ -188,7 +228,7 @@ class Workflow:
         if input_identity(self.root, self.config_path) != self.state['identity']:
             issues.append('inputs/configuration/code changed: invalidate from ingest with a repair note')
         if self.state.get('reviewer'):
-            if resolve_reviewer(self.root) != self.state['reviewer']:
+            if resolve_reviewers(self.root, self.config) != self.state['reviewer']:
                 issues.append('reviewer settings changed: invalidate from ingest or use a new run')
         for name, entry in self.state['stages'].items():
             if entry['status'] == 'complete' and fingerprints(Path(entry['directory'])) != entry['fingerprints']:
@@ -229,9 +269,10 @@ class Workflow:
         if name == 'ingest':
             args[name] = ['ingest.py', '--config', path('pipeline'), '--output', str(out / 'report.json')]
         if name == 'parse':
-            args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(out / 'build')]
+            args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(out / 'build'),
+                          '--run-id', self.state['run_id']]
         if name == 'parsing_evaluation':
-            args[name] = ['evaluate_parsing.py', '--input-dir', dep('parse') + '/build',
+            args[name] = ['auto_review_parsing.py', '--input-dir', dep('parse') + '/build',
                           '--source-root', str(self.source_root), '--output', str(out / 'report.json')]
         if name == 'chunk':
             args[name] = ['chunk.py', '--config', path('pipeline'), '--input-dir', dep('parse') + '/build', '--output-dir', str(out / 'build')]
@@ -280,13 +321,18 @@ class Workflow:
     def review_command(self, name, out):
         args = ['--manifest', str(self.manifest_path), '--review-policy', str(self.root / 'config/review-policy.json'),
                 '--sample-per-document', str(self.config['sample_per_document']), '--output', str(out / 'report.json')]
-        if name == 'chunk_review':
+        if name == 'parsing_review':
+            args += ['--input-dir', str(self.output('parse') / 'build'), '--source-root', str(self.source_root)]
+            if self.config.get('parsing_review_required_pages'):
+                args += ['--required-pages', str(self.root / self.config['parsing_review_required_pages'])]
+            script = 'auto_review_parsing.py'
+        elif name == 'chunk_review':
             args += ['--chunked-dir', str(self.output('chunk') / 'build'), '--parsed-dir', str(self.output('parse') / 'build')]
-            script = 'evaluate_chunking.py'
+            script = 'auto_review_chunking.py'
         else:
             args += ['--candidates-dir', str(self.output('generate') / 'build'), '--classified-dir', str(self.output('classify') / 'build'),
                      '--source-root', str(self.source_root), '--taxonomy', str(self.root / self.config['taxonomy'])]
-            script = 'evaluate_claims.py'
+            script = 'auto_review_claims.py'
         args += ['--review-file' if (out / 'review.json').exists() else '--initialize-review', str(out / 'review.json')]
         return [sys.executable, str(self.root / 'scripts' / script), *args]
 
@@ -325,31 +371,69 @@ class Workflow:
             index.append({'source': str(source), 'page': page, 'image': str(target.with_suffix('.png'))})
         write(out / 'page-index.json', index)
 
+    def prior_review_inspections(self, out, original, key, resolved):
+        """Recover exact judgments inspected by successful earlier sessions.
+
+        A supplied pass/fail or an unchanged row alone is not inspection evidence.
+        Retain attribution to the session that actually inspected that sample.
+        """
+        current = {row[key]: row for row in original['reviews']}
+        verified = {}
+        for path in sorted(out.glob('session-*/after.json')):
+            try:
+                saved = read(path)
+                session = saved['workflow_session']
+                measurement_path = path.parent / 'measurement.json'
+                measurement = read(measurement_path)
+                response = read(path.parent / 'response.json')
+                proposed = {row[key]: row for row in json.loads(response['review_json'])['reviews']}
+                if (any(saved.get(field) != original.get(field) for field in
+                        ('build_id', 'snapshot_sha256', 'review_policy_sha256')) or
+                        session['thread_id'] not in self.state.get('review_thread_ids', []) or
+                        Path(session['measurement']).resolve() != measurement_path.resolve() or
+                        measurement.get('returncode') != 0 or measurement.get('resolved') != resolved or
+                        measurement.get('thread_ids') != [session['thread_id']] or not measurement.get('usage')):
+                    continue
+                for row in saved['reviews']:
+                    sid = row[key]
+                    if (row['status'] in {'pass', 'fail'} and current.get(sid) == row and proposed.get(sid) == row and
+                            sid in response['inspected_sample_ids']):
+                        verified[sid] = {'thread_id': session['thread_id'], 'measurement': str(measurement_path)}
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # Missing/unusable history requires inspection again.
+        return verified
+
     def independent_review(self, name, out):
         if self.state['review_sessions_started'] >= self.limits.max_review_sessions:
             raise ValueError('review-session budget exhausted; resolve missing evidence/non-convergence')
-        resolved = resolve_reviewer(self.root)
+        configuration = resolve_reviewers(self.root, self.config)
         prior = self.state.get('reviewer')
-        if prior and prior != resolved:
+        if prior and prior != configuration:
             raise ValueError('reviewer configuration changed; start a new run or invalidate from ingest')
-        self.state['reviewer'] = resolved
+        self.state['reviewer'] = configuration
+        resolved = configuration[name]
         self.render_review_pages(out)
         number = self.state['review_sessions_started'] + 1
         session = out / f'session-{number}'
         session.mkdir()
         original = read(out / 'review.json')
         write(session / 'before.json', original)
+        id_field = 'chunk_id' if name == 'chunk_review' else 'sample_id'
+        prior_inspections = self.prior_review_inspections(out, original, id_field, resolved)
         prompt_file = self.root / 'src/knowledge_foundry/prompts' / (
-            'agent_prompt_chunking_reviewer' if name == 'chunk_review' else 'agent_prompt_claim_reviewer')
-        prompt = prompt_file.read_text() + '\n\nController binding (overrides example paths and write mechanism only):\n' + json.dumps({
+            {'parsing_review': 'agent_prompt_parsing_review', 'chunk_review': 'agent_prompt_chunking_review',
+             'claim_review': 'agent_prompt_claim_review'}[name])
+        prompt = prompt_file.read_text() + '\n\nController binding (overrides example paths, continuation scope and write mechanism):\n' + json.dumps({
             'run_id': self.state['run_id'], 'stage_paths': {k: v['directory'] + '/build' for k, v in self.state['stages'].items()},
             'evaluation_report': str(out / 'report.json'), 'review_file': str(out / 'review.json'),
             'manifest': str(self.manifest_path), 'source_root': str(self.source_root),
             'policy': str(self.root / 'config/review-policy.json'), 'taxonomy': str(self.root / self.config['taxonomy']),
             'sample_per_document': self.config['sample_per_document'], 'pdf_page_index': str(out / 'page-index.json'),
-            'model_settings': resolved['settings']}, indent=2) + (
+            'model_settings': resolved['settings'], 'verified_prior_inspections': prior_inspections}, indent=2) + (
             '\nYou are a fresh independent source reviewer in a read-only session. Initialization is already complete. '
-            'Inspect all sampled originals and use view_image on the rendered PDF pages. Additional source pages may be '
+            'Inspect pending samples and any revised judgments against originals; use view_image on rendered PDF pages. '
+            'Exact unchanged judgments listed in verified_prior_inspections may carry forward without reinspection. '
+            'Other assessed judgments require source inspection in this session. Never claim earlier inspections as your own. Additional source pages may be '
             'requested as pending with exact page numbers if layout is inaccessible. Do not execute evaluation commands '
             'that write files: the controller runs final evaluation. Return the full updated review as review_json, '
             'and requested_pages for any inaccessible additional PDF pages, and inspected_sample_ids only for samples actually inspected against saved originals. Preserve every '
@@ -376,7 +460,8 @@ class Workflow:
         self.save()
         review_started, review_clock, rc = now(), time.monotonic(), None
         try:
-            rc = execute(command, session, self.remaining(), stdin=prompt)
+            with reviewer_environment(self.state['run_id']) as env:
+                rc = execute(command, session, self.remaining(), stdin=prompt, env=env)
         finally:
             events = []
             if (session / 'stdout.log').exists():
@@ -403,9 +488,8 @@ class Workflow:
         updated = json.loads(result['review_json'])
         if result.get('requested_pages'):
             write(out / 'extra-pages.json', result['requested_pages'])
-        key = 'chunk_id' if name == 'chunk_review' else 'sample_id'
-        before = {r[key]: r for r in original['reviews']}
-        after = {r[key]: r for r in updated['reviews']}
+        before = {r[id_field]: r for r in original['reviews']}
+        after = {r[id_field]: r for r in updated['reviews']}
         if len(after) != len(updated['reviews']) or set(before) != set(after):
             raise ValueError('reviewer changed sample selection')
         write(session / 'proposed-review.json', updated)
@@ -414,8 +498,12 @@ class Workflow:
                 raise ValueError('stale or changed review identity: ' + field)
         if updated.get('reviewer', {}).get('kind') != 'agent' or updated['reviewer'].get('model') != settings['model']:
             raise ValueError('actual reviewer attribution is absent or differs from resolved model')
+        if not set(result['inspected_sample_ids']) <= set(before):
+            raise ValueError('inspection references an unknown sample')
         for sid, row in after.items():
-            if row['status'] in {'pass', 'fail'} and sid not in result['inspected_sample_ids']:
+            carried = sid in prior_inspections and row == before[sid]
+            assessed = row['status'] in {'pass', 'fail'} or before[sid]['status'] in {'pass', 'fail'}
+            if assessed and not carried and sid not in result['inspected_sample_ids']:
                 raise ValueError('uninspected judgment rejected: ' + sid)
             if before[sid]['status'] in {'pass', 'fail'} and before[sid] != row:
                 if before[sid].get('notes', '') not in row.get('notes', ''):
@@ -423,7 +511,9 @@ class Workflow:
         for finding in original.get('additional_findings', []):
             if finding not in updated.get('additional_findings', []):
                 raise ValueError('additional finding discarded')
-        updated['workflow_session'] = {'thread_id': threads[0], 'resolved_model': settings, 'measurement': str(session / 'measurement.json')}
+        updated['workflow_session'] = {'thread_id': threads[0], 'resolved_model': settings, 'measurement': str(session / 'measurement.json'),
+            'inspected_sample_ids': result['inspected_sample_ids'],
+            'carried_inspections': {sid: evidence for sid, evidence in prior_inspections.items() if after[sid] == before[sid]}}
         token_totals = {}
         for record in usage:
             if isinstance(record, dict):
