@@ -171,11 +171,17 @@ def test_malformed_telemetry_is_visible_without_breaking_reporting(reporting):
     assert report['cost']['unpriced_components']
 
 
-def test_summary_generation_uses_its_saved_build_rate_card(reporting):
+@pytest.mark.parametrize('flat', [False, True])
+def test_summary_generation_uses_its_saved_build_rate_card(reporting, flat):
     _, add, summary = reporting
     usage = {'input_tokens': 10, 'cached_input_tokens': 2, 'cache_write_tokens': 1, 'output_tokens': 5}
-    _, path = add('summaries', {'generation': {'provider': 'openai', 'model': 'configured-test-model', 'requests': 1},
+    entry, path = add('summaries', {'generation': {'provider': 'openai', 'model': 'configured-test-model', 'requests': 1},
                                'usage_records': [usage], 'embeddings': measured(0), 'request_token_counting': measured(0)})
+    if flat:
+        destination = path.parent.parent / 'report.json'
+        path.rename(destination)
+        entry['bundle_directory'] = entry['directory']
+        path = destination
     rates = {'input': 1, 'cached_input': .2, 'cache_write': .5, 'output': 2}
     card = {'short_context_limit_tokens': 100, 'short_context_usd_per_million_tokens': rates,
             'long_context_usd_per_million_tokens': rates}

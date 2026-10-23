@@ -18,7 +18,7 @@ ingestion validates local files and does not download them. Inventory a new run:
 ```sh
 direnv allow
 RUN_ID="your-ingestion-run-id"
-INGESTION_DIR="artifacts/ingestion-${RUN_ID}"
+INGESTION_DIR="artifacts/${RUN_ID}/ingestion"
 mkdir -p "$INGESTION_DIR"
 direnv exec . .venv/bin/python scripts/ingest.py --config config/pipeline.json --output "$INGESTION_DIR/ingestion-report.json"
 ```

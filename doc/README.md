@@ -27,3 +27,6 @@ Locations: originals/manifest in `data/`; generated runs/reviews in ignored
 `artifacts/`; CLIs in `scripts/`; UIs in `apps/chat/` and `apps/kpg_viewer/`.
 Synthetic builders (`tests/claim_fixtures.py`, `tests/rag_fixtures.py`) and corpus
 development inputs (`tests/fixtures/`) do not approve real data.
+
+The manual runbook uses `workflow.py step` for stable latest-stage paths, timestamped
+history and gate checks. Low-level stage CLIs do not archive or register outputs.

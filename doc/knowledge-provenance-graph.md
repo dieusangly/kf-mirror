@@ -5,8 +5,8 @@ directories when their run IDs differ:
 
 ```sh
 RUN_ID="your-claim-run-id"
-CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
-CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
+CLASSIFIED_DIR="artifacts/${RUN_ID}/claim-classification"
+CANDIDATES_DIR="artifacts/${RUN_ID}/claim-generation"
 
 direnv exec . .venv/bin/python scripts/render_knowledge_graph.py \
   --bundle "$CLASSIFIED_DIR/artifact-bundle.json" \
@@ -19,7 +19,7 @@ artifact edits occur. Register it as `graph_path` in
 [`retrieval-corpora.json`](../config/retrieval-corpora.json) for matching chatbot
 snapshots; no separate server is needed.
 
-Add `--summary-dir "artifacts/summaries-${RUN_ID}"` for [summaries](summaries.md);
+Add `--summary-dir "artifacts/${RUN_ID}/summary-generation"` for [summaries](summaries.md);
 both branches must share the frozen structural build. For summaries alone, use
 their `preparation/artifact-bundle.json` as `--bundle` and omit
 `--claim-generation-dir`. Original records must match.

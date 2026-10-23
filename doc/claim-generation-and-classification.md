@@ -15,9 +15,9 @@ only after each command succeeds.
 ```sh
 CONTEXT_RUN_ID="your-completed-build-run-id"
 RUN_ID="your-new-claim-run-id"
-CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
-CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
-CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
+CONTEXT_DIR="artifacts/${CONTEXT_RUN_ID}/structural-chunks-and-semantic-clusters"
+CANDIDATES_DIR="artifacts/${RUN_ID}/claim-generation"
+CLASSIFIED_DIR="artifacts/${RUN_ID}/claim-classification"
 CLAIM_CONFIG="config/claim-generation-and-classification.json"
 TAXONOMY_PATH="config/topics-v1.json"
 

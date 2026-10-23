@@ -25,7 +25,7 @@ Run from the repository root. Replace the run ID for each new output directory:
 
 ```sh
 RUN_ID="your-parsing-run-id"
-PARSED_DIR="artifacts/parsed-${RUN_ID}"
+PARSED_DIR="artifacts/${RUN_ID}/parsing"
 
 direnv exec . .venv/bin/python scripts/parse.py --config config/pipeline.json --output-dir "$PARSED_DIR"
 ```

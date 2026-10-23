@@ -82,10 +82,10 @@ outputs under your corpus/run IDs; replace the example IDs and paths below:
     "suggested_questions": ["A question supported by these documents"],
     "runs": {
       "my-run": {
-        "preparation_dir": "artifacts/structural-chunks-and-semantic-clusters-my-run",
-        "claims_dir": "artifacts/classified-claims-my-run",
-        "summaries_dir": "artifacts/summaries-my-run",
-        "graph_path": "artifacts/classified-claims-my-run/knowledge-provenance-graph.html"
+        "preparation_dir": "artifacts/my-run/structural-chunks-and-semantic-clusters",
+        "claims_dir": "artifacts/my-run/claim-classification",
+        "summaries_dir": "artifacts/my-run/summary-generation",
+        "graph_path": "artifacts/my-run/provenance-graph/graph.html"
       }
     }
   }
@@ -109,7 +109,8 @@ and combined search. Vectors reuse matching text/model/dimensions/preprocessing;
 sidebar shows coverage; [evaluation](retrieval-rag-evaluation.md) measures quality.
 
 **Open provenance graph** embeds trusted local HTML without another server.
-Set `graph_path` under the run's `claims_dir`; its manifest hash must match the snapshot.
+Set `graph_path` under `claims_dir`, or use a completed managed `provenance-graph`
+stage whose saved hashes match the current claim branch and selected snapshot.
 
 **Documents in corpus** lists filtered snapshot metadata without model calls.
 Generated inventory questions use that metadata; offline inventory requires the button.

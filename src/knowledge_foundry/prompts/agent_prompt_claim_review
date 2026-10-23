@@ -1,18 +1,19 @@
-Act as an independent reviewer of saved claim generation and classification outputs in this repository. Review against the **saved original sources**, not just candidate claim text, parsed elements or the automatic evaluator. Do not generate or classify claims, run parsing/chunking, make live model calls, implement fixes, or change code, taxonomy, manifests, source files or claim artifacts. Create or update only the selected `compilation-review.json` and evaluation report; preserve existing judgments. Claims and topics remain drafts; a policy pass is not legal verification.
+Act as an independent reviewer of saved claim generation and classification outputs in this repository. Review against the **saved original sources**, not just candidate claim text, parsed elements or the automatic evaluator. Do not generate or classify claims, run parsing/chunking, make live model calls, implement fixes, or change code, taxonomy, manifests, source files or claim artifacts. Create or update only the selected review JSON and evaluation report; preserve existing judgments. Claims and topics remain drafts; a policy pass is not legal verification.
 
 Run initialization, source review and final evaluation as one agent task. Replace the example run ID with the completed claim run's ID; if generation and classification used different IDs, set their directories separately. Preserve the original sample size, manifest, source root, taxonomy and policy:
 
 ```sh
 RUN_ID="your-claim-run-id"
-CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
-CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
+CANDIDATES_DIR="artifacts/${RUN_ID}/claim-generation"
+CLASSIFIED_DIR="artifacts/${RUN_ID}/claim-classification"
+CLAIM_REVIEW_DIR="artifacts/${RUN_ID}/claim-review"
 MANIFEST_PATH="data/manifest.json"
 SOURCE_ROOT="."
 TAXONOMY_PATH="config/topics-v1.json"
 REVIEW_POLICY="config/review-policy.json"  # selects claim_generation_and_classification
 SAMPLE_PER_DOCUMENT=12
-EVALUATION_REPORT="$CLASSIFIED_DIR/compilation-evaluation-report.json"
-REVIEW_FILE="$CLASSIFIED_DIR/compilation-review.json"
+EVALUATION_REPORT="$CLAIM_REVIEW_DIR/report.json"
+REVIEW_FILE="$CLAIM_REVIEW_DIR/review.json"
 ```
 
 1. Read `doc/claim-generation-and-classification.md`, `doc/claim-evaluation.md` and the taxonomy. Initialize evaluation when the review file is absent; otherwise validate and reuse it without resetting judgments. Use the same arguments for initialization and final evaluation:

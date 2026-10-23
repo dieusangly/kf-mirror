@@ -3,12 +3,15 @@
 `scripts/auto_review_parsing.py` audits saved parsing outputs; the
 [agent prompt](../src/knowledge_foundry/prompts/agent_prompt_parsing_review) adds
 independent inspection against saved originals. Both must pass before chunking.
+Managed `parsing-review` performs and records the audit itself; the standalone
+audit command below is optional for diagnosis.
 
 ## Automated audit
 
 ```sh
 RUN_ID="your-parsing-run-id"
-PARSED_DIR="artifacts/parsed-${RUN_ID}"
+PARSED_DIR="artifacts/${RUN_ID}/parsing"
+PARSING_REVIEW_DIR="artifacts/${RUN_ID}/parsing-review"
 direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
   --input-dir "$PARSED_DIR" --source-root . \
   --output "$PARSED_DIR/parsing-evaluation-report.json"
@@ -45,8 +48,8 @@ direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
   --manifest data/manifest.json --review-policy config/review-policy.json \
   --required-pages tests/fixtures/parsing-expanded-review-pages.json \
   --sample-per-document 12 \
-  --initialize-review "$PARSED_DIR/parsing-review.json" \
-  --output "$PARSED_DIR/parsing-review-report.json"
+  --initialize-review "$PARSING_REVIEW_DIR/review.json" \
+  --output "$PARSING_REVIEW_DIR/report.json"
 ```
 
 After inspection, repeat with `--review-file` instead of `--initialize-review`,

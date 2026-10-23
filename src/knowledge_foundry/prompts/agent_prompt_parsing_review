@@ -10,15 +10,16 @@ Initialize only when no review exists, otherwise reuse it. Example initializatio
 
 ```sh
 RUN_ID="your-completed-run-id"
-PARSED_DIR="artifacts/parsed-${RUN_ID}"
+PARSED_DIR="artifacts/${RUN_ID}/parsing"
+PARSING_REVIEW_DIR="artifacts/${RUN_ID}/parsing-review"
 
 direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
   --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
   --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
   --sample-per-document "$SAMPLE_PER_DOCUMENT" \
   --required-pages tests/fixtures/parsing-expanded-review-pages.json \
-  --initialize-review "$PARSED_DIR/parsing-review.json" \
-  --output "$PARSED_DIR/parsing-review-report.json"
+  --initialize-review "$PARSING_REVIEW_DIR/review.json" \
+  --output "$PARSING_REVIEW_DIR/report.json"
 ```
 
 For final evaluation or reuse, replace --initialize-review with --review-file,

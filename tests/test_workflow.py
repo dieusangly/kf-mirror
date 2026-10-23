@@ -14,6 +14,290 @@ def limits(**changes):
                               'max_review_sessions': 6, 'max_stage_attempts': 3} | changes))
 
 
+@pytest.fixture
+def manual(controller):
+    controller.mode = 'manual'
+    controller.state['execution_mode'] = 'manual'
+    return controller
+
+
+def test_manual_steps_use_latest_paths_and_block_missing_pending_gates(manual, commands):
+    with pytest.raises(ValueError, match='missing prerequisite'):
+        manual.run(limits(), only_stage='parse')
+    assert not commands[0]
+    for stage in ('ingest', 'parse', 'parsing_evaluation'):
+        manual.run(limits(), only_stage=stage)
+    assert manual.output('parse') == manual.directory / 'parsing'
+    assert manual.output('parsing_evaluation') == manual.directory / 'parsing/automatic-review'
+    assert not manual.stale()
+    with pytest.raises(ValueError, match='gate pending'):
+        manual.run(limits(allow_paid=False), only_stage='parsing_review')
+    assert manual.state['review_sessions_started'] == 0
+    with pytest.raises(ValueError, match='missing prerequisite'):
+        manual.run(limits(), only_stage='chunk')
+    assert 'chunk' not in manual.state['stages']
+    with pytest.raises(ValueError, match='manual runs require step'):
+        manual.run(limits())
+
+
+def test_manual_parsing_review_records_embedded_audit_without_separate_process(manual, commands):
+    for stage in ('ingest', 'parse'):
+        manual.run(limits(), only_stage=stage)
+    with pytest.raises(ValueError, match='gate pending'):
+        manual.run(limits(allow_paid=False), only_stage='parsing_review')
+    assert [stage for stage, _ in commands[0]] == ['ingest', 'parse', 'parsing_review']
+    audit = manual.state['stages']['parsing_evaluation']
+    assert audit['status'] == 'complete'
+    saved = Path(audit['directory']) / 'report.json'
+    assert w.read(saved) == w.read(manual.output('parsing_review') / 'report.json')['automatic_audit']
+    before = saved.read_bytes()
+    fixture_judgment(manual, 'parsing_review', manual.output('parsing_review'))
+    manual.run(limits(allow_paid=False), only_stage='parsing_review')
+    assert saved.read_bytes() == before and not manual.stale()
+    assert manual.state['stages']['parsing_review']['upstream']['parsing_evaluation']['fingerprints'] == audit['fingerprints']
+    saved.write_text('{}')
+    with pytest.raises(ValueError, match='saved artifacts changed'):
+        manual.run(limits(), only_stage='chunk')
+
+
+@pytest.mark.parametrize('defect', ['failed', 'missing', 'inconsistent', 'invalid_exit'])
+def test_embedded_audit_failures_block_agent_and_downstream_even_on_exit_zero(manual, commands, monkeypatch, defect):
+    original = commands[1]
+    for stage in ('ingest', 'parse'):
+        manual.run(limits(), only_stage=stage)
+    def execute(command, out, timeout, **kwargs):
+        rc = original(command, out, timeout, **kwargs)
+        report = w.read(out / 'report.json')
+        if defect == 'missing':
+            report.pop('automatic_audit')
+        elif defect in {'failed', 'inconsistent'}:
+            report['automatic_audit']['gate']['status'] = 'fail'
+            if defect == 'failed':
+                report.update(automatic_gate='fail', gate='fail')
+        w.write(out / 'report.json', report)
+        return 2 if defect == 'invalid_exit' else rc
+    monkeypatch.setattr(w, 'execute', execute)
+    def no_agent(*args):
+        pytest.fail('agent inspection must not start before the automatic gate passes')
+    monkeypatch.setattr(manual, 'independent_review', no_agent)
+    with pytest.raises(ValueError):
+        manual.run(limits(), only_stage='parsing_review', agent_review=True)
+    assert manual.state['stages']['parsing_review']['status'] == 'failed'
+    assert manual.state['stages'].get('parsing_evaluation', {}).get('status') != 'complete'
+    with pytest.raises(ValueError, match='missing prerequisite'):
+        manual.run(limits(), only_stage='chunk')
+
+
+def test_manual_archive_groups_findings_invalidates_downstream_and_preserves_costs(manual, commands):
+    for stage in ('ingest', 'parse', 'parsing_evaluation'):
+        manual.run(limits(), only_stage=stage)
+    with pytest.raises(ValueError, match='pending'):
+        manual.run(limits(), only_stage='parsing_review')
+    fixture_judgment(manual, 'parsing_review', manual.output('parsing_review'))
+    manual.run(limits(), only_stage='parsing_review')
+    manual.run(limits(), only_stage='chunk')
+    with pytest.raises(ValueError, match='pending'):
+        manual.run(limits(), only_stage='chunk_review')
+    preserved = {name: w.fingerprints(manual.output(name)) for name in manual.state['stages']}
+    parse_dir = manual.output('parse')
+    manual.repair('parse', 'Corrected parsing prerequisite; preserve prior outputs and findings')
+    assert set(manual.state['stages']) == {'ingest'}
+    assert not parse_dir.exists()
+    for entry in manual.state['history']:
+        directory = Path(entry['directory'])
+        assert '/history/' in str(directory) and 'attempt-' not in str(directory)
+        saved = w.fingerprints(directory)
+        expected = preserved[entry['stage']]
+        if entry['stage'] == 'parse':
+            expected = {k: v for k, v in expected.items() if not k.startswith('automatic-review/')}
+        assert saved == expected
+    archived_review = next(Path(e['directory']) for e in manual.state['history'] if e['stage'] == 'parsing_review')
+    assert w.read(archived_review / 'review.json')['reviews'][0]['notes']
+    assert archived_review.name == 'review' and (archived_review.parent / 'outputs').is_dir()
+    manual.run(limits(), only_stage='parse')
+    assert manual.output('parse') == parse_dir
+    assert manual.state['stages']['parse']['attempt'] == 2
+    assert manual.state['stages']['parse']['upstream']['ingest']['fingerprints'] == preserved['ingest']
+    calls = len(commands[0])
+    manual.run(limits(), only_stage='parse')
+    assert len(commands[0]) == calls  # Repeat completed steps reuse current outputs.
+    assert 'parsing_review' not in manual.state['stages']
+    with pytest.raises(ValueError, match='missing prerequisite'):
+        manual.run(limits(), only_stage='chunk')
+    report = w.read(manual.directory / 'report.json')
+    assert report['execution_mode'] == 'manual'
+    assert report['cost']['estimated_total_usd'] is None  # External review usage is unknown.
+
+
+def test_manual_interrupted_stage_archives_partial_output_before_restart(manual, commands, monkeypatch):
+    manual.run(limits(), only_stage='ingest')
+    original = commands[1]
+    def interrupt(command, out, timeout, **kwargs):
+        target = manual.output('parse')
+        target.mkdir(parents=True, exist_ok=True)
+        (target / 'partial.txt').write_text('unfinished source evidence')
+        raise KeyboardInterrupt()
+    monkeypatch.setattr(w, 'execute', interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        manual.run(limits(), only_stage='parse')
+    monkeypatch.setattr(w, 'execute', original)
+    manual.run(limits(), only_stage='parse')
+    archived = next(e for e in manual.state['history'] if e['stage'] == 'parse')
+    assert (Path(archived['directory']) / 'partial.txt').read_text() == 'unfinished source evidence'
+    assert not (manual.output('parse') / 'partial.txt').exists()
+
+
+def test_manual_untracked_outputs_and_failed_reviews_are_not_overwritten(manual, commands):
+    manual.run(limits(), only_stage='ingest')
+    untracked = manual.directory / 'parsing'
+    untracked.mkdir()
+    (untracked / 'evidence.txt').write_text('not managed by this run')
+    with pytest.raises(ValueError, match='untracked output'):
+        manual.run(limits(), only_stage='parse')
+    assert (untracked / 'evidence.txt').read_text() == 'not managed by this run'
+    with pytest.raises(ValueError, match='fixture/test-only'):
+        manual.run(limits(), only_stage='publish')
+
+
+def test_current_and_legacy_run_discovery_and_mode_isolation(controller):
+    controller.save()
+    assert controller.directory == controller.root / 'artifacts/fixture-run'
+    with pytest.raises(ValueError, match='execution mode differs'):
+        w.Workflow('fixture-run', root=controller.root, mode='manual')
+    legacy = controller.root / 'artifacts/workflow/fixture-run'
+    legacy.parent.mkdir()
+    controller.directory.rename(legacy)
+    state = w.read(legacy / 'state.json')
+    state.pop('layout_version')
+    state.pop('execution_mode')
+    w.write(legacy / 'state.json', state)
+    restored = w.Workflow('fixture-run', root=controller.root)
+    assert restored.directory == legacy and restored.stage_path('parse') == legacy / 'parse'
+    w.write(controller.directory / 'state.json', state)
+    with pytest.raises(ValueError, match='ambiguous run ID'):
+        w.Workflow('fixture-run', root=controller.root)
+
+
+def test_step_cli_initializes_only_requested_stage_and_records_report(controller, commands, monkeypatch, capsys):
+    original = w.Workflow
+    monkeypatch.setattr(w, 'Workflow', lambda run_id, config, **kw: original(run_id, config, root=controller.root, **kw))
+    assert w.main(['step', '--run-id', 'fixture-run', '--stage', 'ingestion',
+                   '--config', str(controller.config_path), '--max-paid-stages', '0']) == 0
+    assert len(commands[0]) == 1
+    saved = w.read(controller.directory / 'state.json')
+    assert saved['execution_mode'] == 'manual' and set(saved['stages']) == {'ingest'}
+    assert Path(saved['stages']['ingest']['directory']) == controller.directory / 'ingestion'
+    assert w.read(Path(json.loads(capsys.readouterr().out)['report_path']))['execution_mode'] == 'manual'
+
+
+def test_real_manual_ingestion_parsing_and_audit_are_saved_offline(manual, monkeypatch):
+    original = manual.command
+    def command(stage, out):
+        argv = original(stage, out)
+        argv[1] = str(w.ROOT / 'scripts' / Path(argv[1]).name)
+        return argv
+    monkeypatch.setattr(manual, 'command', command)
+    for stage in ('ingest', 'parse', 'parsing_evaluation'):
+        manual.run(limits(allow_paid=False), only_stage=stage)
+    assert w.read(manual.directory / 'ingestion/report.json')['outcomes'][0]['status'] == 'ingested'
+    assert w.read(manual.directory / 'parsing/report.json')['outcomes'][0]['status'] == 'parsed'
+    assert w.read(manual.directory / 'parsing/automatic-review/report.json')['gate']['status'] == 'pass'
+    assert not manual.stale()
+
+
+def test_real_parsing_review_initialization_provides_required_audit_offline(manual, monkeypatch):
+    policy = manual.root / 'config/review-policy.json'
+    policy.write_bytes((w.ROOT / 'config/review-policy.json').read_bytes())
+    manual.state['identity'] = w.input_identity(manual.root, manual.config_path)
+    for method in ('command', 'review_command'):
+        original = getattr(manual, method)
+        def executable(stage, out, original=original):
+            argv = original(stage, out)
+            argv[1] = str(w.ROOT / 'scripts' / Path(argv[1]).name)
+            return argv
+        monkeypatch.setattr(manual, method, executable)
+    for stage in ('ingest', 'parse'):
+        manual.run(limits(allow_paid=False), only_stage=stage)
+    with pytest.raises(ValueError, match='gate pending'):
+        manual.run(limits(allow_paid=False), only_stage='parsing_review')
+    report = w.read(manual.output('parsing_review') / 'report.json')
+    assert report['automatic_gate'] == 'pass' and report['review_gate'] == 'pending'
+    assert manual.state['stages']['parsing_evaluation']['status'] == 'complete'
+    assert manual.state['review_sessions_started'] == 0
+    assert not manual.stale()
+
+
+def test_flat_model_outputs_use_fresh_directories_and_keep_logs_out_of_manifests(manual):
+    from claim_fixtures import prepare_claim_review, prepare_fixture
+    fixture_root = manual.root / 'mechanical-model-fixtures'
+    fixture_root.mkdir()
+    scenario = prepare_claim_review(fixture_root)
+    context = prepare_fixture(scenario.chunked, scenario.config)
+    manual.limits, manual.started = limits(), w.time.monotonic()
+    generated = manual.stage_path('generate')
+    for stage, script, inputs in (
+        ('generate', 'generate_claims.py', ['--context-dir', str(context)]),
+        ('classify', 'classify_claims.py', ['--candidates-dir', str(generated)]),
+    ):
+        out = manual.stage_path(stage)
+        manual.state['stages'][stage] = {'directory': str(out), 'bundle_directory': str(out), 'status': 'running',
+                                       'attempt': 1, 'executions': 1, 'started_at': w.now()}
+        argv = [w.sys.executable, str(w.ROOT / 'scripts' / script), *inputs,
+                '--config', str(scenario.config), '--fixture', str(scenario.fixture), '--output-dir', str(out)]
+        assert not out.exists()
+        assert manual.execute_stage(stage, argv, out) == 0
+        assert manual.validate_stage(stage, out, 0) == 'pass'
+        assert manual.finalized_checkpoint(stage, out)
+        assert (out / 'execution/stdout.log').exists()
+        assert not (out / 'build').exists()
+        manifest = w.read(out / 'build-manifest.json')
+        assert all(not row['path'].startswith('execution/') for row in manifest['outputs'])
+        manual.state['stages'][stage]['status'] = 'complete'
+        manual.state['stages'][stage]['fingerprints'] = w.fingerprints(out)
+    assert not (manual.directory / '.execution').exists()
+
+
+def test_pending_execution_logs_survive_hard_interruption_and_archive_with_stage(manual, commands):
+    manual.run(limits(), only_stage='ingest')
+    partial = manual.stage_path('parse')
+    logs = manual.directory / '.execution/interrupted-parse'
+    w.write(logs / 'command.json', {'argv': ['fixture parser']})
+    (logs / 'stderr.log').write_text('interrupted before creating outputs')
+    manual.state['stages']['parse'] = {'directory': str(partial), 'bundle_directory': str(partial),
+        'status': 'running', 'attempt': 1, 'executions': 1, 'started_at': w.now(), 'pending_logs': str(logs)}
+    manual.save()
+    manual.run(limits(), only_stage='parse')
+    archived = next(entry for entry in manual.state['history'] if entry['stage'] == 'parse')
+    assert (Path(archived['directory']) / 'execution/stderr.log').read_text() == 'interrupted before creating outputs'
+    assert not logs.exists()
+
+
+def test_external_failed_judgment_blocks_review_reset_before_state_registration(manual, commands):
+    for stage in ('ingest', 'parse', 'parsing_evaluation'):
+        manual.run(limits(), only_stage=stage)
+    with pytest.raises(ValueError, match='pending'):
+        manual.run(limits(), only_stage='parsing_review')
+    path = manual.output('parsing_review') / 'review.json'
+    review = w.read(path)
+    review['reviews'][0].update(status='fail', severity='critical', notes='Source defect; rebuild required')
+    w.write(path, review)
+    with pytest.raises(ValueError, match='failed review requires rebuilding'):
+        manual.repair('parsing_review', 'Reset review without rebuilding is disallowed')
+    assert path.exists() and w.read(path)['reviews'][0]['status'] == 'fail'
+
+
+def test_manual_history_cannot_escape_through_symlink(manual, commands, tmp_path):
+    manual.run(limits(), only_stage='ingest')
+    unrelated = tmp_path / 'unrelated-history'
+    unrelated.mkdir()
+    (manual.directory / 'history').symlink_to(unrelated, target_is_directory=True)
+    before = w.fingerprints(manual.output('ingest'))
+    with pytest.raises(ValueError, match='history directory escapes'):
+        manual.repair('ingest', 'Preserve unrelated directories during history rotation')
+    assert w.fingerprints(manual.output('ingest')) == before
+    assert list(unrelated.iterdir()) == []
+
+
 def test_reviewer_runtime_preserves_configuration_and_cleans_private_files(tmp_path, monkeypatch):
     configured = tmp_path / 'configured-home'
     configured.mkdir()
@@ -61,10 +345,14 @@ def controller(tmp_path):
 
 
 @pytest.fixture
-def commands(monkeypatch):
+def commands(monkeypatch, controller):
     calls = []
     def execute(command, directory, timeout, **kwargs):
-        stage = directory.parent.name
+        relative = directory.relative_to(controller.directory)
+        if relative.name.startswith('attempt-'):
+            relative = relative.parent
+        stage = directory.name.split('-')[0] if directory.parent.name == '.execution' else w.STAGE_NAMES.get(str(relative), str(relative))
+        bundle = Path(command[command.index('--output-dir') + 1]) if '--output-dir' in command else directory
         calls.append((stage, command))
         directory.mkdir(parents=True, exist_ok=True)
         if stage in w.REVIEWS:
@@ -74,15 +362,18 @@ def commands(monkeypatch):
             review = w.read(review_path)
             statuses = {r['status'] for r in review['reviews']}
             status = 'fail' if 'fail' in statuses else 'pending_review' if 'pending' in statuses else 'pass'
-            w.write(directory / 'report.json', {'automatic_gate': 'pass', 'review_gate': status, 'gate': status})
+            report = {'automatic_gate': 'pass', 'review_gate': status, 'gate': status}
+            if stage == 'parsing_review':
+                report['automatic_audit'] = {'gate': {'status': 'pass'}}
+            w.write(directory / 'report.json', report)
             return 0  # Deliberately 0 even when pending/failed: gate fields must win.
         if stage in {'parse', 'ingest'}:
-            w.write(directory / ('build/report.json' if stage == 'parse' else 'report.json'),
+            w.write((bundle if stage == 'parse' else directory) / 'report.json',
                     {'outcomes': [{'status': 'parsed' if stage == 'parse' else 'ingested'}]})
         elif stage == 'parsing_evaluation':
             w.write(directory / 'report.json', {'gate': {'status': 'pass'}})
         elif stage in {'structure', 'summaries', 'generate', 'classify'}:
-            w.write(directory / 'build/report.json', {'status': 'complete', 'errors': [], 'telemetry': {'estimated_cost_usd': 0}})
+            w.write(bundle / 'report.json', {'status': 'complete', 'errors': [], 'telemetry': {'estimated_cost_usd': 0}})
         elif stage == 'graph':
             (directory / 'graph.html').write_text('fixture graph')
         elif stage == 'index':
@@ -108,7 +399,7 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
     controller.run(limits())
     calls, _ = commands
-    assert set(stage for stage, _ in calls) == set(w.STAGES) - {'publish'}
+    assert set(stage for stage, _ in calls) == set(w.STAGES) - {'publish', 'parsing_evaluation'}
     assert [s for s, _ in calls].index('summaries') < [s for s, _ in calls].index('claim_review')
     parsing = next(cmd for stage, cmd in calls if stage == 'parse')
     assert parsing[parsing.index('--run-id') + 1] == controller.state['run_id']
@@ -126,6 +417,24 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     with pytest.raises(ValueError, match='fixture/test-only'):
         resumed.run(limits(), publish=True)
     assert not any(stage == 'publish' for stage, _ in calls)
+
+
+def test_legacy_layout_keeps_its_existing_audit_stage(controller, commands, monkeypatch):
+    controller.state.pop('layout_version')
+    monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
+    controller.run(limits(), stop_after='parsing_review')
+    assert any(stage == 'parsing_evaluation' for stage, _ in commands[0])
+    assert controller.state['stages']['parsing_evaluation']['status'] == 'complete'
+    assert controller.state['stages']['parsing_review']['status'] == 'complete'
+
+
+def test_existing_v2_runs_keep_nested_build_paths(controller, commands):
+    controller.state['layout_version'] = 2
+    controller.run(limits(), stop_after='parse')
+    restored = w.Workflow('fixture-run', root=controller.root)
+    assert restored.bundle_directory('parse') == restored.output('parse') / 'build'
+    assert (restored.bundle_directory('parse') / 'report.json').exists()
+    assert restored.state['layout_version'] == 2
 
 
 @pytest.mark.parametrize('review_stage', ['parsing_review', 'chunk_review'])
@@ -197,9 +506,11 @@ def test_interruption_resume_preserves_attempt_and_restarts_frozen_builder(contr
     interrupted = False
     def execute(command, out, timeout, **kwargs):
         nonlocal interrupted
-        if out.parent.name == 'parse' and not interrupted:
+        if command[1].endswith('/parse.py') and not interrupted:
             interrupted = True
-            (out / 'partial.txt').write_text('retain me')
+            target = Path(command[command.index('--output-dir') + 1])
+            target.mkdir(parents=True, exist_ok=True)
+            (target / 'partial.txt').write_text('retain me')
             raise KeyboardInterrupt()
         return original_execute(command, out, timeout, **kwargs)
     monkeypatch.setattr(w, 'execute', execute)
@@ -426,7 +737,7 @@ def test_publication_rejects_development_and_stale_acceptance(controller):
 
 
 def test_partial_and_missing_vectors_do_not_pass(controller, tmp_path):
-    w.write(tmp_path / 'build/report.json', {'status': 'partial', 'errors': []})
+    w.write(controller.bundle_directory('generate', tmp_path) / 'report.json', {'status': 'partial', 'errors': []})
     assert controller.validate_stage('generate', tmp_path, 0) == 'failed'
     w.write(tmp_path / 'stdout.log', {'snapshot_id': 's', 'vector_coverage': {'claim': {'vectors': 1, 'records': 2}}})
     assert controller.validate_stage('index', tmp_path, 0) == 'failed'
@@ -437,21 +748,21 @@ def test_partial_and_missing_vectors_do_not_pass(controller, tmp_path):
 def test_generation_and_classification_resume_existing_checkpoints(controller):
     for stage in ('structure', 'generate'):
         out = controller.directory / stage / 'attempt-1'
-        (out / 'build').mkdir(parents=True)
+        controller.bundle_directory(stage, out).mkdir(parents=True)
         controller.state['stages'][stage] = {'directory': str(out), 'status': 'complete'}
     generated = controller.directory / 'generate/attempt-2'
     classified = controller.directory / 'classify/attempt-1'
-    (generated / 'build').mkdir(parents=True)
-    (classified / 'build').mkdir(parents=True)
+    w.write(controller.bundle_directory('generate', generated) / 'generation-checkpoint.json', {})
+    w.write(controller.bundle_directory('classify', classified) / 'classification-checkpoint.json', {})
     assert '--resume' in controller.command('generate', generated)
     assert '--resume' in controller.command('classify', classified)
 
 
 def test_finalized_interrupted_exports_are_hash_checked_before_reuse(controller, tmp_path):
-    w.write(tmp_path / 'build/report.json', {'status': 'complete', 'errors': []})
-    w.write(tmp_path / 'build/build-manifest.json', {'outputs': [{'path': 'report.json', 'sha256': w.digest(tmp_path / 'build/report.json')}]})
+    w.write(controller.bundle_directory('generate', tmp_path) / 'report.json', {'status': 'complete', 'errors': []})
+    w.write(controller.bundle_directory('generate', tmp_path) / 'build-manifest.json', {'outputs': [{'path': 'report.json', 'sha256': w.digest(controller.bundle_directory('generate', tmp_path) / 'report.json')}]})
     assert controller.finalized_checkpoint('generate', tmp_path)
-    (tmp_path / 'build/report.json').write_text('{}')
+    (controller.bundle_directory('generate', tmp_path) / 'report.json').write_text('{}')
     with pytest.raises(ValueError, match='integrity mismatch'):
         controller.finalized_checkpoint('generate', tmp_path)
 

@@ -1,248 +1,188 @@
 # Source-to-chatbot runbook
 
-Run from the repository root in one shell. Stop dependent stages on failed/pending
-gates. Prerequisites: [Python/direnv](ingestion.md), [Tesseract French/English](parsing.md#setup),
-Poppler, `OPENAI_API_KEY` for model steps and [PostgreSQL/pgvector](retrieval-rag.md#1-create-the-local-database-once).
-For saved-pilot reuse see [RAG setup](retrieval-rag.md).
-
-Manual commands do not populate [controller state/reports](resumable-pilot-workflow.md).
-Launch fresh independent reviewers with `reviewers` settings from
-`config/workflow.json`; retain session identities, judgments and usage.
-The [17-file scope](french-aml-cft-pilot-sources-and-evaluation.md) includes the accepted PPE limitation.
+Run one stage at a time from the repository root. Prerequisites:
+[Python/direnv](ingestion.md), [Tesseract French/English](parsing.md#setup), Poppler,
+API credentials for model steps and [PostgreSQL/pgvector](retrieval-rag.md#1-create-the-local-database-once).
+For older saved outputs, use [RAG setup](retrieval-rag.md).
 
 ## Inputs and paths
 
-Save originals and update manifest paths, hashes, sizes and editions; ingestion
-does not download. Select IDs and matching HTML selectors, OCR languages and
-review fixtures. Defaults select the AML/CFT pilot.
+Save originals and update manifest paths, hashes, sizes and editions. Configure
+selection, parsers, taxonomy, models and retrieval in `config/workflow.json` and
+its referenced configs. Defaults select the [17-file pilot](french-aml-cft-pilot-sources-and-evaluation.md).
+Both structural/claim configs must [reference each other](structural-chunks-and-semantic-clusters.md#configuration-and-budgets).
 
 ```sh
-RUN_ID="your-new-run-id"
-INPUT_RUN_ID="$RUN_ID"  # change only when reusing reviewed parsed/chunked inputs
-CORPUS_ID="aml-cft-expanded-pilot"  # matches config/workflow.json
-SOURCE_ROOT="."  # same source root as pipeline.json's resolved root
-MANIFEST_PATH="data/manifest.json"
-PIPELINE_CONFIG="config/pipeline.json"
-REVIEW_POLICY="config/review-policy.json"
-SAMPLE_PER_DOCUMENT=12
-PARSING_REVIEW_PAGES="tests/fixtures/parsing-expanded-review-pages.json"
-STRUCTURAL_CONFIG="config/structural-chunks-and-semantic-clusters.json"
-CLAIM_CONFIG="config/claim-generation-and-classification.json"
-SUMMARY_CONFIG="config/summaries.json"
-TAXONOMY_PATH="config/topics-v1.json"
-RETRIEVAL_CONFIG="config/retrieval-multilingual.json"
-CORPORA_CONFIG="config/retrieval-corpora.json"
-PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
-CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
-CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${RUN_ID}"
-CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
-CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
-SUMMARY_DIR="artifacts/summaries-${RUN_ID}"
-IMPORT_RESULT="artifacts/retrieval-import-${RUN_ID}.json"
+RUN_ID="YYYYMMDD-manual-workflow"  # replace YYYYMMDD with your run date
+RUN_DIR="artifacts/${RUN_ID}"
+WORKFLOW_CONFIG="config/workflow.json"
+PARSED_DIR="$RUN_DIR/parsing"
+CHUNKED_DIR="$RUN_DIR/chunking"
+CONTEXT_DIR="$RUN_DIR/structural-chunks-and-semantic-clusters"
+CANDIDATES_DIR="$RUN_DIR/claim-generation"
+CLASSIFIED_DIR="$RUN_DIR/claim-classification"
+SUMMARY_DIR="$RUN_DIR/summary-generation"
+
+stage() {
+  direnv exec . .venv/bin/python scripts/workflow.py step \
+    --run-id "$RUN_ID" --config "$WORKFLOW_CONFIG" \
+    --max-seconds 14400 --max-paid-stages 6 --max-review-sessions 4 \
+    --max-stage-attempts 3 "$@"
+}
 ```
 
-Use fresh output directories. For another corpus, select matching configs,
-manifest, source root, review locations and taxonomy. The structural config and
-claim config must
-[reference each other](structural-chunks-and-semantic-clusters.md#configuration-and-budgets).
-Set the retrieval text-search language and embedding profile before importing.
+Manual runs keep latest outputs under `<stage>/`, with bundle files directly inside.
+`state.json` and `report.json` record commands, upstream hashes, gates and measured
+costs. Builder logs live in `execution/`; prior saved layouts remain unchanged.
+No step runs prerequisites automatically or falls back to history. Budgets
+are cumulative across steps/rebuilds, not dollar caps. Completed steps are reused.
+Direct low-level scripts remain available in stage guides; they do not manage history.
 
 ## 1. Ingest, parse and review
 
 ```sh
-direnv exec . .venv/bin/python scripts/ingest.py --config "$PIPELINE_CONFIG"
-direnv exec . .venv/bin/python scripts/parse.py --config "$PIPELINE_CONFIG" \
-  --output-dir "$PARSED_DIR" --run-id "$INPUT_RUN_ID"
-direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
-  --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
-  --output "$PARSED_DIR/parsing-evaluation-report.json"
+stage --stage ingestion
+stage --stage parsing
+stage --stage parsing-review
 ```
 
-**Gate:** each command exits 0; parsing evaluation has `gate.status: pass`.
-[Source-checked reference fixtures](parsing-evaluation.md) are optional and must
-match the selected source editions. Unresolved/partial outputs need inspection.
-Then initialize independent parsing review:
-
-```sh
-direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
-  --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
-  --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
-  --sample-per-document "$SAMPLE_PER_DOCUMENT" --required-pages "$PARSING_REVIEW_PAGES" \
-  --initialize-review "$PARSED_DIR/parsing-review.json" \
-  --output "$PARSED_DIR/parsing-review-report.json"
-```
-
-Initialization can exit 0 while pending. Ask a fresh agent to follow
+Ingestion saves `ingestion/report.json`. Parsing must be fully `parsed`.
+`parsing-review` runs the automatic audit and saves its required checkpoint under
+`parsing/automatic-review/`; no separate audit command is needed. Automatic failures
+block inspection. Review initialization returns nonzero while pending: inspect
+`parsing-review/report.json`, then give a fresh independent agent
 [`agent_prompt_parsing_review`](../src/knowledge_foundry/prompts/agent_prompt_parsing_review)
-with these paths/settings. It inspects originals and evaluates with `--review-file`.
-Reuse existing reviews; never initialize over them. Keep mandatory-page selection
-consistent, replacing/omitting it for another corpus.
+with these exact paths, `parsing-review/review.json` and workflow sample/policy settings.
+After source inspection, rerun `stage --stage parsing-review` to record the gate.
+[Coverage and limitations](parsing-evaluation.md#independent-parsing-review).
 
-**Review gate:** `automatic_gate`, `review_gate` and `gate` must all be `pass` in
-`$PARSED_DIR/parsing-review-report.json` before step 2. See
-[coverage and limitations](parsing-evaluation.md#independent-parsing-review).
+For any of the three review stages, the controller can instead launch only that
+stage's configured independent reviewer by adding `--agent-review --allow-paid`.
+External agents must be launched explicitly with `reviewers` from `config/workflow.json`
+settings; prompts cannot select their running model. External inspection usage
+may remain unknown. Controller publication requires its verifiable session evidence.
 
 ## 2. Build and review original chunks
 
 ```sh
-direnv exec . .venv/bin/python scripts/chunk.py --config "$PIPELINE_CONFIG" \
-  --input-dir "$PARSED_DIR" --output-dir "$CHUNKED_DIR"
+stage --stage chunking
+stage --stage chunking-review
 ```
 
-**Gate:** exit 0. Then ask an agent to follow
-[`agent_prompt_chunking_review`](../src/knowledge_foundry/prompts/agent_prompt_chunking_review)
-with the exact parsed/chunked paths, manifest, source root, `REVIEW_POLICY` and
-`SAMPLE_PER_DOCUMENT`.
-It initializes/reuses the review, inspects saved originals and evaluates judgments.
-[Manual commands](chunking-evaluation.md) are also available.
-
-**Review gate:** `automatic_gate`, `review_gate` and `gate` must all be `pass` in
-`$CHUNKED_DIR/chunking-evaluation-report.json`. Never mark uninspected items passed.
-Reusing a reviewed build preserves its existing judgments.
+Give a fresh agent [`agent_prompt_chunking_review`](../src/knowledge_foundry/prompts/agent_prompt_chunking_review)
+with the exact build paths and `chunking-review/review.json`. After inspection,
+rerun `stage --stage chunking-review`. **All three gates must pass** before continuing.
+Pending/failed reviews block downstream steps, regardless of process exit code.
 
 ## 3. Structural chunk and semantic cluster build
 
 ```sh
-direnv exec . .venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
-  --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" \
-  --config "$STRUCTURAL_CONFIG" --output-dir "$CONTEXT_DIR" \
-  --cache-dir artifacts/embeddings-and-token-counts
+stage --stage structural-chunks-and-semantic-clusters --allow-paid
 ```
 
-**Gate:** exit 0 and a complete validated build of vectors, hierarchy, links and
-clusters. Claims/summaries consume it independently; there is no separate structural
-review. [Settings/rebuild rules](structural-chunks-and-semantic-clusters.md).
+Require a complete validated build. Claims and summaries consume it independently;
+there is no separate structural-review stage. [Settings/rebuild rules](structural-chunks-and-semantic-clusters.md).
 
 ## 4. Generate, classify and review claims
 
 ```sh
-direnv exec . .venv/bin/python scripts/generate_claims.py \
-  --context-dir "$CONTEXT_DIR" --config "$CLAIM_CONFIG" --output-dir "$CANDIDATES_DIR"
-direnv exec . .venv/bin/python scripts/classify_claims.py \
-  --candidates-dir "$CANDIDATES_DIR" --config "$CLAIM_CONFIG" \
-  --taxonomy "$TAXONOMY_PATH" --output-dir "$CLASSIFIED_DIR"
+stage --stage claim-generation --allow-paid
+stage --stage claim-classification --allow-paid
+stage --stage claim-review
 ```
 
-**Gate:** both exit 0, reports are complete and have no request errors.
-Then invoke [`agent_prompt_claim_review`](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
-with the exact candidate/classified paths, manifest, source root, taxonomy,
-`REVIEW_POLICY` and `SAMPLE_PER_DOCUMENT`.
-[Manual review commands](claim-evaluation.md) are also available.
-
-**Review gate:** automatic, review and overall gates must pass in
-`$CLASSIFIED_DIR/compilation-evaluation-report.json`. Claims remain drafts;
-a policy pass can retain recorded non-critical defects.
+Generation/classification must be complete without errors. Give a fresh agent
+[`agent_prompt_claim_review`](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
+with the exact builds and `claim-review/review.json`; then rerun `stage --stage claim-review`.
+Automatic, review and overall gates must pass. Claims remain drafts; recorded
+non-critical defects can remain within the unchanged policy thresholds.
 
 ## 5. Generate summaries independently
 
 ```sh
-direnv exec . .venv/bin/python scripts/generate_summaries.py \
-  --context-dir "$CONTEXT_DIR" --output-dir "$SUMMARY_DIR" \
-  --config "$SUMMARY_CONFIG" --cache-dir artifacts/summary-cache
+stage --stage summary-generation --allow-paid
 ```
 
-**Gate:** exit 0 and frozen-artifact validation. Summaries need only step 3 and
-remain drafts without an independent fidelity gate. Import fills missing final
-summary vectors. [Details](summaries.md).
+Requires the structural build, not claims. Summaries remain drafts without an
+independent fidelity gate. Indexing fills missing final-summary vectors. [Details](summaries.md).
 
 ## 6. Build the combined provenance graph
 
 ```sh
-direnv exec . .venv/bin/python scripts/render_knowledge_graph.py \
-  --bundle "$CLASSIFIED_DIR/artifact-bundle.json" \
-  --claim-generation-dir "$CANDIDATES_DIR" --summary-dir "$SUMMARY_DIR" \
-  --output "$CLASSIFIED_DIR/knowledge-provenance-graph.html"
+stage --stage provenance-graph
 ```
 
-**Gate:** exit 0; inspect both provenance paths in the HTML.
-Before opening chat, register these exact directories and `graph_path` under
-`CORPUS_ID`/`RUN_ID` in `CORPORA_CONFIG` ([template](retrieval-rag.md#other-corpora-and-commands)).
-The chatbot embeds compatible local HTML; no separate graph server is needed.
+Inspect `$RUN_DIR/provenance-graph/graph.html`. Register the exact build directories
+and this graph path under your corpus/run in `config/retrieval-corpora.json`
+([template](retrieval-rag.md#other-corpora-and-commands)). The chatbot embeds matching
+local HTML without another server.
 
 ## 7. Import vectors into an unpublished snapshot
 
-Create the database once using the [RAG setup](retrieval-rag.md#1-create-the-local-database-once).
-Then import the outputs above, rather than selecting an older preset run:
-
 ```sh
 direnv exec . .venv/bin/python scripts/index_artifacts.py migrate
-direnv exec . .venv/bin/python scripts/index_artifacts.py import \
-  --corpus "$CORPUS_ID" --config "$RETRIEVAL_CONFIG" \
-  --preparation-dir "$CONTEXT_DIR" --claims-dir "$CLASSIFIED_DIR" \
-  --summaries-dir "$SUMMARY_DIR" --embed-missing > "$IMPORT_RESULT"
-cat "$IMPORT_RESULT"
+stage --stage indexing --allow-paid
 ```
 
-**Gate:** exit 0. In `vector_coverage`, every imported kind must have `vectors ==
-records`. `--embed-missing` reuses compatible saved/cache vectors and fills missing
-claim and summary vectors; it may incur API costs. No upstream files are changed.
-
-```sh
-SNAPSHOT_ID=$(direnv exec . .venv/bin/python -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot_id"])' "$IMPORT_RESULT")
-```
-
-**Gate:** exit 0. Retain the explicit snapshot ID for evaluation; importing does not publish it.
-Passage-only RAG can start after step 3: omit the claim/summary directory arguments
-and skip their dependent steps. Keyword-only imports may omit `--embed-missing`;
-vector/combined queries require vectors for the selected kind.
+Require `vectors == records` for every kind in `indexing/stdout.log`. Import reuses
+compatible vectors/cache and fills gaps without changing upstream artifacts.
+Its saved snapshot ID is used automatically for retrieval and explicit publication.
 
 ## 8. Evaluate before publication
 
-Select source-reviewed cases matching the exact corpus and editions. Development
-smoke cases are useful for diagnosis but are not acceptance labels. Evaluate the
-explicit ready snapshot without selecting it for chat:
+Select matching cases and acceptance evidence in the workflow config before the
+run. Development cases are diagnostic, not approved labels.
 
 ```sh
-RETRIEVAL_CASES="path/to/source-reviewed-cases.json"
-direnv exec . .venv/bin/python scripts/evaluate_retrieval.py \
-  --corpus "$CORPUS_ID" --config "$RETRIEVAL_CONFIG" --snapshot-id "$SNAPSHOT_ID" \
-  --unpublished --cases "$RETRIEVAL_CASES" --modes passage claim summary \
-  --no-rerank --check-excerpts --output "artifacts/retrieval-evaluation-${RUN_ID}.json"
+stage --stage retrieval-evaluation --allow-paid
 ```
 
-**Gate:** all cases complete and each mode meets the acceptance target; inspect
-rows/metrics and semantic relevance against originals. Baselines, page overlap and
-anchors alone cannot approve. The controller requires combined hit rate ≥0.875
-and a source-checked attestation. Its `retrieval_acceptance: null` blocks publication;
-the checked-in 22 cases remain unreviewed development data.
+Every case must complete; each mode's combined hit rate must reach 0.875. Inspect
+semantic relevance against originals; page overlap/anchors alone cannot approve.
+The current 22 cases are unreviewed development data and `retrieval_acceptance`
+is null, so publication remains blocked.
 
 ## 9. Explicitly publish, query and start chat
 
-Only after all required build, review and retrieval checks pass:
-
 ```sh
-direnv exec . .venv/bin/python scripts/index_artifacts.py publish \
-  --corpus "$CORPUS_ID" --snapshot-id "$SNAPSHOT_ID"
+stage --stage publication
 ```
 
-**Gate:** exit 0. Publication is explicit; prior snapshots and histories remain.
-For controller-managed runs, `scripts/workflow.py publish` enforces the complete
-expanded-pilot gates. Manual outputs cannot be published through controller state
-automatically; the low-level command above relies on the operator verifying all
-required gates and acceptance evidence.
-
-```sh
-direnv exec . .venv/bin/python scripts/query.py 'Which documents are in this corpus?' \
-  --corpus "$CORPUS_ID" --config "$RETRIEVAL_CONFIG" --snapshot-id "$SNAPSHOT_ID" --provider openai
-direnv exec . env KF_RETRIEVAL_CONFIG="$RETRIEVAL_CONFIG" KF_CORPORA_CONFIG="$CORPORA_CONFIG" \
-  .venv/bin/python -m streamlit run apps/chat/app.py \
-  --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false
-```
-
-Open <http://127.0.0.1:8501>. Select the corpus/snapshot, ask corpus-specific
-questions, inspect citations and open the graph. Inventory success alone does
-not measure answer quality. Use [retrieval evaluation](retrieval-rag.md#validation-and-troubleshooting)
-with cases matching the corpus; compare passage, claim and summary modes.
-Without an API key, use keyword/source excerpts and **Documents in corpus**.
+Publication requires all fresh checks, source-checked acceptance and independent
+session evidence. External manual judgments alone cannot satisfy controller session
+verification; use `--agent-review` for managed reviews. The low-level
+`index_artifacts.py publish` command remains an operator-controlled alternative
+requiring the same checks; it does not update controller state. Prior snapshots remain.
+For queries/chat, follow [RAG setup](retrieval-rag.md) with this corpus/snapshot and
+`config/retrieval-multilingual.json`.
 
 ## Failures and reruns
 
-Stop dependent stages on failure, partial output or a pending required review.
-Preserve findings and frozen files; rebuild affected outputs into fresh directories.
-Never change judgments or thresholds to manufacture a pass.
+Correct the underlying defect before rebuilding; retain findings and thresholds.
+For an unchanged-code/config rebuild:
 
-Interrupted claim steps support `--resume`; finalized partial generation supports
-[`--retry-failed-from`](claim-generation-and-classification.md#optional-retry-failed-generation-clusters).
-Structural builds and summaries require fresh outputs; retain their caches.
-Parsing/chunking changes invalidate dependent builds and their reviews. RAG imports
-are repeatable; changed projections/vectors create a new snapshot to publish.
+```sh
+stage --stage parsing --rebuild \
+  --repair-note "Corrected the parsing prerequisite; rebuild and request fresh review"
+```
+
+Previous parsing outputs/audit/review move automatically to
+`history/parsing/<execution-start-UTC>/`, with `outputs/`, `automatic-review/`,
+`review/` and relocation metadata. Affected downstream stages are also archived;
+only rebuilt, passing current outputs can be consumed. UTC names include fractional
+seconds to avoid collisions; retry counts remain in state. Archived bytes/JSON are
+unchanged, so embedded original paths are historical; use the saved relocation map.
+
+Code/config/source/model changes require repair from ingestion or a fresh run:
+
+```sh
+stage --stage ingestion --rebuild \
+  --repair-note "Corrected parser implementation; invalidate affected outputs and reviews"
+```
+
+Then execute required stages again explicitly. Interrupted generation/classification
+reuse checkpoints; pending reviews retain judgments. Other interrupted stages
+archive before restarting. Repeated lack of progress exhausts bounded retries and
+needs escalation. Shared caches remain outside run directories. Existing standalone
+outputs are not moved/imported automatically; use exact paths in their original
+review process or start a managed run. [Automated workflow](resumable-pilot-workflow.md).

@@ -44,13 +44,13 @@ def component(name, telemetry, path, reason=None):
     return result
 
 
-def summary_generation(report, directory, issues):
+def summary_generation(report, bundle, issues):
     telemetry = dict(report.get('generation', report.get('telemetry', {})))
     if 'estimated_cost_usd' not in telemetry:
         if telemetry.get('requests') == 0:
             telemetry['estimated_cost_usd'] = 0
         elif report.get('usage_records'):
-            saved = directory / 'build/build-manifest.json'
+            saved = bundle / 'build-manifest.json'
             try:
                 # Use the rates saved with this build, never today's possibly changed config.
                 from knowledge_foundry.claim_context import pricing_for_step
@@ -66,7 +66,7 @@ def summary_generation(report, directory, issues):
     return telemetry
 
 
-def costs(stage, report, path, directory, issues):
+def costs(stage, report, path, directory, issues, bundle=None):
     """Select each charge once; copied preparation/projections/review telemetry are excluded."""
     selected = {}
     if stage == 'structure':
@@ -75,7 +75,7 @@ def costs(stage, report, path, directory, issues):
         selected = {k: report[k] for k in ('telemetry', 'claim_generation_request_token_counting') if k in report}
     elif stage == 'summaries':
         selected = {k: report[k] for k in ('embeddings', 'request_token_counting') if k in report}
-        selected['generation'] = summary_generation(report, directory, issues)
+        selected['generation'] = summary_generation(report, bundle or directory / 'build', issues)
     elif stage == 'index' and 'embedding_usage' in report:
         selected['embedding_usage'] = report['embedding_usage']
     elif stage == 'retrieval':
@@ -129,15 +129,16 @@ def review_component(measurement, issues, name):
 
 def attempt_report(stage, entry, current, issues):
     directory = Path(entry['directory'])
-    path = directory / ('build/report.json' if stage in BUILD_REPORTS else 'stdout.log' if stage == 'index' else 'report.json')
+    bundle = Path(entry.get('bundle_directory', directory / 'build'))
+    path = bundle / 'report.json' if stage in BUILD_REPORTS else directory / ('stdout.log' if stage == 'index' else 'report.json')
     data = load(path, issues) if path.exists() else {}
-    failure = directory / 'build/failure.json'
+    failure = bundle / 'failure.json'
     if not data and failure.exists():
         path, data = failure, load(failure, issues)
     row = {k: entry[k] for k in ('attempt', 'status', 'executions', 'started_at', 'finished_at', 'returncode',
                                  'error', 'invalidated_at', 'repair_note', 'execution_seconds') if k in entry}
     row.update(current=current, directory=str(directory), report_path=str(path) if path.exists() else None,
-               bundle_directory=str(directory / 'build') if (directory / 'build').is_dir() else None,
+               bundle_directory=str(bundle) if bundle.is_dir() else None,
                gates={k: data[k] for k in ('automatic_gate', 'review_gate', 'gate') if k in data})
     if 'metrics' in data:
         row['retrieval_metrics'] = data['metrics']
@@ -152,7 +153,7 @@ def attempt_report(stage, entry, current, issues):
             components.append(component('unreported_review', {}, directory, 'independent review usage was not recorded'))
     else:
         try:
-            components = costs(stage, data, path, directory, issues)
+            components = costs(stage, data, path, directory, issues, bundle)
         except (AttributeError, KeyError, TypeError, ValueError, ArithmeticError) as exc:
             issues.append({'path': str(path), 'reason': 'unusable telemetry: ' + str(exc)})
             components = [component('unusable_telemetry', {}, path, 'stage telemetry could not be interpreted')]
@@ -199,6 +200,7 @@ def build_report(state, stage_order, state_path, config_path, elapsed_seconds):
             subtotal += item['estimated_cost_usd']
     recorded_config = state.get('workflow_config', {})
     return {'schema_version': 1, 'run_id': state['run_id'], 'corpus': recorded_config.get('corpus'),
+            'execution_mode': state.get('execution_mode', 'automated'),
             'test_only': bool(recorded_config.get('test_only')) if recorded_config else None, 'status': state['status'],
             'created_at': state['created_at'], 'updated_at': state.get('updated_at'),
             'elapsed_seconds': elapsed_seconds, 'state_path': str(state_path), 'workflow_config_path': str(config_path),

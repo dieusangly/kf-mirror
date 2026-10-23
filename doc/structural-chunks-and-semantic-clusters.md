@@ -12,9 +12,9 @@ reviewed input run and a fresh build run:
 ```sh
 INPUT_RUN_ID="your-reviewed-chunking-run-id"
 CONTEXT_RUN_ID="your-new-build-run-id"
-CHUNKED_DIR="artifacts/chunked-${INPUT_RUN_ID}"
-PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
-CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
+CHUNKED_DIR="artifacts/${INPUT_RUN_ID}/chunking"
+PARSED_DIR="artifacts/${INPUT_RUN_ID}/parsing"
+CONTEXT_DIR="artifacts/${CONTEXT_RUN_ID}/structural-chunks-and-semantic-clusters"
 
 direnv exec . .venv/bin/python scripts/build_structural_chunks_and_semantic_clusters.py \
   --chunked-dir "$CHUNKED_DIR" --parsed-dir "$PARSED_DIR" \

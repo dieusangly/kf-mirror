@@ -29,19 +29,21 @@ root, select matching saved runs; set directories separately if IDs differ:
 
 ```sh
 RUN_ID="your-build-run-id"
-PARSED_DIR="artifacts/parsed-${RUN_ID}"
-CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
+PARSED_DIR="artifacts/${RUN_ID}/parsing"
+CHUNKED_DIR="artifacts/${RUN_ID}/chunking"
+CHUNK_REVIEW_DIR="artifacts/${RUN_ID}/chunking-review"
 MANIFEST_PATH="data/manifest.json"
 
 direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \
-  --initialize-review
+  --initialize-review "$CHUNK_REVIEW_DIR/review.json" \
+  --output "$CHUNK_REVIEW_DIR/report.json"
 ```
 
-Creates `chunking-evaluation-report.json` and pending `chunking-review.json` in
-`CHUNKED_DIR`. Inspect originals, record judgments, then rerun with `--review-file`.
+Creates `report.json` and pending `review.json` in `CHUNK_REVIEW_DIR`.
+Inspect originals, record judgments, then rerun with `--review-file`.
 
 Optional arguments apply to both evaluation steps:
 
@@ -79,7 +81,7 @@ Samples include text, source/version, locations and selection reasons. Resolve
 headings, boundaries, duplicates and whole-chunk support, including PDF layout.
 Uninspected sources stay pending.
 
-In `chunking-review.json`:
+In `$CHUNK_REVIEW_DIR/review.json`:
 
 - Preserve the build ID and every sampled chunk ID. A new build requires a new review.
 - Set `reviewer.kind` to `human` or `agent`, provide a nonempty `name`, and record
@@ -100,7 +102,8 @@ direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
   --chunked-dir "$CHUNKED_DIR" \
   --parsed-dir "$PARSED_DIR" \
   --manifest "$MANIFEST_PATH" \
-  --review-file "$CHUNKED_DIR/chunking-review.json"
+  --review-file "$CHUNK_REVIEW_DIR/review.json" \
+  --output "$CHUNK_REVIEW_DIR/report.json"
 ```
 
 The [policy](../config/review-policy.json) requires 100% review coverage,

@@ -43,10 +43,10 @@ completed run ID and a fresh summary run ID:
 ```sh
 CONTEXT_RUN_ID="your-completed-structural-chunk-and-semantic-cluster-run-id"
 RUN_ID="your-new-summary-run-id"
-CONTEXT_DIR="artifacts/structural-chunks-and-semantic-clusters-${CONTEXT_RUN_ID}"
+CONTEXT_DIR="artifacts/${CONTEXT_RUN_ID}/structural-chunks-and-semantic-clusters"
 
 direnv exec . .venv/bin/python scripts/generate_summaries.py \
-  --context-dir "$CONTEXT_DIR" --output-dir "artifacts/summaries-${RUN_ID}" \
+  --context-dir "$CONTEXT_DIR" --output-dir "artifacts/${RUN_ID}/summary-generation" \
   --config config/summaries.json --cache-dir artifacts/summary-cache
 ```
 

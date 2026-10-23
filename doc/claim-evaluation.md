@@ -8,12 +8,13 @@ the repository root; set directories separately if stage run IDs differ:
 
 ```sh
 RUN_ID="your-completed-run-id"
-CANDIDATES_DIR="artifacts/generated-claims-${RUN_ID}"
-CLASSIFIED_DIR="artifacts/classified-claims-${RUN_ID}"
+CANDIDATES_DIR="artifacts/${RUN_ID}/claim-generation"
+CLASSIFIED_DIR="artifacts/${RUN_ID}/claim-classification"
+CLAIM_REVIEW_DIR="artifacts/${RUN_ID}/claim-review"
 ```
 
 Frozen context lives in `CANDIDATES_DIR/preparation`; superseded claim/context runs
-are unnecessary. Keep reviews/reports with the classified run.
+are unnecessary. Keep judgments/reports in the separate claim-review stage.
 
 ## One agent-review task
 
@@ -38,11 +39,12 @@ Run once before handing the review file to a human:
 direnv exec . .venv/bin/python scripts/auto_review_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
-  --initialize-review
+  --initialize-review "$CLAIM_REVIEW_DIR/review.json" \
+  --output "$CLAIM_REVIEW_DIR/report.json"
 ```
 
-Creates `compilation-evaluation-report.json` and pending `compilation-review.json`
-in `CLASSIFIED_DIR`. Source review is still required. Both steps accept:
+Creates `report.json` and pending `review.json` in `CLAIM_REVIEW_DIR`.
+Source review is still required. Both steps accept:
 
 | Argument | Default / purpose |
 | --- | --- |
@@ -117,7 +119,8 @@ After inspection, reuse the initialization arguments with `--review-file`:
 direnv exec . .venv/bin/python scripts/auto_review_claims.py \
   --candidates-dir "$CANDIDATES_DIR" \
   --classified-dir "$CLASSIFIED_DIR" \
-  --review-file "$CLASSIFIED_DIR/compilation-review.json"
+  --review-file "$CLAIM_REVIEW_DIR/review.json" \
+  --output "$CLAIM_REVIEW_DIR/report.json"
 ```
 
 Claim evaluation and chunking evaluation share scoring: pass 10, minor 8, major 2, critical 0.

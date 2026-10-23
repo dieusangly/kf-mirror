@@ -5,8 +5,8 @@ Select saved bundles/`parse.json` sidecars and a fresh chunking directory:
 ```sh
 INPUT_RUN_ID="your-parsing-run-id"
 RUN_ID="your-chunking-run-id"
-PARSED_DIR="artifacts/parsed-${INPUT_RUN_ID}"
-CHUNKED_DIR="artifacts/chunked-${RUN_ID}"
+PARSED_DIR="artifacts/${INPUT_RUN_ID}/parsing"
+CHUNKED_DIR="artifacts/${RUN_ID}/chunking"
 
 direnv exec . .venv/bin/python scripts/chunk.py \
   --config config/pipeline.json \

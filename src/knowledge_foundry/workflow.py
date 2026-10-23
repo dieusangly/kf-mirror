@@ -32,6 +32,16 @@ DEPS = {'ingest': (), 'parse': ('ingest',), 'parsing_evaluation': ('parse',),
 PAID = {'structure', 'summaries', 'generate', 'classify', 'index', 'retrieval'}
 REVIEWS = {'parsing_review', 'chunk_review', 'claim_review'}
 RESUMABLE = {'generate', 'classify'}
+BUNDLE_STAGES = {'parse', 'chunk', 'structure', 'summaries', 'generate', 'classify'}
+STAGE_PATHS = {'ingest': 'ingestion', 'parse': 'parsing', 'parsing_evaluation': 'parsing/automatic-review',
+    'parsing_review': 'parsing-review', 'chunk': 'chunking', 'chunk_review': 'chunking-review',
+    'structure': 'structural-chunks-and-semantic-clusters', 'summaries': 'summary-generation',
+    'generate': 'claim-generation', 'classify': 'claim-classification', 'claim_review': 'claim-review',
+    'graph': 'provenance-graph', 'index': 'indexing', 'retrieval': 'retrieval-evaluation', 'publish': 'publication'}
+STAGE_NAMES = {path: stage for stage, path in STAGE_PATHS.items()}
+STAGE_NAMES['parsing-audit'] = 'parsing_evaluation'
+ARCHIVE_GROUPS = {'parsing_evaluation': ('parse', 'automatic-review'), 'parsing_review': ('parse', 'review'),
+                  'chunk_review': ('chunk', 'review'), 'claim_review': ('classify', 'review')}
 
 
 def read(path):
@@ -188,7 +198,7 @@ def execute(command, directory, timeout, *, stdin=None, env=None):
 
 
 class Workflow:
-    def __init__(self, run_id, config_path=None, root=ROOT):
+    def __init__(self, run_id, config_path=None, root=ROOT, mode=None):
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', run_id):
             raise ValueError('run ID must be a safe directory name')
         self.root = root.resolve()
@@ -198,13 +208,75 @@ class Workflow:
         pipeline = read(self.pipeline_path)
         self.source_root = (self.pipeline_path.parent / pipeline['root']).resolve()
         self.manifest_path = self.source_root / pipeline['manifest_file']
-        self.directory = root / 'artifacts/workflow' / run_id
+        self.directory = self.root / 'artifacts' / run_id
+        legacy = self.root / 'artifacts/workflow' / run_id
+        if (self.directory / 'state.json').exists() and (legacy / 'state.json').exists():
+            raise ValueError('ambiguous run ID exists in both current and legacy locations')
+        if (legacy / 'state.json').exists():
+            self.directory = legacy
+        if self.directory.is_symlink() or not self.directory.resolve().is_relative_to(self.root):
+            raise ValueError('run directory must stay inside the repository and cannot be a symlink')
         self.path = self.directory / 'state.json'
         self.state = read(self.path) if self.path.exists() else {
             'schema_version': 1, 'run_id': run_id, 'created_at': now(), 'status': 'new',
+            'layout_version': 3, 'execution_mode': mode or 'automated',
             'workflow_config': read(self.config_path),
             'identity': input_identity(root, self.config_path), 'stages': {}, 'history': [],
             'paid_stages_started': 0, 'review_sessions_started': 0, 'elapsed_seconds': 0}
+        self.mode = self.state.get('execution_mode', 'automated')
+        if mode and mode != self.mode:
+            raise ValueError('run execution mode differs; use a distinct manual/automated run ID')
+
+    def stage_path(self, stage):
+        return self.directory / (STAGE_PATHS[stage] if self.state.get('layout_version', 1) >= 2 else stage)
+
+    def bundle_directory(self, stage, directory=None):
+        directory = Path(directory) if directory is not None else self.output(stage)
+        return directory if self.state.get('layout_version', 1) >= 3 else directory / 'build'
+
+    def restore_execution_logs(self, stage):
+        entry = self.state['stages'][stage]
+        if not entry.get('pending_logs'):
+            return
+        logs, out = Path(entry['pending_logs']), Path(entry['directory'])
+        if not logs.resolve().is_relative_to((self.directory / '.execution').resolve()):
+            raise ValueError('execution log directory escapes this run')
+        if logs.exists():
+            if out.is_symlink() or not out.resolve().is_relative_to(self.directory.resolve()):
+                raise ValueError('stage output escapes this run')
+            target = out / 'execution'
+            target.mkdir(parents=True, exist_ok=True)
+            for name in ('command.json', 'stdout.log', 'stderr.log'):
+                if (logs / name).exists():
+                    (logs / name).replace(target / name)
+            logs.rmdir()
+            if not any(logs.parent.iterdir()):
+                logs.parent.rmdir()
+        entry.pop('pending_logs')
+
+    def execute_stage(self, stage, command, out):
+        if self.state.get('layout_version', 1) < 3 or stage not in BUNDLE_STAGES:
+            return execute(command, out, self.remaining())
+        # Builders require an absent output directory. Persist logs separately
+        # until they finish, including failures; hard-kill recovery uses this pointer.
+        logs_root = self.directory / '.execution'
+        if logs_root.is_symlink() or not logs_root.resolve().is_relative_to(self.directory.resolve()):
+            raise ValueError('execution logs must stay inside this run')
+        logs_root.mkdir(parents=True, exist_ok=True)
+        logs = Path(tempfile.mkdtemp(prefix=stage + '-', dir=logs_root))
+        self.state['stages'][stage]['pending_logs'] = str(logs)
+        self.save()
+        try:
+            return execute(command, logs, self.remaining())
+        finally:
+            self.restore_execution_logs(stage)
+
+    def stage_fingerprints(self, stage, directory):
+        saved = fingerprints(directory)
+        # The audit has its own checkpoint; adding it must not mutate parsing's identity.
+        if self.mode == 'manual' and stage == 'parse':
+            saved = {key: value for key, value in saved.items() if not key.startswith('automatic-review/')}
+        return saved
 
     def save(self):
         self.state['updated_at'] = now()
@@ -231,7 +303,7 @@ class Workflow:
             if resolve_reviewers(self.root, self.config) != self.state['reviewer']:
                 issues.append('reviewer settings changed: invalidate from ingest or use a new run')
         for name, entry in self.state['stages'].items():
-            if entry['status'] == 'complete' and fingerprints(Path(entry['directory'])) != entry['fingerprints']:
+            if entry['status'] == 'complete' and self.stage_fingerprints(name, Path(entry['directory'])) != entry['fingerprints']:
                 issues.append('saved artifacts changed: ' + name)
         return issues
 
@@ -240,13 +312,48 @@ class Workflow:
             raise ValueError('repair requires a concrete defect/correction note')
         if input_identity(self.root, self.config_path) != self.state['identity'] and stage != 'ingest':
             raise ValueError('code/config/input changes conservatively require --repair-from ingest')
-        if stage in REVIEWS and self.state['stages'].get(stage, {}).get('status') == 'failed':
-            raise ValueError('failed review requires rebuilding affected outputs, not just resetting review')
+        if stage in REVIEWS and stage in self.state['stages']:
+            entry = self.state['stages'][stage]
+            report_path, review_path = Path(entry['directory']) / 'report.json', Path(entry['directory']) / 'review.json'
+            report = read(report_path) if report_path.exists() else {}
+            review = read(review_path) if review_path.exists() else {}
+            if (entry.get('status') == 'failed' or gate_status(report, review=True) == 'failed'
+                    or any(row.get('status') == 'fail' for row in review.get('reviews', []))
+                    or review.get('additional_findings')):
+                raise ValueError('failed review requires rebuilding affected outputs, not just resetting review')
         affected = descendants(stage)
-        for name in list(self.state['stages']):
+        for name in affected & self.state['stages'].keys():
+            self.restore_execution_logs(name)
+        for name in affected & self.state['stages'].keys():
+            directory = Path(self.state['stages'][name]['directory'])
+            if directory.is_symlink() or not directory.resolve().is_relative_to(self.directory.resolve()):
+                raise ValueError('stage directory escapes this run; refusing to move evidence')
+        # Archive children first, including the audit nested inside parsing.
+        for name in reversed(STAGES):
+            if name not in self.state['stages']:
+                continue
             if name in affected:
-                self.state['history'].append({'stage': name, **self.state['stages'].pop(name),
-                                              'invalidated_at': now(), 'repair_note': note})
+                entry = self.state['stages'][name]
+                if self.mode == 'manual':
+                    original = Path(entry['directory'])
+                    group, part = ARCHIVE_GROUPS.get(name, (name, 'outputs'))
+                    started = self.state['stages'].get(group, entry)['started_at']
+                    stamp = datetime.fromisoformat(started).astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%S.%fZ')
+                    archived = self.directory / 'history' / STAGE_PATHS[group] / stamp / part
+                    if not archived.resolve().is_relative_to(self.directory.resolve()):
+                        raise ValueError('history directory escapes this run; refusing to move evidence')
+                    if original.exists():
+                        if archived.exists():
+                            raise ValueError('archive destination already exists; refusing to overwrite history')
+                        archived.parent.mkdir(parents=True, exist_ok=True)
+                        original.rename(archived)
+                    entry = {**entry, 'directory': str(archived), 'original_directory': str(original)}
+                    if entry.get('bundle_directory'):
+                        entry['bundle_directory'] = str(archived / Path(entry['bundle_directory']).relative_to(original))
+                    write(archived.parent / (part + '-archive.json'), {'stage': name, 'original_directory': str(original),
+                          'archived_directory': str(archived), 'started_at': entry['started_at'], 'reason': note})
+                self.state['history'].append({'stage': name, **entry, 'invalidated_at': now(), 'repair_note': note})
+                self.state['stages'].pop(name)
         self.state['identity'] = input_identity(self.root, self.config_path)
         self.state['workflow_config'] = read(self.config_path)
         if stage == 'ingest' and self.state.get('reviewer'):
@@ -264,50 +371,51 @@ class Workflow:
     def command(self, name, out):
         c = self.config
         path = lambda key: str(self.root / c[key])
-        dep = lambda stage: str(self.output(stage))
+        dep = lambda stage: str(self.bundle_directory(stage))
+        bundle = self.bundle_directory(name, out)
         args = {}
         if name == 'ingest':
             args[name] = ['ingest.py', '--config', path('pipeline'), '--output', str(out / 'report.json')]
         if name == 'parse':
-            args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(out / 'build'),
+            args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(bundle),
                           '--run-id', self.state['run_id']]
         if name == 'parsing_evaluation':
-            args[name] = ['auto_review_parsing.py', '--input-dir', dep('parse') + '/build',
+            args[name] = ['auto_review_parsing.py', '--input-dir', dep('parse'),
                           '--source-root', str(self.source_root), '--output', str(out / 'report.json')]
         if name == 'chunk':
-            args[name] = ['chunk.py', '--config', path('pipeline'), '--input-dir', dep('parse') + '/build', '--output-dir', str(out / 'build')]
+            args[name] = ['chunk.py', '--config', path('pipeline'), '--input-dir', dep('parse'), '--output-dir', str(bundle)]
         if name == 'structure':
-            args[name] = ['build_structural_chunks_and_semantic_clusters.py', '--chunked-dir', dep('chunk') + '/build',
-                          '--parsed-dir', dep('parse') + '/build', '--config', path('structural'),
-                          '--output-dir', str(out / 'build'), '--cache-dir', str(self.root / 'artifacts/embeddings-and-token-counts')]
+            args[name] = ['build_structural_chunks_and_semantic_clusters.py', '--chunked-dir', dep('chunk'),
+                          '--parsed-dir', dep('parse'), '--config', path('structural'),
+                          '--output-dir', str(bundle), '--cache-dir', str(self.root / 'artifacts/embeddings-and-token-counts')]
         if name in {'generate', 'summaries'}:
             args[name] = [('generate_claims.py' if name == 'generate' else 'generate_summaries.py'),
-                          '--context-dir', dep('structure') + '/build', '--config', path('claims' if name == 'generate' else 'summaries'),
-                          '--output-dir', str(out / 'build')]
+                          '--context-dir', dep('structure'), '--config', path('claims' if name == 'generate' else 'summaries'),
+                          '--output-dir', str(bundle)]
             if name == 'summaries':
                 args[name] += ['--cache-dir', str(self.root / 'artifacts/summary-cache')]
-            elif (out / 'build').exists() and not (out / 'build/build-manifest.json').exists():
+            elif (bundle / 'generation-checkpoint.json').exists() and not (bundle / 'build-manifest.json').exists():
                 args[name] += ['--resume']
             elif name == 'generate':
                 prior = [e for e in self.state['history'] if e.get('stage') == 'generate' and
                          e.get('input_identity_sha256') == hashlib.sha256(json.dumps(self.state['identity'], sort_keys=True).encode()).hexdigest()]
                 if prior:
-                    previous = Path(prior[-1]['directory']) / 'build'
+                    previous = Path(prior[-1].get('bundle_directory', self.bundle_directory('generate', prior[-1]['directory'])))
                     if (previous / 'report.json').exists() and read(previous / 'report.json').get('status') == 'partial':
                         args[name] += ['--retry-failed-from', str(previous)]
         if name == 'classify':
-            args[name] = ['classify_claims.py', '--candidates-dir', dep('generate') + '/build', '--config', path('claims'),
-                          '--taxonomy', path('taxonomy'), '--output-dir', str(out / 'build')]
-            if (out / 'build').exists() and not (out / 'build/build-manifest.json').exists():
+            args[name] = ['classify_claims.py', '--candidates-dir', dep('generate'), '--config', path('claims'),
+                          '--taxonomy', path('taxonomy'), '--output-dir', str(bundle)]
+            if (bundle / 'classification-checkpoint.json').exists() and not (bundle / 'build-manifest.json').exists():
                 args[name] += ['--resume']
         if name == 'graph':
-            args[name] = ['render_knowledge_graph.py', '--bundle', dep('classify') + '/build/artifact-bundle.json',
-                          '--claim-generation-dir', dep('generate') + '/build', '--summary-dir', dep('summaries') + '/build',
+            args[name] = ['render_knowledge_graph.py', '--bundle', dep('classify') + '/artifact-bundle.json',
+                          '--claim-generation-dir', dep('generate'), '--summary-dir', dep('summaries'),
                           '--output', str(out / 'graph.html')]
         if name == 'index':
             args[name] = ['index_artifacts.py', 'import', '--corpus', c['corpus'], '--config', path('retrieval'),
-                          '--preparation-dir', dep('structure') + '/build', '--claims-dir', dep('classify') + '/build',
-                          '--summaries-dir', dep('summaries') + '/build', '--embed-missing']
+                          '--preparation-dir', dep('structure'), '--claims-dir', dep('classify'),
+                          '--summaries-dir', dep('summaries'), '--embed-missing']
         if name == 'retrieval':
             snapshot = read(self.output('index') / 'stdout.log')['snapshot_id']
             args[name] = ['evaluate_retrieval.py', '--corpus', c['corpus'], '--config', path('retrieval'),
@@ -322,15 +430,15 @@ class Workflow:
         args = ['--manifest', str(self.manifest_path), '--review-policy', str(self.root / 'config/review-policy.json'),
                 '--sample-per-document', str(self.config['sample_per_document']), '--output', str(out / 'report.json')]
         if name == 'parsing_review':
-            args += ['--input-dir', str(self.output('parse') / 'build'), '--source-root', str(self.source_root)]
+            args += ['--input-dir', str(self.bundle_directory('parse')), '--source-root', str(self.source_root)]
             if self.config.get('parsing_review_required_pages'):
                 args += ['--required-pages', str(self.root / self.config['parsing_review_required_pages'])]
             script = 'auto_review_parsing.py'
         elif name == 'chunk_review':
-            args += ['--chunked-dir', str(self.output('chunk') / 'build'), '--parsed-dir', str(self.output('parse') / 'build')]
+            args += ['--chunked-dir', str(self.bundle_directory('chunk')), '--parsed-dir', str(self.bundle_directory('parse'))]
             script = 'auto_review_chunking.py'
         else:
-            args += ['--candidates-dir', str(self.output('generate') / 'build'), '--classified-dir', str(self.output('classify') / 'build'),
+            args += ['--candidates-dir', str(self.bundle_directory('generate')), '--classified-dir', str(self.bundle_directory('classify')),
                      '--source-root', str(self.source_root), '--taxonomy', str(self.root / self.config['taxonomy'])]
             script = 'auto_review_claims.py'
         args += ['--review-file' if (out / 'review.json').exists() else '--initialize-review', str(out / 'review.json')]
@@ -424,7 +532,7 @@ class Workflow:
             {'parsing_review': 'agent_prompt_parsing_review', 'chunk_review': 'agent_prompt_chunking_review',
              'claim_review': 'agent_prompt_claim_review'}[name])
         prompt = prompt_file.read_text() + '\n\nController binding (overrides example paths, continuation scope and write mechanism):\n' + json.dumps({
-            'run_id': self.state['run_id'], 'stage_paths': {k: v['directory'] + '/build' for k, v in self.state['stages'].items()},
+            'run_id': self.state['run_id'], 'stage_paths': {k: str(self.bundle_directory(k)) if k in BUNDLE_STAGES else v['directory'] for k, v in self.state['stages'].items()},
             'evaluation_report': str(out / 'report.json'), 'review_file': str(out / 'review.json'),
             'manifest': str(self.manifest_path), 'source_root': str(self.source_root),
             'policy': str(self.root / 'config/review-policy.json'), 'taxonomy': str(self.root / self.config['taxonomy']),
@@ -531,7 +639,8 @@ class Workflow:
 
     def finalized_checkpoint(self, name, out):
         """Recover the small window after final export but before state was saved."""
-        manifest_path = out / 'build/build-manifest.json'
+        bundle = self.bundle_directory(name, out)
+        manifest_path = bundle / 'build-manifest.json'
         if name not in RESUMABLE or not manifest_path.exists():
             return False
         manifest = read(manifest_path)
@@ -539,10 +648,50 @@ class Workflow:
         if not outputs or len({item['path'] for item in outputs}) != len(outputs):
             raise ValueError('invalid finalized checkpoint output manifest')
         for item in outputs:
-            path = (out / 'build' / item['path']).resolve()
-            if not path.is_relative_to((out / 'build').resolve()) or digest(path) != item['sha256']:
+            path = (bundle / item['path']).resolve()
+            if not path.is_relative_to(bundle.resolve()) or digest(path) != item['sha256']:
                 raise ValueError('finalized checkpoint integrity mismatch')
         return self.validate_stage(name, out, 0) == 'pass'
+
+    def record_parsing_audit(self, review_out, rc):
+        """Retain the audit performed by review initialization without executing it twice."""
+        report = read(review_out / 'report.json')
+        audit = report.get('automatic_audit')
+        if rc not in (0, 1) or not isinstance(audit, dict) or not isinstance(audit.get('gate'), dict):
+            raise ValueError('parsing review did not provide a valid automatic audit')
+        passed = gate_status(audit) == 'pass'
+        if report.get('automatic_gate') != ('pass' if passed else 'fail'):
+            raise ValueError('parsing review and embedded automatic audit gates disagree')
+        prior = self.state['stages'].get('parsing_evaluation')
+        if prior:
+            if prior['status'] != 'complete' or read(Path(prior['directory']) / 'report.json') != audit:
+                raise ValueError('automatic audit changed or previously failed; rebuild parsing and request fresh review')
+            self.state['stages']['parsing_review']['upstream']['parsing_evaluation'] = {
+                'directory': prior['directory'], 'fingerprints': prior['fingerprints']}
+            return
+        attempt = 1 + sum(e.get('stage') == 'parsing_evaluation' for e in self.state['history'])
+        if attempt > self.limits.max_stage_attempts:
+            raise ValueError('stage retry budget exhausted for automatic parsing audit')
+        out = self.stage_path('parsing_evaluation')
+        if self.mode != 'manual':
+            out = out / f'attempt-{attempt}'
+        if out.is_symlink() or not out.resolve().is_relative_to(self.directory.resolve()):
+            raise ValueError('automatic audit output must stay inside this run')
+        if out.exists() and any(out.iterdir()):
+            raise ValueError('untracked automatic audit output exists; refusing to overwrite evidence')
+        write(out / 'report.json', audit)
+        entry = {'status': 'complete' if passed else 'failed', 'directory': str(out), 'attempt': attempt,
+                 'executions': 1, 'started_at': self.state['stages']['parsing_review']['started_at'], 'finished_at': now(),
+                 'derived_from': str(review_out / 'report.json'), 'returncode': rc,
+                 'input_identity_sha256': self.state['stages']['parsing_review']['input_identity_sha256'],
+                 'upstream': {'parse': {'directory': self.state['stages']['parse']['directory'],
+                                        'fingerprints': self.state['stages']['parse']['fingerprints']}}}
+        if passed:
+            entry['fingerprints'] = fingerprints(out)
+        self.state['stages']['parsing_evaluation'] = entry
+        self.state['stages']['parsing_review']['upstream']['parsing_evaluation'] = {
+            'directory': str(out), 'fingerprints': entry.get('fingerprints')}
+        self.save()
 
     def remaining(self):
         return max(0.001, self.limits.max_seconds - self.state['elapsed_seconds'] - (time.monotonic() - self.started))
@@ -556,10 +705,10 @@ class Workflow:
         if name == 'parsing_evaluation':
             return gate_status(read(out / 'report.json'))
         if name in {'parse', 'ingest'}:
-            report = read(out / 'build/report.json' if name == 'parse' else out / 'report.json')
+            report = read(self.bundle_directory(name, out) / 'report.json' if name == 'parse' else out / 'report.json')
             return 'pass' if report['outcomes'] and all(r['status'] == ('parsed' if name == 'parse' else 'ingested') for r in report['outcomes']) else 'failed'
         if name in {'structure', 'summaries', 'generate', 'classify'}:
-            report = read(out / 'build/report.json')
+            report = read(self.bundle_directory(name, out) / 'report.json')
             return 'pass' if report['status'] == 'complete' and not report.get('errors') else 'failed'
         if name == 'index':
             report = read(out / 'stdout.log')
@@ -617,7 +766,14 @@ class Workflow:
         if self.stale() or any(self.state['stages'].get(n, {}).get('status') != 'complete' for n in STAGES[:-1]):
             raise ValueError('publication blocked: required checks are incomplete or stale')
 
-    def run(self, limits, *, publish=False, stop_after=None):
+    def run(self, limits, *, publish=False, stop_after=None, only_stage=None, agent_review=False):
+        if only_stage and self.mode != 'manual':
+            raise ValueError('single-stage execution requires a manual run')
+        if self.mode == 'manual' and not only_stage and not publish:
+            raise ValueError('manual runs require step --stage; automatic resume cannot execute them')
+        if only_stage == 'publish':
+            publish = True
+        launch_review = self.mode != 'manual' or agent_review
         self.limits, self.started = limits, time.monotonic()
         self._run_active = True
         self.state.setdefault('budget_history', []).append({
@@ -630,26 +786,36 @@ class Workflow:
             self.prerequisite_sources()
             if publish:
                 self.publication_ready()
-            for name in (('publish',) if publish else STAGES[:-1]):
+            for name in ((only_stage,) if only_stage else ('publish',) if publish else STAGES[:-1]):
+                folded_audit = self.state.get('layout_version', 1) >= 2
+                if name == 'parsing_evaluation' and not only_stage and folded_audit and stop_after != name:
+                    continue  # The review tool supplies this checkpoint from its embedded audit.
                 entry = self.state['stages'].get(name)
+                if entry and entry.get('pending_logs'):
+                    self.restore_execution_logs(name)
+                    self.save()
                 if entry and entry['status'] == 'complete':
                     if name == stop_after:
                         break
                     continue
                 if self.remaining() <= 0.01:
                     raise ValueError('wall-time budget exhausted')
-                if any(self.state['stages'].get(d, {}).get('status') != 'complete' for d in DEPS[name]):
+                prerequisites = ('parse',) if name == 'parsing_review' and folded_audit else DEPS[name]
+                if any(self.state['stages'].get(d, {}).get('status') != 'complete' for d in prerequisites):
                     raise ValueError('missing prerequisite for ' + name)
                 if entry and entry['status'] == 'failed':
                     raise ValueError('resolve defect then resume with --repair-from and --repair-note; findings retained')
-                if name in PAID | REVIEWS:
+                if name in PAID or (name in REVIEWS and launch_review):
                     if not limits.allow_paid:
                         raise ValueError('paid work disabled; resume with --allow-paid and explicit budgets')
                     if name in PAID and self.state['paid_stages_started'] >= limits.max_paid_stages:
                         raise ValueError('paid-stage budget exhausted')
                 if entry and entry['status'] == 'running':
                     entry['status'] = 'interrupted'  # prior controller died while holding the now-released lock
-                if entry and entry['status'] == 'interrupted' and name not in REVIEWS | RESUMABLE:
+                missing_checkpoint = (name in RESUMABLE and not any(
+                    (self.bundle_directory(name, entry['directory']) / filename).exists()
+                    for filename in ('build-manifest.json', 'generation-checkpoint.json', 'classification-checkpoint.json'))) if entry else False
+                if entry and entry['status'] == 'interrupted' and (name not in REVIEWS | RESUMABLE or missing_checkpoint):
                     self.repair(name, 'Interrupted build preserved; rebuild in a fresh output directory')
                     entry = None
                 prior = [e for e in self.state['history'] if e.get('stage') == name]
@@ -657,10 +823,21 @@ class Workflow:
                     attempt = len(prior) + 1
                     if attempt > limits.max_stage_attempts:
                         raise ValueError('stage retry budget exhausted; repeated lack of progress requires escalation')
-                    out = self.directory / name / f'attempt-{attempt}'
-                    out.mkdir(parents=True)
+                    out = self.stage_path(name)
+                    if self.mode != 'manual':
+                        out = out / f'attempt-{attempt}'
+                    if out.exists() and any(out.iterdir()):
+                        raise ValueError('untracked output directory exists; preserve it and use a fresh run')
+                    if out.is_symlink() or not out.resolve().is_relative_to(self.directory.resolve()):
+                        raise ValueError('stage output must stay inside this run')
+                    if self.state.get('layout_version', 1) < 3 or name not in BUNDLE_STAGES:
+                        out.mkdir(parents=True, exist_ok=True)
                     entry = {'status': 'ready', 'directory': str(out), 'attempt': attempt, 'executions': 0, 'started_at': now(),
+                             'upstream': {d: {'directory': self.state['stages'][d]['directory'],
+                                              'fingerprints': self.state['stages'][d]['fingerprints']} for d in prerequisites},
                              'input_identity_sha256': hashlib.sha256(json.dumps(self.state['identity'], sort_keys=True).encode()).hexdigest()}
+                    if name in BUNDLE_STAGES:
+                        entry['bundle_directory'] = str(self.bundle_directory(name, out))
                     self.state['stages'][name] = entry
                 out = Path(entry['directory'])
                 if entry['executions'] >= limits.max_stage_attempts:
@@ -675,26 +852,30 @@ class Workflow:
                     if name in REVIEWS:
                         rc = execute(self.review_command(name, out), out, self.remaining())
                         status = self.validate_stage(name, out, rc)
-                        if status == 'pending':
+                        if name == 'parsing_review' and folded_audit:
+                            self.record_parsing_audit(out, rc)
+                        if status == 'pending' and launch_review:
                             entry['status'] = 'pending'
                             self.save()
                             self.independent_review(name, out)
                             rc = execute(self.review_command(name, out), out, self.remaining())
                             status = self.validate_stage(name, out, rc)
+                            if name == 'parsing_review' and folded_audit:
+                                self.record_parsing_audit(out, rc)
                     else:
                         if self.finalized_checkpoint(name, out):
                             rc = 0
                             entry['recovered_finalized_output'] = True
                         else:
-                            rc = execute(self.command(name, out), out, self.remaining())
+                            rc = self.execute_stage(name, self.command(name, out), out)
                         status = self.validate_stage(name, out, rc)
                     entry.update(status='complete' if status == 'pass' else status, finished_at=now(), returncode=rc)
-                    report_path = out / ('build/report.json' if name in {'parse', 'structure', 'summaries', 'generate', 'classify'} else 'report.json')
+                    report_path = (self.bundle_directory(name, out) if name in BUNDLE_STAGES else out) / 'report.json'
                     if report_path.exists():
                         report = read(report_path)
                         entry['measurements'] = {k: report[k] for k in ('telemetry', 'embeddings', 'usage_records', 'duration_seconds', 'generation', 'compilation_telemetry') if k in report}
                     if status == 'pass':
-                        entry['fingerprints'] = fingerprints(out)
+                        entry['fingerprints'] = self.stage_fingerprints(name, out)
                     else:
                         write(out / 'repair-task.json', {'stage': name, 'status': status, 'report': str(out / 'report.json'),
                             'instruction': 'Inspect originals and findings. Pending: complete inspection or resolve prerequisite. '
@@ -714,7 +895,7 @@ class Workflow:
                     self.save()
                 if name == stop_after:
                     break
-            self.state['status'] = 'published' if publish else ('stopped_after_' + stop_after if stop_after else 'awaiting_explicit_publication')
+            self.state['status'] = 'published' if publish else ('stopped_after_' + (only_stage or stop_after) if only_stage or stop_after else 'awaiting_explicit_publication')
         except BaseException as exc:
             self.state.update(status='blocked', last_error=str(exc))
             raise
@@ -726,7 +907,7 @@ class Workflow:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['run', 'status', 'resume', 'publish', 'report'])
+    parser.add_argument('command', choices=['run', 'step', 'status', 'resume', 'publish', 'report'])
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--config', type=Path, default=ROOT / 'config/workflow.json')
     parser.add_argument('--allow-paid', action='store_true')
@@ -734,14 +915,26 @@ def main(argv=None):
     parser.add_argument('--max-paid-stages', type=int, default=6)
     parser.add_argument('--max-review-sessions', type=int, default=4)
     parser.add_argument('--max-stage-attempts', type=int, default=3)
-    parser.add_argument('--stop-after', choices=STAGES[:-1])
-    parser.add_argument('--repair-from', choices=STAGES[:-1])
+    stage_choices = sorted(set(STAGES[:-1]) | (set(STAGE_NAMES) - {'publication'}))
+    parser.add_argument('--stop-after', choices=stage_choices)
+    parser.add_argument('--repair-from', choices=stage_choices)
     parser.add_argument('--repair-note')
+    parser.add_argument('--stage', choices=sorted(STAGE_NAMES), help='execute only this stage in a manual run')
+    parser.add_argument('--rebuild', action='store_true', help='archive a manual stage and its dependents before rebuilding; requires --repair-note')
+    parser.add_argument('--agent-review', action='store_true', help='launch the configured independent reviewer for this manual review stage')
     args = parser.parse_args(argv)
+    args.stop_after = STAGE_NAMES.get(args.stop_after, args.stop_after)
+    args.repair_from = STAGE_NAMES.get(args.repair_from, args.repair_from)
+    if (args.command == 'step') != bool(args.stage) or args.rebuild and args.command != 'step':
+        parser.error('step requires --stage; --stage/--rebuild are only valid for step')
+    if args.agent_review and (args.command != 'step' or STAGE_NAMES[args.stage] not in REVIEWS):
+        parser.error('--agent-review requires a manual review stage')
     if not math.isfinite(args.max_seconds) or min(args.max_seconds, args.max_stage_attempts) <= 0 or min(args.max_paid_stages, args.max_review_sessions) < 0:
         parser.error('budgets must be finite and nonnegative; time/stage attempts must be positive')
     try:
-        workflow = Workflow(args.run_id, args.config)
+        def open_run():
+            return Workflow(args.run_id, args.config, **({'mode': 'manual'} if args.command == 'step' else {}))
+        workflow = open_run()
         if args.command == 'status':
             if not workflow.path.exists():
                 raise ValueError('unknown run ID')
@@ -750,17 +943,20 @@ def main(argv=None):
             return 0
         with run_lock(workflow.directory):
             # Reload state under the lock, including after waiting to acquire it.
-            workflow = Workflow(args.run_id, args.config)
+            workflow = open_run()
             if args.command == 'run' and workflow.path.exists():
                 raise ValueError('run already exists; use status or resume')
-            if args.command != 'run' and not workflow.path.exists():
+            if args.command not in {'run', 'step'} and not workflow.path.exists():
                 raise ValueError('unknown run ID')
             if args.command == 'report':
                 print(json.dumps({'report_path': str(workflow.write_report())}))
                 return 0
             if args.repair_from:
                 workflow.repair(args.repair_from, args.repair_note)
-            workflow.run(args, publish=args.command == 'publish', stop_after=args.stop_after)
+            if args.rebuild:
+                workflow.repair(STAGE_NAMES[args.stage], args.repair_note)
+            workflow.run(args, publish=args.command == 'publish' or args.stage == 'publication', stop_after=args.stop_after,
+                         only_stage=STAGE_NAMES[args.stage] if args.stage else None, agent_review=args.agent_review)
             print(json.dumps({'status': workflow.state['status'], 'state_path': str(workflow.path),
                               'report_path': str(workflow.directory / 'report.json')}))
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:

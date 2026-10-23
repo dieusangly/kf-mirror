@@ -10,19 +10,20 @@ and migrated PostgreSQL/pgvector.
 ## Commands and budgets
 
 ```sh
+RUN_ID="YYYYMMDD-automated-workflow"  # replace YYYYMMDD with your run date
 # Offline preflight only.
 direnv exec . .venv/bin/python scripts/workflow.py run \
-  --run-id aml-cft-pilot --stop-after ingest --max-seconds 300 \
+  --run-id "$RUN_ID" --stop-after ingest --max-seconds 300 \
   --max-paid-stages 0 --max-review-sessions 0
 
-direnv exec . .venv/bin/python scripts/workflow.py status --run-id aml-cft-pilot
+direnv exec . .venv/bin/python scripts/workflow.py status --run-id "$RUN_ID"
 
 # Example limits; execute only within the authorized budget.
 direnv exec . .venv/bin/python scripts/workflow.py resume \
-  --run-id aml-cft-pilot --allow-paid --max-seconds 14400 \
+  --run-id "$RUN_ID" --allow-paid --max-seconds 14400 \
   --max-paid-stages 6 --max-review-sessions 4 --max-stage-attempts 3
 
-direnv exec . .venv/bin/python scripts/workflow.py report --run-id aml-cft-pilot
+direnv exec . .venv/bin/python scripts/workflow.py report --run-id "$RUN_ID"
 ```
 
 Limits are cumulative across resume/repair: time, paid-stage starts, sessions and
@@ -36,6 +37,9 @@ Ingestion → parsing → automated parsing audit → independent parsing review
 chunking → independent chunk review → structural chunks/semantic clusters →
 summaries and claim generation/classification → independent claim review →
 provenance graph → indexing → retrieval evaluation → explicit publication.
+
+For new runs, parsing review initialization performs the automatic audit and records
+its required checkpoint; no separate audit process or manual command is needed.
 
 Reviews use fresh read-only Codex sessions, saved originals and PDF page images.
 `auto_review_{parsing,chunking,claims}.py` audits artifacts/scores judgments;
@@ -75,15 +79,27 @@ labels cannot approve. After all checks:
 
 ```sh
 direnv exec . .venv/bin/python scripts/workflow.py publish \
-  --run-id aml-cft-pilot --max-seconds 14400
+  --run-id "$RUN_ID" --max-seconds 14400
 ```
 
 ## Saved files and costs
 
-`artifacts/workflow/<run-id>/` holds state, consolidated `report.json`, a lock and
+`artifacts/<run-id>/` holds state, consolidated `report.json`, a lock and
 per-stage `attempt-N` commands, logs, bundles, gate reports and sessions. PDF bundles
 retain layout JSON/figure PNGs. Failed attempts remain; diagnostic/staging replays
 are not approved stages. `artifacts/` is ignored by Git.
+Stage folders use the names in the [manual runbook](pipeline-runbook.md), e.g.
+`ingestion/attempt-N/report.json`, `parsing/attempt-N/` and
+`parsing/automatic-review/attempt-N/report.json`. Automated runs retain immutable
+attempts referenced by state. Bundle files sit directly in each stage/attempt;
+execution logs are attached under `execution/` after a builder finishes. Existing `artifacts/workflow/<run-id>/` runs remain
+readable in place, including their existing `build/` paths; duplicate run IDs fail closed.
+
+Manual `workflow.py step --stage ...` runs use stable stage folders and automatically
+archive replaced/invalidated results under timestamped `history/`. They execute only
+the selected stage. Use distinct IDs such as `YYYYMMDD-manual-workflow` and
+`YYYYMMDD-automated-workflow`; mode mixing is rejected. Resume/checkpoints, stale
+checks, budgets and publication requirements apply to both modes.
 
 Retain referenced evidence/frozen outputs. Retiring a run requires resolving its
 references and retaining evidence or explicitly retiring approvals. Deletion or
