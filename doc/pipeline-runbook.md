@@ -43,17 +43,14 @@ Direct low-level scripts remain available in stage guides; they do not manage hi
 ```sh
 stage --stage ingestion
 stage --stage parsing
-stage --stage parsing-review
 ```
 
 Ingestion saves `ingestion/report.json`. Parsing must be fully `parsed`.
-`parsing-review` runs the automatic audit and saves its required checkpoint under
-`parsing/automatic-review/`; no separate audit command is needed. Automatic failures
-block inspection. Review initialization returns nonzero while pending: inspect
-`parsing-review/report.json`, then give a fresh independent agent
+Give a fresh independent agent session
 [`agent_prompt_parsing_review`](../src/knowledge_foundry/prompts/agent_prompt_parsing_review)
-with these exact paths, `parsing-review/review.json` and workflow sample/policy settings.
-After source inspection, rerun `stage --stage parsing-review` to record the gate.
+with `RUN_ID`, exact build paths and the workflow configuration. The agent initializes/reuses the review, inspects originals, evaluates judgments
+and registers the result and audit checkpoint using the saved workflow budgets. Require passing automatic, review and
+overall gates before chunking; pending/failed results block progress.
 [Coverage and limitations](parsing-evaluation.md#independent-parsing-review).
 
 For any of the three review stages, the controller can instead launch only that
@@ -66,12 +63,11 @@ may remain unknown. Controller publication requires its verifiable session evide
 
 ```sh
 stage --stage chunking
-stage --stage chunking-review
 ```
 
 Give a fresh agent [`agent_prompt_chunking_review`](../src/knowledge_foundry/prompts/agent_prompt_chunking_review)
-with the exact build paths and `chunking-review/review.json`. After inspection,
-rerun `stage --stage chunking-review`. **All three gates must pass** before continuing.
+with `RUN_ID`, exact build paths and workflow configuration. The agent initializes,
+inspects, evaluates and registers the result. **All three gates must pass** before continuing.
 Pending/failed reviews block downstream steps, regardless of process exit code.
 
 ## 3. Structural chunk and semantic cluster build
@@ -88,12 +84,12 @@ there is no separate structural-review stage. [Settings/rebuild rules](structura
 ```sh
 stage --stage claim-generation --allow-paid
 stage --stage claim-classification --allow-paid
-stage --stage claim-review
 ```
 
 Generation/classification must be complete without errors. Give a fresh agent
 [`agent_prompt_claim_review`](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
-with the exact builds and `claim-review/review.json`; then rerun `stage --stage claim-review`.
+with `RUN_ID`, exact builds and workflow configuration. The agent initializes,
+inspects, evaluates and registers the result.
 Automatic, review and overall gates must pass. Claims remain drafts; recorded
 non-critical defects can remain within the unchanged policy thresholds.
 

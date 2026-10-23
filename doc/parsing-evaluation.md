@@ -40,7 +40,10 @@ outcome to be `parsed`.
 
 ## Independent parsing review
 
-Initialize once, then invoke the agent prompt:
+After parsing, invoke the agent prompt with the run ID and exact inputs. It runs
+initialization/reuse, source inspection and final evaluation as one task, and
+registers managed manual results through the controller. No user-run final command
+is needed. The equivalent initialization command is:
 
 ```sh
 direnv exec . .venv/bin/python scripts/auto_review_parsing.py \

@@ -1,4 +1,9 @@
-Act as an independent reviewer of saved claim generation and classification outputs in this repository. Review against the **saved original sources**, not just candidate claim text, parsed elements or the automatic evaluator. Do not generate or classify claims, run parsing/chunking, make live model calls, implement fixes, or change code, taxonomy, manifests, source files or claim artifacts. Create or update only the selected review JSON and evaluation report; preserve existing judgments. Claims and topics remain drafts; a policy pass is not legal verification.
+Act as an independent reviewer of saved claim generation and classification outputs in this repository. Review against the **saved original sources**, not just candidate claim text, parsed elements or the automatic evaluator. Do not generate or classify claims, run parsing/chunking, make live model calls, implement fixes, or change code, taxonomy, manifests, source files or claim artifacts. In standalone review, create or update only the selected review JSON and evaluation report; preserve existing judgments. Claims and topics remain drafts; a policy pass is not legal verification.
+
+Controller-launched sessions follow the controller's read-only return mechanism:
+return judgments without writing files or running initialization/finalization/registration;
+the controller handles these. An automatic audit to stdout is allowed. The commands
+below apply to standalone review sessions.
 
 Run initialization, source review and final evaluation as one agent task. Replace the example run ID with the completed claim run's ID; if generation and classification used different IDs, set their directories separately. Preserve the original sample size, manifest, source root, taxonomy and policy:
 
@@ -39,7 +44,7 @@ fi
 ```
 
 Inspect the command's exit code and written report. Stop on exit 2, stale build/snapshot, missing review/report, or `automatic_gate: fail`; report the failure without changing artifacts. Initial pending review returns 0; validating an existing pending or failed review can return 1. That exit 1 permits continuing source review only when artifact checks pass and the build/snapshot is valid. Never replace an existing review with a new template or reset its judgments; edit it only to record source-review judgments. An automatic pass is not expert approval. Do not repeat generation or classification.
-2. Record reviewer kind (`human` or `agent`), name and model if known. Record timezone-qualified start/end times and measured review usage/cost when available; leave unavailable measurements `null`, never invent them. Review measurements are separate from generation/classification telemetry. Set start time before source inspection and finish time afterwards.
+2. Record reviewer kind (`human` or `agent`), name and actual model if known; never infer it. Record timezone-qualified start/end times and measured review usage/cost when available; leave unavailable measurements `null`, never invent them. Review measurements are separate from generation/classification telemetry. Set start time before source inspection and finish time afterwards.
 3. Review **every item in `review_sample`** against its saved source and relevant surrounding context. Inspect PDF layout/footnotes or saved HTML where needed. If a source cannot be inspected, leave the item `pending` with source-located notes. Do not pass an item by trusting its generated text or citations alone.
 4. For **generation**, verify evidence supports the entire candidate claim, atomicity, source terminology/version, subject, scope, conditions, exceptions, ambiguity and effective-date uncertainty. Check that footnotes attach to the correct parent rule. Do not resolve conflicts or infer effectiveness from `retrieved_on`.
 5. For **classification**, assess the main proposition against topic scopes and exclusions. Narrative facts do not become operational rules because they mention a topic keyword. Check null outcomes too. Candidate claim IDs, including unclassified ones, resolve in `CANDIDATES_DIR/claim-candidates.jsonl`; classified claim IDs differ.
@@ -52,5 +57,14 @@ Inspect the command's exit code and written report. Stop on exit 2, stale build/
 ```sh
 auto_review_claims --review-file "$REVIEW_FILE"
 ```
+
+For a managed manual run with artifacts/${RUN_ID}/state.json, also register results
+through scripts/workflow.py step --run-id "$RUN_ID" --stage claim-review, using
+its original --config and latest budget_history limits. Include valid pending/failed
+results. Never increase budgets, add --agent-review/--allow-paid, rebuild or edit state.
+Report registration failures. Standalone runs need no registration. Writes are limited
+to review/report JSON and controller-managed registration; external reviews alone do
+not supply verified session evidence required for controller publication.
+Fixture judgments never approve real inputs.
 
 The evaluator scores your recorded judgments; it does not conduct the source review. Report the exit code, automatic/review/overall gates, sample counts, severity counts, coverage, pass rate, combined score and dimension scores, reviewer measurements, and concise findings with candidate-claim, classified-claim, chunk and topic IDs and source locations. Link the review/report files. Explain any pending items and limits of the sample. A failed or pending result is honest; do not change artifacts or conceal findings to obtain a pass.

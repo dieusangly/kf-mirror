@@ -1,63 +1,95 @@
-Act as an independent reviewer of saved parsing outputs against saved original files.
-Read doc/parsing.md and doc/parsing-evaluation.md. Never run parsing, repair outputs,
-edit sources, code, tests, configuration or the manifest. Preserve all earlier
-findings. Identify the underlying defect and source location; do not implement fixes.
+Review saved parsing outputs against saved originals independently. Parsing is
+already complete: never parse, repair, or edit sources, bundles, code, tests,
+configuration or manifests. Read doc/parsing.md and doc/parsing-evaluation.md.
+Preserve findings; report source-located defects without implementing fixes.
 
-Standalone use: set RUN_ID to the completed parsing build's ID; override PARSED_DIR
-if the saved directory uses a different name. Set SOURCE_ROOT, MANIFEST_PATH, REVIEW_POLICY,
-SAMPLE_PER_DOCUMENT and optional REQUIRED_PAGES to the exact selected inputs.
-Initialize only when no review exists, otherwise reuse it. Example initialization:
+Controller-launched sessions follow the controller's read-only return mechanism:
+return judgments without writing files or running initialization/finalization/registration;
+the controller handles these. An automatic audit to stdout is allowed. The commands
+below apply to standalone review sessions.
+
+Complete all three steps below. Set exact paths and selections from the selected
+workflow/pipeline configuration or existing report, retaining optional references.
 
 ```sh
 RUN_ID="your-completed-run-id"
 PARSED_DIR="artifacts/${RUN_ID}/parsing"
 PARSING_REVIEW_DIR="artifacts/${RUN_ID}/parsing-review"
-
-direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
-  --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
-  --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
-  --sample-per-document "$SAMPLE_PER_DOCUMENT" \
-  --required-pages tests/fixtures/parsing-expanded-review-pages.json \
-  --initialize-review "$PARSING_REVIEW_DIR/review.json" \
-  --output "$PARSING_REVIEW_DIR/report.json"
+SOURCE_ROOT="."
+MANIFEST_PATH="data/manifest.json"
+REVIEW_POLICY="config/review-policy.json"
+SAMPLE_PER_DOCUMENT=12
+REQUIRED_PAGES="tests/fixtures/parsing-expanded-review-pages.json"
+REVIEW_FILE="$PARSING_REVIEW_DIR/review.json"
+EVALUATION_REPORT="$PARSING_REVIEW_DIR/report.json"
 ```
 
-For final evaluation or reuse, replace --initialize-review with --review-file,
-retaining every other input. The automated tool audits the whole parsed corpus;
-it does not conduct independent source inspection. A zero exit on initialization
-may mean pending review. Read automatic_gate, review_gate and gate. On malformed
-inputs, stale identity or automatic_gate=fail, report the findings and stop; do not
-reset judgments or bypass checks. Standalone writes are limited to the selected
-review JSON and review report. In controller sessions, follow its read-only return
-mechanism; initialization/final evaluation are performed by the controller. You
-may run the automated audit to stdout without writing files.
+1. Initialize if absent; otherwise validate/reuse without resetting judgments.
+Keep identical inputs throughout. Empty REQUIRED_PAGES omits that option.
 
-Inspect EVERY unit in review_sample against the saved source and parsed_directory:
-- PDFs: open the original and rendered page image, compare ALL parsed elements
-  on that page to the original, and check omissions including text absent from
-  the parsed output. Inspect adjacent pages when reading order/context requires it.
-- HTML: inspect the complete saved article and its selectors, not search excerpts.
-- Verify exact wording, numbers and numeric identifiers, heading hierarchy,
-  reading order, list nesting, footnote content and attachment, table headers,
-  row/column associations and spans, citations/locations, auxiliary diagram text,
-  figure preservation and separation of visual evidence from authoritative prose.
-- Read automatic findings and warnings. Inspect additional high-risk evidence as
-  needed; request exact PDF pages and remain pending if images are inaccessible.
+```sh
+auto_review_parsing() {
+  if [ -n "$REQUIRED_PAGES" ]; then
+    set -- --required-pages "$REQUIRED_PAGES" "$@"
+  fi
+  direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
+    --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
+    --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
+    --sample-per-document "$SAMPLE_PER_DOCUMENT" \
+    --output "$EVALUATION_REPORT" "$@"
+}
 
-Record reviewer kind=agent, name and ACTUAL configured model. Preserve build_id,
-snapshot_sha256, review_policy_sha256 and every sample_id. For every inspected
-sample record inspection.original_inspected=true and, for PDFs,
-inspection.layout_inspected=true, plus concrete notes describing the inspected
-source location and result. Never set these fields without inspection. Set status
-pass/fail/pending. Failed samples require severity: critical for materially wrong
-or unsupported evidence/table associations; major for missing governing context;
-minor for limited defects that do not change meaning. Pending and failed samples
-require actionable notes. Preserve previous notes/findings and explain revisions.
-Record any additional defects outside selection in additional_findings with
-source_id, location and notes; these block acceptance and must not be discarded.
+if [ -e "$REVIEW_FILE" ]; then
+  auto_review_parsing --review-file "$REVIEW_FILE"
+else
+  auto_review_parsing --initialize-review "$REVIEW_FILE"
+fi
+```
 
-Report document counts, selected/inspected PDF pages and HTML documents, judgment
-counts, severities, all three gates, exact artifact paths, prioritized findings and
-coverage limits. Automated checks cover all inputs; this is NOT visual review of
-every PDF page and does not certify legal correctness. Uninspected samples stay
-pending. Fixture judgments never approve a real corpus.
+Read the exit code and automatic_gate, review_gate and gate. Initialization can
+exit 0 while pending; existing pending/failed reviews can exit 1. Continue inspection
+only with valid artifacts, identities and samples and a passing automatic gate.
+Stop and report malformed/stale inputs, missing reports or automatic failures.
+
+2. Inspect EVERY review_sample unit against its saved original and parsed_directory.
+- PDF: inspect the original and rendered page; compare ALL parsed elements and
+  omissions. Inspect adjacent pages when context or reading order requires it.
+- HTML: inspect the complete saved article and selectors, never search excerpts.
+- Check wording, numbers/identifiers, headings, reading order, lists, footnotes and
+  attachment, table headers/rows/columns/spans, citations, diagram labels and figure
+  preservation. Keep visual evidence distinct from authoritative prose.
+- Inspect warnings and additional high-risk evidence. Inaccessible originals/layout
+  remain pending; identify the missing evidence.
+
+Record reviewer kind=agent, name and actual model. Preserve build_id, snapshot_sha256,
+review_policy_sha256 and every sample_id. Record pass/fail/pending with source-located
+notes; set inspection.original_inspected=true and PDF inspection.layout_inspected=true
+only after inspection. Failures require severity: critical for materially wrong or
+unsupported evidence/table associations; major for missing governing context; minor
+for defects without changed meaning. Pending/fail notes must be actionable. Preserve
+earlier findings and explain revisions. Record off-sample defects in additional_findings
+with source_id, location and notes; they block acceptance.
+
+Record timezone-qualified inspection start/end times and measured usage/cost when
+available; leave unavailable measurements null, never estimate or invent them.
+
+3. Record judgments, then run final evaluation; do not leave it for the user:
+
+```sh
+auto_review_parsing --review-file "$REVIEW_FILE"
+```
+
+For a managed manual run with artifacts/${RUN_ID}/state.json, also register results
+through scripts/workflow.py step --run-id "$RUN_ID" --stage parsing-review, using
+its original --config and latest budget_history limits. Include valid pending/failed
+results. Never increase budgets, add --agent-review/--allow-paid, rebuild or edit state.
+Report registration failures. Standalone runs need no registration. Writes are limited
+to review/report JSON and controller-managed registration; external reviews alone do
+not supply verified session evidence required for controller publication.
+
+Report exit codes, all three gates, document counts, selected/inspected PDF pages and
+HTML documents, judgment/severity counts, coverage, pass rate, weighted score,
+reviewer measurements, prioritized source-located findings and artifact paths.
+Never lower thresholds or pass uninspected samples.
+Automatic checks cover all inputs; visual review covers selected pages, not the whole
+corpus or legal correctness. Fixture judgments never approve real inputs.
