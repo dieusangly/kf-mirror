@@ -87,10 +87,87 @@ adds numbered-paragraph and local-list scope.
 
 Repairs require source evidence:
 
+The explicit `pdf-source-v2` adapter makes a working copy of saved Docling
+structure; `docling.json` retains the original parser result. Its
+`pdf_source_adapter` ledger in the sidecar binds each correction to the original
+PDF hash, original/corrected node hashes and source evidence. It can recover
+dotted-leader contents entries, complete aligned final table rows, separate
+source captions/notes, and coarsen columns supported by a full painted divider
+and independent headers. Grouped headers retain their existing adapter. All
+glyphs must be accounted for; source boxes and note scopes remain explicit.
+
+An occluded duplicate requires a complete textual witness and zero changed
+pixels when its whole text objects are removed from an in-memory page render.
+Visible repetitions stay intact. Mixed native-text/OCR spans are classified
+independently. Missing literal glyphs, narrow lettering and digit-only transcripts
+do not prove that OCR is decorative: outlined text may carry real values.
+Unmatched short suffixes are retained because an underestimated native box can
+omit a real identifier. Raster heading recovery
+uses bounded local Tesseract verification (PSM 6, configured languages/scale,
+at most 12 regions per page, 30-second call timeout). Every recovered word must
+have confidence at least 85. Failed graphic/cover verification retains the native
+transcript and records a blocking uncertainty rather than excluding it as furniture.
+The ledger records word boxes,
+confidence, engine version, actual settings and trained-language-model hashes.
+Source/crop/settings/model-specific caches are retained; they are not approvals.
+The ledger also records `uncertainties`, propagated as parser warnings. The source
+audit independently replays them, so deleting warnings cannot make the gate pass.
+
 - **Tables:** repair labels/markers only with matching glyphs, geometry, leaf
   headers and unique row anchors. Preserve governing row spans and native numeric
   columns unless repair is justified. Ambiguity emits `table_cell_alignment_uncertain`;
   OCR-only tables receive no invented coordinates.
+  The Docling adapter can reconstruct ruled cells from literal PDF glyphs,
+  painted rules and visible fill boundaries. It requires a rectangular partition
+  and complete text conservation; invisible background edges and isolated text
+  underlines cannot introduce rows. Border overhangs are clipped to actual painted
+  grid junctions. Implicitly closed filled rectangles remain source borders;
+  disconnected in-cell paint cannot introduce a grid hole. A uniform initial
+  translucent background covering the table is distinguished from later overlays.
+  `table_geometry` in `parse.json` records the
+  source grid, glyph digest and any perimeter supported by aligned rule endpoints.
+  Repaired cells retain physical page boxes and `header_origin: pdf_rulings_and_glyphs`.
+  When a divider moves between rows, `physical_columns` and `column_aliases` may
+  record its alternative positions. This requires uniquely located, exact
+  native/source cell agreement; no physical cell may collapse to zero width.
+  Unmapped glyphs, conflicting borders or unsupported overlapping paint emit
+  `table_geometry_uncertain` and leave the native table unchanged with partial status.
+  Native callouts with only outside edges, open table styles, and adjacent native
+  page fragments lacking a painted top remain in the native adapter. Header shading
+  and zebra stripes alone cannot establish a ruled frame. Native cells retain
+  `header_origin: docling_table_structure` and their own audit checks.
+  Incomplete paint cannot collapse an independently witnessed native partition:
+  every source glyph must have one matching native cell, separate columns need
+  independent first-row leaf headers, and separate number cells need aligned
+  prose anchors in the other column. Wrapped prose and subdivisions beneath a
+  shared header do not establish such boundaries.
+  Text normalization runs inside cells; prose dehyphenation must never join
+  separate serialized rows or remove a row-ending identifier hyphen.
+  Numeric superscript note markers are serialized separately, for example
+  `42 [17]`. Separation requires complete cell glyph agreement, smaller raised
+  digits beside a full-size digit and a unique source-verified native footnote
+  below the cell on the same page. `footnote_references` retains marker boxes,
+  glyph indices and the native note reference/location. Unsupported splits
+  remain unchanged for inspection; digit size alone never establishes a note.
+- **Table continuation:** compatible adjacent source grids, governing headers and
+  source-located section/caption boundaries establish explicit `table_continuation`
+  references. They point to original header spans and supported governing-cell
+  fragments; text is never copied into a cell on a different page. `table_rows`,
+  `table_headers` and reciprocal `table_continues_to` references preserve scope.
+  Captions and sections are checked by source location even when native traversal
+  yields them out of order. Self-contained tables with their own headers are checked
+  before comparison with prior columns. Recognised year headers may establish their
+  unmarked label stub. Unheaded, independently labelled field/description rows have
+  `table_role: key_value`; they govern their own values without an invented header.
+  Split-row witnesses or matching multi-row governing spans restrict inherited
+  labels to the affected rows. A coarser physical partition can inherit the original
+  logical columns only where every source header row spans each removed boundary.
+  `column_mapping` in continuation evidence records that boundary correspondence;
+  physical geometry and boxes remain unchanged, and cell column spans preserve
+  alignment with the original header. Other changed columns, missing headers and ambiguous blank
+  cells remain blocking continuation warnings. Chunking cites these original spans,
+  repeats all governing header rows, and fails if mandatory context cannot fit the
+  configured budget.
 - **Notes:** recover recognised or multiply body-referenced markers; join only
   within a supported page/column. Preserve native refs and recompute roles.
   Filename-only notes remain structural; no cross-page attachment is inferred.
@@ -99,6 +176,14 @@ Repairs require source evidence:
 - **Text:** restore numeric separators only with local PDF glyph proof; reject
   altered digits. Remove controls, join layout-hyphenated words and exclude publisher
   furniture from authoritative prose. Unresolved decisions remain warnings.
+  PDFium's internal hyphen sentinel is recovered only with a positive
+  `FPDFText_IsHyphen` result; geometry distinguishes a following line break.
+  Unidentified glyphs are never replaced by guessed words or numbers.
+  Running furniture is classified after multi-page character-span splitting.
+  Short repeated headers require explicit native page-header/furniture evidence;
+  identical wording outside the top strip remains body text. Contiguous native
+  list groups with a single column and nonoverlapping rows can be ordered locally
+  even when pictures or other columns prevent whole-page ordering.
 
 Unchanged bytes replace the same document folder; changed bytes create a new ID
 and leave the old folder. Follow [refresh one document](chunking.md#refresh-one-document)

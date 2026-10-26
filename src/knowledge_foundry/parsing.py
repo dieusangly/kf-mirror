@@ -193,6 +193,25 @@ def _normalize(source, document, items):
         entry["parent_element_id"] = id_by_key.get(parent_key) if parent_key else None
         if parent_key and entry["parent_element_id"] is None:
             raise ValueError(f"unresolved element parent: {parent_key}")
+        def table_reference(ref):
+            ref = dict(ref)
+            for key, target in [('element_key', 'element_id'), ('cell_key', 'cell_element_id')]:
+                if key in ref:
+                    value = ref.pop(key)
+                    if value not in id_by_key:
+                        raise ValueError(f'unresolved table context: {value}')
+                    ref[target] = id_by_key[value]
+            return ref
+        if 'table_headers' in entry:
+            entry['table_headers'] = [table_reference(ref) for ref in entry['table_headers']]
+        if 'table_continues_to_keys' in entry:
+            entry['table_continues_to'] = [id_by_key[key] for key in entry.pop('table_continues_to_keys')]
+        if 'table_continuation' in entry:
+            value = dict(entry['table_continuation'])
+            value['previous_table_id'] = id_by_key[value.pop('previous_table_key')]
+            for key in ['header_context', 'row_context']:
+                value[key] = [table_reference(ref) for ref in value[key]]
+            entry['table_continuation'] = value
     bundle = {"schema_version": SCHEMA_VERSION, "sources": [source],
               "documents": [document], "elements": records,
               "chunks": [], "claims": [], "topics": [], "builds": []}
@@ -351,7 +370,7 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             metadata.update(_embedded_metadata(local_path, format_name))
             metadata = {key: value for key, value in metadata.items() if value is not None}
             parse_data = {"parse_version": 1, "document_id": document["id"], "parser": parser_name,
-                          "adapter_version": "format-adapters-v2",
+                          "adapter_version": "format-adapters-v7",
                           "parser_versions": _tool_versions(format_name),
                           "settings": parser_settings, "metadata_origins": metadata,
                           "elements": sidecar, "warnings": warnings}

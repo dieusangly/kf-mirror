@@ -175,6 +175,62 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(_pdf_text("INTRODUCTION\b\x07 et malus écolo- gique"),
                          "INTRODUCTION et malus écologique")
 
+    def test_pdf_table_row_boundaries_are_not_prose_word_breaks(self):
+        values = [('Entry', 'BC-'), ('FT index', '79'), ('Wrapped word', 'écolo-\ngique'),
+                  ('URL', 'http://www.currency-\niso.org/file.xls')]
+        cells = [SimpleNamespace(text=text, start_row_offset_idx=row, start_col_offset_idx=col,
+                                 row_span=1, col_span=1, column_header=row == 0, row_header=False, bbox=None)
+                 for row, pair in enumerate(values) for col, text in enumerate(pair)]
+        node = SimpleNamespace(label='table', self_ref='#/tables/0', parent=SimpleNamespace(cref='#/body'),
+                               prov=[SimpleNamespace(page_no=1, bbox=None)],
+                               data=SimpleNamespace(table_cells=cells))
+        document = SimpleNamespace(pages={1: SimpleNamespace(size=SimpleNamespace(height=800, width=600))},
+            iterate_items=lambda with_groups: iter([(node, 1)]),
+            export_to_dict=lambda: {'pages': {'1': {'size': {'width': 600, 'height': 800}}},
+                                    'texts': [], 'pictures': [], 'tables': [], 'groups': []})
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual(warnings, [])
+        table = next(i for i in items if i['kind'] == 'table')
+        self.assertEqual(table['text'],
+            'Entry | BC-\nFT index | 79\nWrapped word | écologique\nURL | http://www.currency-iso.org/file.xls')
+
+    def test_wrapped_urls_keep_literal_hyphens_while_prose_is_dehyphenated(self):
+        self.assertEqual(_pdf_text('écolo- gique https://www.example- org.test/a- b.xls '
+                                   'et www.other- host.test puis régu- lier'),
+                         'écologique https://www.example-org.test/a-b.xls '
+                         'et www.other-host.test puis régulier')
+
+    def test_native_heading_followed_by_body_stays_authoritative_below_figure(self):
+        from docling_core.types.doc import BoundingBox, CoordOrigin
+
+        def node(label, text, ref, box):
+            return SimpleNamespace(label=label, text=text, self_ref=ref, marker=None,
+                parent=SimpleNamespace(cref='#/body'), prov=[SimpleNamespace(page_no=1,
+                bbox=BoundingBox(l=box[0], t=box[1], r=box[2], b=box[3],
+                                 coord_origin=CoordOrigin.TOPLEFT))])
+        picture = node('picture', '', '#/pictures/0', [50, 100, 500, 400])
+        heading = node('section_header', 'VII. Equipment maintenance', '#/texts/0', [50, 430, 250, 442])
+        subtitle = node('section_header', 'Inspection records', '#/texts/1', [50, 450, 200, 462])
+        body = node('text', 'Operators must record the date of every inspection and retain '
+                    'the results with the equipment maintenance log.', '#/texts/2', [50, 480, 500, 515])
+        native = {'pages': {'1': {'size': {'width': 600, 'height': 800}}},
+                  'pictures': [{'self_ref': picture.self_ref, 'children': [],
+                    'prov': [{'page_no': 1, 'bbox': picture.prov[0].bbox.model_dump(mode='json')}]}],
+                  'texts': [], 'tables': [], 'groups': []}
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter(
+            (item, 1) for item in [picture, heading, subtitle, body]),
+            pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: native)
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, _ = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual([i['kind'] for i in items], ['figure', 'heading', 'heading', 'paragraph'])
+        self.assertEqual(items[-1]['details']['heading_path'],
+                         ['VII. Equipment maintenance', 'Inspection records'])
+        self.assertEqual(items[1]['details']['evidence_role'], 'authoritative')
+
     def test_control_only_pdf_node_is_not_missing_content(self):
         node = SimpleNamespace(label="text", text="\b", marker=None,
                                prov=[SimpleNamespace(page_no=1, bbox=None)],
@@ -273,6 +329,73 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertEqual({item["kind"] for item in items}, {"paragraph"})
         self.assertEqual({item["details"]["evidence_role"] for item in items}, {"structural"})
+
+    def test_running_header_inside_multipage_list_does_not_reclassify_body_fragments(self):
+        header = 'Repeated publication header and edition information'
+        text = 'c. The first clause continues. ' + header + ' d. The second clause continues.'
+        def part(page, top, bottom, start, end):
+            return SimpleNamespace(page_no=page, charspan=[start, end], bbox=SimpleNamespace(
+                to_top_left_origin=lambda height: SimpleNamespace(l=40, t=top, r=500, b=bottom)))
+        begin = text.index(header)
+        node = SimpleNamespace(label='text', text=text, orig=text, self_ref='#/texts/0',
+            parent=SimpleNamespace(cref='#/body'), prov=[part(1, 600, 620, 0, begin),
+            part(2, 30, 50, begin, begin + len(header)),
+            part(2, 80, 100, begin + len(header), len(text))])
+        pages = {page: SimpleNamespace(size=SimpleNamespace(height=800, width=600)) for page in [1, 2, 3]}
+        native = {'pages': {str(page): {'size': {'height': 800, 'width': 600}} for page in pages},
+            'texts': [{'self_ref': '#/texts/0', 'text': text, 'prov': [
+                {'page_no': p.page_no, 'charspan': p.charspan, 'bbox': {
+                    'l': 40, 't': p.bbox.to_top_left_origin(800).t, 'r': 500,
+                    'b': p.bbox.to_top_left_origin(800).b, 'coord_origin': 'TOPLEFT'}} for p in node.prov]}] +
+            [{'text': header, 'prov': [{'page_no': page, 'bbox': {
+                'l': 40, 't': 30, 'r': 500, 'b': 50, 'coord_origin': 'TOPLEFT'}}]} for page in [1, 3]],
+            'pictures': [], 'tables': [], 'groups': []}
+        # The repeated header witnesses need no emitted node for this adapter unit test.
+        for index, witness in enumerate(native['texts'][1:], 1):
+            witness['self_ref'] = f'#/texts/{index}'
+            witness['content_layer'] = 'furniture'
+        document = SimpleNamespace(pages=pages, export_to_dict=lambda: native,
+                                   iterate_items=lambda with_groups: iter([(node, 1)]))
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual(warnings, [])
+        self.assertEqual([(i['kind'], i['details']['evidence_role']) for i in items],
+                         [('list_item', 'authoritative'), ('paragraph', 'structural'),
+                          ('list_item', 'authoritative')])
+
+    def test_short_running_headers_require_repeated_native_furniture_evidence(self):
+        pages = {str(p): {'size': {'height': 800}} for p in [1, 2, 3]}
+        texts = [{'text': 'XY', 'prov': [{'page_no': p, 'bbox': {
+            'l': 40, 't': 30, 'r': 60, 'b': 50, 'coord_origin': 'TOPLEFT'}}]} for p in [1, 2, 3]]
+        self.assertEqual(_pdf_running_headers({'pages': pages, 'texts': texts}), set())
+        texts[0].update(label='page_header', content_layer='furniture')
+        self.assertEqual(_pdf_running_headers({'pages': pages, 'texts': texts}), {'XY'})
+
+    def test_native_heading_below_diagram_governs_an_aligned_table(self):
+        def provenance(top, bottom):
+            return [SimpleNamespace(page_no=1, bbox=SimpleNamespace(to_top_left_origin=lambda height:
+                    SimpleNamespace(l=50, t=top, r=500, b=bottom)))]
+        heading = SimpleNamespace(label='section_header', text='Investigations sent to the authority',
+            self_ref='#/texts/0', parent=SimpleNamespace(cref='#/body'), prov=provenance(490, 510))
+        cell = SimpleNamespace(text='Year', start_row_offset_idx=0, start_col_offset_idx=0,
+            row_span=1, col_span=1, column_header=True, row_header=False, bbox=None)
+        table = SimpleNamespace(label='table', self_ref='#/tables/0',
+            parent=SimpleNamespace(cref='#/body'), prov=provenance(515, 600),
+            data=SimpleNamespace(table_cells=[cell]))
+        native = {'pages': {'1': {'size': {'height': 800, 'width': 600}}}, 'texts': [],
+            'tables': [], 'groups': [], 'pictures': [{'self_ref': '#/pictures/0', 'children': [],
+            'prov': [{'page_no': 1, 'bbox': {'l': 50, 't': 100, 'r': 500, 'b': 480,
+                                           'coord_origin': 'TOPLEFT'}}]}]}
+        document = SimpleNamespace(pages={1: SimpleNamespace(size=SimpleNamespace(height=800, width=600))},
+            export_to_dict=lambda: native, iterate_items=lambda with_groups: iter([(heading, 1), (table, 1)]))
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual(warnings, [])
+        self.assertEqual(items[0]['kind'], 'heading')
+        self.assertEqual(items[0]['details']['evidence_role'], 'authoritative')
+        self.assertEqual(items[1]['details']['heading_path'], [heading.text])
 
     def test_pdf_visual_caption_below_large_diagram_is_auxiliary(self):
         figure_box = {"l": 50, "t": 700, "r": 500, "b": 320,

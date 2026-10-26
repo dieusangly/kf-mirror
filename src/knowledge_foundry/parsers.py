@@ -6,9 +6,11 @@ from collections import Counter
 from pathlib import Path
 
 from knowledge_foundry.pdf_structure import (
-    FILENAME_FOOTNOTE, NOTE_MARKER, pdf_page_characters, repair_footnotes,
+    FILENAME_FOOTNOTE, NOTE_MARKER, order_single_column_pages, pdf_page_characters, repair_footnotes,
     restore_numeric_identifiers, rotated_header_rows, table_text_groups,
+    separate_table_note_markers,
 )
+from knowledge_foundry.pdf_tables import pdf_page_geometry, ruled_cells, link_table_continuations, native_page_fragment
 
 
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
@@ -17,6 +19,7 @@ PDF_ROMAN_HEADING = re.compile(r"^\s*[IVX]+\.\s+", re.I)
 PDF_ANNEX_HEADING = re.compile(r"^\s*annexe\s+\d+\b", re.I)
 PDF_CASE_HEADING = re.compile(r"^\s*(?:cas|case)\s+n[°o]\s*\d+\b", re.I)
 PDF_BOX_HEADING = re.compile(r"^\s*(?:encadré|box)\s+n[°o]\s*\d+\b", re.I)
+PDF_LEGAL_HEADING = re.compile(r"^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+[a-z]?|premier)$", re.I)
 PICTURE_CONNECTORS = {"a", "à", "au", "aux", "d", "de", "des", "du", "dans", "en",
                       "et", "le", "la", "les", "l", "pour", "par", "sur", "un", "une",
                       "the", "of", "in", "to", "for", "and", "with"}
@@ -24,11 +27,19 @@ FIGURE_HEADING = re.compile(r"\b(?:schéma|diagramme|figure|flowchart|diagram)\b
 URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
+WRAPPED_URL = re.compile(r"(?:https?://|www\.)(?:[^\s]*-\s+)*[^\s]+", re.I)
 
 
 def _pdf_text(value):
     """Remove text-layer controls and join a word broken by a layout hyphen."""
-    return WRAPPED_WORD.sub("", PDF_CONTROLS.sub("", value or ""))
+    value = PDF_CONTROLS.sub("", value or "")
+    pieces, start = [], 0
+    for match in WRAPPED_URL.finditer(value):
+        pieces.append(WRAPPED_WORD.sub("", value[start:match.start()]))
+        pieces.append(re.sub(r"(?<=-)\s+", "", match[0]))
+        start = match.end()
+    pieces.append(WRAPPED_WORD.sub("", value[start:]))
+    return "".join(pieces)
 
 
 def _pdf_table_cells(item, characters=None):
@@ -163,9 +174,9 @@ def _pdf_table_cells(item, characters=None):
     return normalized
 
 
-def _pdf_table_text(item, doc, characters=None):
+def _pdf_table_text(item, doc, characters=None, *, cells=None):
     """Serialize recognized cells once while retaining their column positions."""
-    cells = _pdf_table_cells(item, characters)
+    cells = _pdf_table_cells(item, characters) if cells is None else cells
     if not cells:
         return _pdf_text(item.export_to_markdown(doc=doc)) if hasattr(item, "export_to_markdown") else ""
     rows = {}
@@ -195,6 +206,7 @@ def _pdf_running_headers(native):
     """Find text repeated in the top strip of three or more PDF pages."""
     pages = native.get("pages", {})
     matches = {}
+    native_furniture = set()
     for node in native.get("texts", []):
         value = node.get("text", "")
         for part in node.get("prov") or []:
@@ -209,9 +221,12 @@ def _pdf_running_headers(native):
                 continue
             start, end = part.get("charspan", [0, len(value)])
             fragment = " ".join(_pdf_text(value[start:end]).split())
-            if len(fragment) >= 30:
+            if node.get('label') == 'page_header' and node.get('content_layer') == 'furniture':
+                native_furniture.add(fragment)
+            if fragment:
                 matches.setdefault(fragment, set()).add(page_no)
-    return {fragment for fragment, seen_pages in matches.items() if len(seen_pages) >= 3}
+    return {fragment for fragment, seen_pages in matches.items() if len(seen_pages) >= 3 and
+            (len(fragment) >= 30 or fragment in native_furniture)}
 
 
 def _picture_contact_furniture(group, pages):
@@ -381,6 +396,9 @@ def _pdf_toc_levels(native):
 
 
 def _pdf_heading_level(text, stack, toc_levels):
+    legal = PDF_LEGAL_HEADING.fullmatch(' '.join(text.split()))
+    if legal:
+        return {'chapter': 1, 'chapitre': 1, 'section': 3, 'article': 5}[legal[1].lower()], 'legal'
     match = PDF_DECIMAL_HEADING.match(text)
     if match and (len(match.group(1).split(".")) > 1 or int(match.group(1)) < 20):
         return len(match.group(1).split(".")), "numbered"
@@ -394,7 +412,7 @@ def _pdf_heading_level(text, stack, toc_levels):
                        " ".join(parent_title.casefold().split())), None)
         # A missing TOC parent in the body cannot be safely invented.
         return (parent[0] + 1 if parent else 1), "toc"
-    anchor = next((entry for entry in reversed(stack) if entry[3] in {"numbered", "toc"}), None)
+    anchor = next((entry for entry in reversed(stack) if entry[3] in {"numbered", "toc", "legal"}), None)
     case = next((entry for entry in reversed(stack) if entry[3] == "case"), None)
     if PDF_CASE_HEADING.match(text):
         return (anchor[0] if anchor else 1) + 1, "case"
@@ -758,8 +776,15 @@ def parse_pdf(path, _source, options, converter=None):
         raise ValueError(f"Docling conversion status: {result.status}")
     doc = result.document
     native = doc.export_to_dict()
+    original_native = native
+    source_adapter = None
+    if callable(getattr(type(doc), 'model_validate', None)):
+        from knowledge_foundry.pdf_source import adapt_native
+        native, source_adapter = adapt_native(native, path, options.get('ocr', {'mode': 'auto'}))
+        if source_adapter:
+            doc = type(doc).model_validate(native)
     items = []
-    warnings = []
+    warnings = list(source_adapter.get('uncertainties', [])) if source_adapter else []
     page_counts = {}
     heading_stack = []
     toc_levels = _pdf_toc_levels(native)
@@ -808,6 +833,7 @@ def parse_pdf(path, _source, options, converter=None):
     represented_refs = set()
     excluded_picture_refs = set()
     character_cache = {}
+    geometry_cache = {}
 
     def page_characters(provenance):
         if len(provenance) != 1 or not Path(path).is_file():
@@ -825,7 +851,9 @@ def parse_pdf(path, _source, options, converter=None):
             warnings.append({"code": "unlocated_pdf_block", "ref": ref, "message": text[:120]})
             return None
         first_key = None
+        native_kind = kind
         for index, part in enumerate(provenance):
+            kind = native_kind
             page = part["page_no"] if isinstance(part, dict) else part.page_no
             if page not in doc.pages:
                 warnings.append({"code": "invalid_pdf_page", "ref": ref, "page": page})
@@ -841,7 +869,10 @@ def parse_pdf(path, _source, options, converter=None):
                                      "provenance_index": index})
                     continue
                 piece = text[span[0]:span[1]]
-            piece = _pdf_text(piece)
+            # Table cells were normalised before serialization. Reapplying
+            # prose dehyphenation here could join the end of one row to the
+            # start of another and erase both a hyphen and the row boundary.
+            piece = piece if kind == 'table' else _pdf_text(piece)
             if not piece.strip() and kind != "figure":
                 if _pdf_text(text).strip():
                     warnings.append({"code": "empty_pdf_charspan", "ref": ref, "page": page,
@@ -870,10 +901,12 @@ def parse_pdf(path, _source, options, converter=None):
                 piece = restore_numeric_identifiers(piece, location.get('bbox'), page_characters([part]))
             local_role = evidence_role
             annotation_figure = None
+            if (kind in {'paragraph', 'list_item', 'heading'} and
+                    ' '.join(piece.split()) in running_headers and location.get('bbox') and
+                    location['bbox'][1] <= doc.pages[page].size.height * .16):
+                kind, local_role = 'paragraph', 'structural'
             if kind == "paragraph" and local_role == "authoritative":
-                if " ".join(piece.split()) in running_headers:
-                    local_role = "structural"
-                elif cover_page and page == 1 and len(piece.split()) < 15:
+                if cover_page and page == 1 and len(piece.split()) < 15:
                     local_role = "auxiliary"
                 elif len(piece.split()) <= 32 and not piece.rstrip().endswith((".", ";", ":", "?", "!")):
                     annotation_figure = picture_annotation(page, location)
@@ -1055,7 +1088,32 @@ def parse_pdf(path, _source, options, converter=None):
                              "candidates": [candidate for candidate in potential_candidates
                                             if candidate["role"] == "flow"]})
 
-    flow_items = list(doc.iterate_items(with_groups=False))
+    flow_items = order_single_column_pages(list(doc.iterate_items(with_groups=False)), doc.pages)
+
+    def heading_starts_body(item, following):
+        """Do not demote a native heading introducing aligned prose or a table."""
+        prov = getattr(item, 'prov', []) or []
+        if len(prov) != 1 or prov[0].bbox is None:
+            return False
+        page = prov[0].page_no
+        height = doc.pages[page].size.height
+        box = prov[0].bbox.to_top_left_origin(height)
+        for node, _ in following:
+            label = str(getattr(node, 'label', '')).lower()
+            if label in {'section_header', 'title', 'page_header', 'page_footer'}:
+                continue
+            parts = getattr(node, 'prov', []) or []
+            if (len(parts) != 1 or parts[0].page_no != page or parts[0].bbox is None or
+                    label not in {'text', 'list_item', 'table'}):
+                return False
+            body = parts[0].bbox.to_top_left_origin(height)
+            value = getattr(node, 'text', '')
+            body_content = (len(value.split()) >= 12 or label == 'table' and
+                            bool(getattr(getattr(node, 'data', None), 'table_cells', [])))
+            return (body_content and abs(body.l - box.l) <= 12 and
+                    0 <= body.t - box.b <= 60 and body.r - body.l >= height * .35)
+        return False
+
     for flow_index, (item, level) in enumerate(flow_items):
         # Some Docling children (notably captions) are yielded again in the
         # outer traversal after their picture has already represented them.
@@ -1080,10 +1138,41 @@ def parse_pdf(path, _source, options, converter=None):
             kind = "paragraph"
         prov = getattr(item, "prov", []) or []
         characters = page_characters(prov) if kind == 'table' else []
+        table_cells, table_geometry = None, None
         if kind == "table":
-            text = _pdf_table_text(item, doc, characters)
+            table_cells = _pdf_table_cells(item, characters)
+            if table_cells and len(prov) == 1 and prov[0].bbox is not None and Path(path).is_file():
+                page = prov[0].page_no
+                if page not in geometry_cache:
+                    geometry_cache[page] = pdf_page_geometry(path, page)
+                box = prov[0].bbox.to_top_left_origin(doc.pages[page].size.height)
+                repaired, table_geometry, uncertain = ruled_cells(
+                    table_cells, characters, geometry_cache[page], [box.l, box.t, box.r, box.b],
+                    normalize_text=_pdf_text, page_fragment=native_page_fragment(native, item.self_ref))
+                if repaired is not None:
+                    table_cells = [{**cell, 'text': ' '.join(_pdf_text(cell['text']).split())}
+                                   for cell in repaired]
+                elif uncertain:
+                    warnings.append({'code': 'table_geometry_uncertain', 'ref': item.self_ref,
+                                     'page': page, 'reason': uncertain})
+            if len(prov) == 1:
+                table_cells = separate_table_note_markers(table_cells, characters, native, prov[0].page_no)
+            text = _pdf_table_text(item, doc, characters, cells=table_cells)
         else:
             text = getattr(item, "text", "") or ""
+        # A standalone article number followed by a centred native title
+        # supplies both textual and geometric evidence for a heading pair.
+        if (kind == 'paragraph' and PDF_LEGAL_HEADING.fullmatch(text.strip()) and
+                text.strip().lower().startswith('article ') and len(prov) == 1 and
+                prov[0].bbox is not None and flow_index + 1 < len(flow_items)):
+            following = flow_items[flow_index + 1][0]
+            parts = getattr(following, 'prov', []) or []
+            if (str(getattr(following, 'label', '')).lower() == 'section_header' and
+                    len(parts) == 1 and parts[0].page_no == prov[0].page_no and parts[0].bbox is not None):
+                height = doc.pages[prov[0].page_no].size.height
+                a, b = prov[0].bbox.to_top_left_origin(height), parts[0].bbox.to_top_left_origin(height)
+                if abs((a.l + a.r) - (b.l + b.r)) <= 12 and 0 <= b.t - a.b <= 30:
+                    kind = 'heading'
         marker = getattr(item, "marker", None)
         if kind == "list_item":
             text = getattr(item, "orig", None) or (f"{marker} {text}" if marker else text)
@@ -1099,10 +1188,9 @@ def parse_pdf(path, _source, options, converter=None):
                               {'footnote', 'page_header', 'page_footer'}), None)
             if following is not None and 'list_item' in str(getattr(following, 'label', '')).lower():
                 kind = 'paragraph'  # A local list introduction must not become a persistent section.
-        if kind in {"heading", "list_item", "paragraph"} and \
-                " ".join(_pdf_text(text).split()) in running_headers:
-            kind = "paragraph"  # Repeated top-strip text is publisher furniture.
-        if kind == "heading" and len(text.split()) <= 12 and (prov := getattr(item, "prov", None)):
+        if (kind == "heading" and len(text.split()) <= 12 and
+                not heading_starts_body(item, flow_items[flow_index + 1:]) and
+                (prov := getattr(item, "prov", None))):
             first = prov[0]
             bbox = getattr(first, "bbox", None)
             if bbox is not None:
@@ -1131,7 +1219,7 @@ def parse_pdf(path, _source, options, converter=None):
             warnings.append({"code": "multi_page_table", "ref": ref,
                              "message": "table omitted until its cells can be assigned to pages"})
             continue
-        if kind == 'table' and any(cell['alignment_uncertain'] for cell in _pdf_table_cells(item, characters)):
+        if kind == 'table' and any(cell['alignment_uncertain'] for cell in table_cells):
             warnings.append({'code': 'table_cell_alignment_uncertain', 'ref': ref,
                              'message': 'merged markers lack reliable glyph-to-column alignment; inspect the source table'})
         filename_only_footnote = kind == "footnote" and FILENAME_FOOTNOTE.match(text)
@@ -1147,18 +1235,23 @@ def parse_pdf(path, _source, options, converter=None):
         if kind == "figure":
             picture_descendants(ref, list(heading_stack))
         if kind == "table" and getattr(item, "data", None) is not None:
+            if table_geometry is not None:
+                items[-1]['details']['table_geometry'] = table_geometry
             for provenance in prov:
                 page = provenance.page_no
                 location = items[-1]["location"]
-                for cell in _pdf_table_cells(item, characters):
+                for cell in table_cells:
                     row = cell["row"]
                     col = cell["column"]
                     cell_location = dict(location)
                     cell_bbox = cell["bbox"]
                     if cell_bbox is not None:
                         try:
-                            box = cell_bbox.to_top_left_origin(doc.pages[page].size.height)
-                            cell_location["bbox"] = [box.l, box.t, box.r, box.b]
+                            if isinstance(cell_bbox, list):
+                                cell_location['bbox'] = list(cell_bbox)
+                            else:
+                                box = cell_bbox.to_top_left_origin(doc.pages[page].size.height)
+                                cell_location["bbox"] = [box.l, box.t, box.r, box.b]
                         except (AttributeError, TypeError, KeyError):
                             cell_location.pop("bbox", None)
                     items.append(_item("table_cell", cell["text"],
@@ -1168,7 +1261,10 @@ def parse_pdf(path, _source, options, converter=None):
                                                 "row_span": cell["row_span"],
                                                 "col_span": cell["col_span"],
                                                 "header": cell["header"],
-                                                "header_origin": "docling_table_structure",
+                                                **({'footnote_references': cell['footnote_references']}
+                                                   if cell.get('footnote_references') else {}),
+                                                "header_origin": ('pdf_rulings_and_glyphs' if table_geometry
+                                                                  else "docling_table_structure"),
                                                 "evidence_role": "structural"}))
     for node in native.get("texts", []):
         ref = node["self_ref"]
@@ -1181,4 +1277,7 @@ def parse_pdf(path, _source, options, converter=None):
     # footnotes. Restore page order while retaining Docling's within-page order.
     items.sort(key=lambda item: item["location"]["page"])
     items = repair_footnotes(items, {page: value.size.height for page, value in doc.pages.items()})
-    return items, native, warnings
+    link_table_continuations(items, {page: value.size.height for page, value in doc.pages.items()}, warnings)
+    if items and source_adapter:
+        items[0]['details']['pdf_source_adapter'] = source_adapter
+    return items, original_native, warnings

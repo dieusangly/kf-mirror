@@ -7,12 +7,13 @@ import re
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
+from knowledge_foundry.pdf_tables import context_for_spans, table_context_errors
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
 PIPELINE_VERSION = "chunking-v1"
-CHUNKER_VERSION = "structural-v4"
+CHUNKER_VERSION = "structural-v5"
 TOKEN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 SENTENCE_END = re.compile(r"(?<=[.!?;])\s+", re.UNICODE)
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
@@ -113,8 +114,10 @@ def _token_parts(text, start, end, maximum):
     return spans
 
 
-def _table_parts(text, maximum):
+def _table_parts(text, maximum, *, repeat_header=True, header_spans=None):
     """Split table rows while repeating the first serialized header row."""
+    if not repeat_header:
+        return [[span] for span in _parts(text, maximum, table=True)]
     lines = []
     offset = 0
     for line in text.splitlines(keepends=True):
@@ -122,22 +125,29 @@ def _table_parts(text, maximum):
         if line.strip():
             lines.append((offset, end))
         offset += len(line)
-    if len(lines) < 2 or token_count(clean(text[lines[0][0]:lines[0][1]], table=True)) >= maximum:
+    if not lines:
+        return []
+    if header_spans is None and (len(lines) < 2 or
+            token_count(clean(text[lines[0][0]:lines[0][1]], table=True)) >= maximum):
         return [[span] for span in _parts(text, maximum, table=True)]
-    header = lines[0]
-    header_tokens = token_count(clean(text[header[0]:header[1]], table=True))
+    headers = header_spans if header_spans is not None else [lines[0]]
+    if headers != lines[:len(headers)]:
+        raise ValueError('table headers must precede physical body rows')
+    header_tokens = sum(token_count(clean(text[a:b], table=True)) for a, b in headers)
+    if header_tokens >= maximum:
+        raise ValueError('mandatory table headers exceed chunk budget')
     chunks = []
-    current = [header]
+    current = list(headers)
     current_tokens = header_tokens
-    for row in lines[1:]:
+    for row in lines[len(headers):]:
         row_tokens = token_count(clean(text[row[0]:row[1]], table=True))
         if current_tokens + row_tokens <= maximum:
             current.append(row)
             current_tokens += row_tokens
             continue
-        if len(current) > 1:
+        if len(current) > len(headers):
             chunks.append(current)
-            current = [header]
+            current = list(headers)
             current_tokens = header_tokens
         available = maximum - header_tokens
         if row_tokens <= available:
@@ -145,8 +155,8 @@ def _table_parts(text, maximum):
             current_tokens += row_tokens
             continue
         for piece in _token_parts(text, row[0], row[1], max(1, available)):
-            chunks.append([header, piece])
-    if len(current) > 1 or not chunks:
+            chunks.append([*headers, piece])
+    if len(current) > len(headers) or not chunks:
         chunks.append(current)
     return chunks
 
@@ -183,6 +193,8 @@ def _chunk_document(bundle, sidecar, build_id, settings):
     elements = bundle["elements"]
     if len(info) != len(elements) or set(info) != {item["id"] for item in elements}:
         raise ValueError(f"sidecar elements do not match bundle: {document['id']}")
+    if errors := table_context_errors(elements, info):
+        raise ValueError(f'invalid table continuation: {errors[0]}')
     if [item["ordinal"] for item in elements] != list(range(len(elements))):
         raise ValueError(f"elements out of reading order: {document['id']}")
     chunks = []
@@ -387,10 +399,30 @@ def _chunk_document(bundle, sidecar, build_id, settings):
                 "\n\n".join(part for part, _ in pending)))
         fresh_budget = max(1, fresh_budget)
         if is_table:
-            for table_piece in _table_parts(element["text"], fresh_budget):
-                if not pending:
-                    for item in [*context, *extra_context]:
-                        pending.append((clean(item["text"]), _reference(item, source_id)))
+            if any('span' in ref for _, ref in pending):
+                emit()  # Preserve newly encountered headings as body evidence.
+            all_context = context_for_spans(details, [(0, len(element['text']))])
+            mandatory = sum(token_count(clean(by_id[ref['element_id']]['text'][
+                ref['span']['start']:ref['span']['end']], table=True)) for ref in all_context)
+            if mandatory >= maximum:
+                raise ValueError('mandatory table continuation context exceeds chunk budget')
+            optional = [*context, *extra_context]
+            while optional and mandatory + sum(token_count(clean(i['text'])) for i in optional) >= maximum:
+                optional.pop(0)
+            budget = maximum - mandatory - sum(token_count(clean(i['text'])) for i in optional)
+            repeat = bool(details.get('table_headers')) if 'table_geometry' in details else True
+            pending = []
+            header_spans = ([(r['span']['start'], r['span']['end']) for r in details.get('table_headers', [])]
+                            if 'table_geometry' in details and repeat else None)
+            for table_piece in _table_parts(element["text"], budget, repeat_header=repeat,
+                                             header_spans=header_spans):
+                for item in optional:
+                    pending.append((clean(item['text']), _reference(item, source_id)))
+                for ref in context_for_spans(details, table_piece):
+                    source = by_id[ref['element_id']]
+                    span = (ref['span']['start'], ref['span']['end'])
+                    pending.append((clean(source['text'][span[0]:span[1]], table=True),
+                                    _reference(source, source_id, span)))
                 for span in table_piece:
                     part = clean(element["text"][span[0]:span[1]], table=True)
                     if not part:

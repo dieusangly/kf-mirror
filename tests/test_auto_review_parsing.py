@@ -15,13 +15,50 @@ from auto_review_parsing import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
+    def test_running_header_fragment_requires_structural_role(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            header = 'Repeated publisher name and edition information'
+            native = {'pages': {str(p): {'size': {'height': 800}} for p in [1, 2, 3]},
+                      'texts': [{'self_ref': f'#/texts/{p}', 'label': 'page_header',
+                                 'content_layer': 'furniture', 'text': header,
+                                 'prov': [{'page_no': p, 'bbox': {
+                                     'l': 40, 't': 30, 'r': 400, 'b': 50, 'coord_origin': 'TOPLEFT'}}]}
+                                for p in [1, 2, 3]]}
+            (folder / 'docling.json').write_text(json.dumps(native))
+            (folder / 'parse.json').write_text('{"warnings": []}')
+            elements = [{'id': f'header-{p}', 'kind': 'paragraph', 'ordinal': p, 'text': header,
+                         'location': {'format': 'pdf', 'page': p, 'bbox': [40, 30, 400, 50]}}
+                        for p in [1, 2, 3]]
+            sidecar = [{'element_id': e['id'], 'evidence_role': 'structural'} for e in elements]
+            outcome = {'manifest_id': 'sample', 'status': 'parsed', 'warnings': []}
+            valid = audit_document(outcome, elements, sidecar, folder)
+            self.assertNotIn('PDF_RUNNING_HEADER_ROLE', [f['code'] for f in valid['findings']])
+            sidecar[1]['evidence_role'] = 'authoritative'
+            changed = audit_document(outcome, elements, sidecar, folder)
+            self.assertIn('PDF_RUNNING_HEADER_ROLE', [f['code'] for f in changed['findings']])
+            # The native furniture witnesses are normally excluded from
+            # canonical elements; their evidence still validates a short header
+            # that leaked into a body node on one page.
+            for node in native['texts']:
+                node['text'] = 'Journal issue'
+            (folder / 'docling.json').write_text(json.dumps(native))
+            elements[0]['text'] = 'Journal issue'
+            short = audit_document(outcome, elements[:1], sidecar[:1], folder)
+            self.assertNotIn('INVALID_EVIDENCE_ROLE', [f['code'] for f in short['findings']])
+            for node in native['texts']:
+                node.update(label='text', content_layer='body')
+            (folder / 'docling.json').write_text(json.dumps(native))
+            unsupported = audit_document(outcome, elements[:1], sidecar[:1], folder)
+            self.assertIn('INVALID_EVIDENCE_ROLE', [f['code'] for f in unsupported['findings']])
+
     def test_identifier_repairs_require_matching_local_pdf_glyphs(self):
         from knowledge_foundry.pdf_structure import pdf_page_characters
 
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name)
             source = folder / 'equipment.pdf'
-            phrase = 'Inspect sensor 482-17 before returning the equipment to service.'
+            phrase = 'Inspect sensor 482-17-6 before returning the equipment to service.'
             stream = f'BT /F1 12 Tf 40 700 Td ({phrase}) Tj ET'.encode()
             objects = [b'<< /Type /Catalog /Pages 2 0 R >>',
                        b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -38,8 +75,8 @@ class ParsingAuditTests(unittest.TestCase):
             data += b''.join(f'{offset:010d} 00000 n \n'.encode() for offset in offsets[1:])
             data += f'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
             source.write_bytes(data)
-            self.assertIn('482-17', ''.join(c['text'] for c in pdf_page_characters(source, 1)))
-            native_text = phrase.replace('482-17', '48217')
+            self.assertIn('482-17-6', ''.join(c['text'] for c in pdf_page_characters(source, 1)))
+            native_text = phrase.replace('482-17-6', '48217-6')
             native = {'pages': {'1': {'size': {'width': 600, 'height': 800}}},
                       'texts': [{'self_ref': '#/texts/0', 'label': 'text', 'text': native_text,
                                  'prov': [{'page_no': 1, 'charspan': [0, len(native_text)],
@@ -56,8 +93,9 @@ class ParsingAuditTests(unittest.TestCase):
             self.assertEqual(result['metrics']['source_text_lost'], 0)
             unverified = audit_document(outcome, elements, sidecar, folder)
             self.assertEqual(unverified['metrics']['source_text_lost'], 1)
-            for wrong in (phrase.replace('482-17', value)
-                          for value in ('482-71', '48217', '482/17', '482+17', '482 17')):
+            for wrong in (phrase.replace('482-17-6', value)
+                          for value in ('482-71-6', '48217-6', '482-176', '482176',
+                                        '482/17/6', '482+17-6', '482 17-6')):
                 elements[0]['text'] = wrong
                 result = audit_document(outcome, elements, sidecar, folder, source_path=source)
                 self.assertEqual(result['metrics']['source_text_lost'], 1)

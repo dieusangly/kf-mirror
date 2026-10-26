@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from knowledge_foundry.chunking import TOKEN, clean, token_count  # noqa: E402
+from knowledge_foundry.pdf_tables import context_for_spans, table_context_errors  # noqa: E402
 from knowledge_foundry.review import (  # noqa: E402
     apply_reviews as _apply_reviews,
     read_review_policy, review_policy_digest,
@@ -155,10 +156,19 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
                 "metrics": metrics, "findings": list(findings.values()), "review_sample": []}
     if [chunk["sequence"] for chunk in chunks] != list(range(len(chunks))):
         _finding(findings, "CHUNK_SEQUENCE", "error", {"document_id": doc["id"]})
+    context_errors = table_context_errors(elements, info)
+    invalid_context_tables = {e['table_id'] for e in context_errors}
+    for error in context_errors:
+        _finding(findings, 'INVALID_TABLE_CONTEXT', 'error', error)
     body_refs = defaultdict(list)
     body_chunks = defaultdict(set)
     body_order = []
     repeated_table_headers = set()
+    def header_spans(element):
+        detail = info[element['id']]
+        if 'table_geometry' in detail:
+            return {(r['span']['start'], r['span']['end']) for r in detail.get('table_headers', [])}
+        return {_table_header_span(element)}
     sizes = []
     for chunk in chunks:
         size = token_count(chunk["text"])
@@ -174,6 +184,20 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
         table_ids = set()
         non_table_ids = set()
         body_seen = False
+        table_sources = [ids[ref['element_id']] for ref in chunk['evidence']
+                         if ref['element_id'] in ids and ids[ref['element_id']]['kind'] == 'table'
+                         and 'span' in ref]
+        table_body = max(table_sources, key=lambda e: e['ordinal']) if table_sources else None
+        def signature(ref):
+            span = ref.get('span', {})
+            return ref['element_id'], span.get('start'), span.get('end')
+        required_context = set()
+        if table_body and table_body['id'] not in invalid_context_tables:
+            body_spans = [(ref['span']['start'], ref['span']['end']) for ref in chunk['evidence']
+                          if ref['element_id'] == table_body['id'] and 'span' in ref]
+            required_context = {signature(ref) for ref in context_for_spans(info[table_body['id']], body_spans)}
+            if not required_context <= {signature(ref) for ref in chunk['evidence']}:
+                _finding(findings, 'TABLE_CONTEXT_MISSING', 'error', {'chunk_id': chunk['id']})
         for ref in chunk["evidence"]:
             element = ids.get(ref["element_id"])
             if element is None:
@@ -194,15 +218,20 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
                     _finding(findings, "EVIDENCE_SPAN", "error", {"chunk_id": chunk["id"], "element_id": element["id"]})
                     continue
                 text = element["text"][start:end]
+                if signature(ref) in required_context:
+                    if body_seen:
+                        _finding(findings, 'TABLE_CONTEXT_ORDER', 'error', {'chunk_id': chunk['id']})
+                    rendered.append(clean(text, table=True))
+                    continue  # Cited inherited context is not another table's body.
                 body_refs[element["id"]].append((start, end, chunk["id"]))
                 body_chunks[element["id"]].add(chunk["id"])
                 header_context = (element["kind"] == "table" and
-                                  (start, end) == _table_header_span(element) and
-                                  element["id"] in repeated_table_headers)
+                                  (start, end) in header_spans(element) and
+                                  (element['id'], start, end) in repeated_table_headers)
                 if not header_context:
                     body_order.append((element["ordinal"], start))
-                if element["kind"] == "table" and (start, end) == _table_header_span(element):
-                    repeated_table_headers.add(element["id"])
+                if element["kind"] == "table" and (start, end) in header_spans(element):
+                    repeated_table_headers.add((element['id'], start, end))
                 body_seen = True
                 if element["kind"] != "heading":
                     paths.add(tuple(detail.get("heading_path") or []))
@@ -249,14 +278,14 @@ def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_coun
         metrics["covered_elements"] += 1
         coverage_refs = refs
         if is_table:
-            header = _table_header_span(element)
-            header_seen = False
+            headers = header_spans(element)
+            headers_seen = set()
             coverage_refs = []
             for ref in refs:
-                if ref[:2] == header:
-                    if header_seen:
+                if ref[:2] in headers:
+                    if ref[:2] in headers_seen:
                         continue
-                    header_seen = True
+                    headers_seen.add(ref[:2])
                 coverage_refs.append(ref)
         actual = [token for start, end, _ in coverage_refs
                   for token in _tokens(clean(element["text"][start:end], table=is_table))]

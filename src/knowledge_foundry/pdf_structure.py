@@ -2,7 +2,7 @@
 
 import re
 import copy
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 
 NOTE_MARKER = re.compile(r"^(\d{1,3})\s+(?=\D)")
@@ -10,9 +10,10 @@ FILENAME_FOOTNOTE = re.compile(
     r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
 
 
-def pdf_page_characters(path, page):
+def pdf_page_characters(path, page, *, styles=False):
     """Read literal PDF glyphs with top-left geometry, without inferring text."""
     import pypdfium2 as pdfium
+    import pypdfium2.raw as pdfium_raw
 
     with pdfium.PdfDocument(path) as pdf:
         pdf_page = pdf[page - 1]
@@ -23,8 +24,41 @@ def pdf_page_characters(path, page):
                 characters = []
                 for index in range(text_page.count_chars()):
                     left, bottom, right, top = text_page.get_charbox(index)
-                    characters.append({'index': index, 'text': text_page.get_text_range(index, 1),
-                                       'bbox': [left, height - top, right, height - bottom]})
+                    value = text_page.get_text_range(index, 1)
+                    character = {'index': index, 'text': value,
+                                 'bbox': [left, height - top, right, height - bottom]}
+                    if styles and value.strip():
+                        import ctypes
+                        rgba = [ctypes.c_uint() for _ in range(4)]
+                        if pdfium_raw.FPDFText_GetFillColor(text_page, index, *rgba):
+                            character['color'] = [c.value for c in rgba]
+                        character['font_weight'] = pdfium_raw.FPDFText_GetFontWeight(text_page, index)
+                        if character['font_weight'] <= 0:
+                            flags = ctypes.c_int()
+                            length = pdfium_raw.FPDFText_GetFontInfo(text_page, index, None, 0, flags)
+                            if 0 < length < 4096:
+                                font_name = ctypes.create_string_buffer(length)
+                                pdfium_raw.FPDFText_GetFontInfo(text_page, index, font_name, length, flags)
+                                character['font_name'] = font_name.value.decode('utf-8', errors='replace')
+                                if re.search(r'bold|black', character['font_name'], re.I):
+                                    character['font_weight'] = 700
+                                    character['font_weight_origin'] = 'source_font_name'
+                        _, loose_bottom, _, loose_top = text_page.get_charbox(index, loose=True)
+                        character['line_y'] = height - (loose_bottom + loose_top) / 2
+                        character['line_size'] = loose_top - loose_bottom
+                        character['space_before'] = bool(characters and characters[-1]['text'].isspace())
+                    # PDFium can expose its internal hyphen sentinel instead of
+                    # Unicode. Restore only when the source API proves the type.
+                    if value == '\ufffe' and pdfium_raw.FPDFText_IsHyphen(text_page, index) == 1:
+                        character.update(text='-', pdfium_hyphen=True, pdfium_text=value)
+                    characters.append(character)
+                for offset, character in enumerate(characters):
+                    if not character.get('pdfium_hyphen'):
+                        continue
+                    following = next((c for c in characters[offset + 1:] if c['text'].strip()), None)
+                    if (following and following['bbox'][1] > character['bbox'][3] + .5 and
+                            following['bbox'][0] < character['bbox'][0]):
+                        character['layout_break_after'] = True
                 return characters
             finally:
                 text_page.close()
@@ -34,6 +68,187 @@ def pdf_page_characters(path, page):
 
 def _mentions(text, number):
     return bool(re.search(r"(?<![\w.\-])" + re.escape(number) + r"(?![\w°%\-]|\.\d)", text))
+
+
+def separate_table_note_markers(cells, characters, native, page):
+    """Bracket raised numeric note references, conserving source digits.
+
+    Both the entire cell and the same-page note prefix must match literal PDF
+    glyphs. A small digit alone is insufficient: require a raised baseline next
+    to a full-size digit and a uniquely located note below the cell. Native and
+    ruled adapters call this after establishing their cell geometry.
+    """
+    height = native.get('pages', {}).get(str(page), {}).get('size', {}).get('height')
+    if not characters or not height:
+        return cells
+
+    def bounds(box):
+        if isinstance(box, list):
+            return box
+        if not isinstance(box, dict):
+            box = vars(box) if hasattr(box, '__dict__') else {
+                k: getattr(box, k) for k in ('l', 't', 'r', 'b', 'coord_origin')}
+        if str(box.get('coord_origin', 'TOPLEFT')).split('.')[-1] == 'TOPLEFT':
+            return [box['l'], box['t'], box['r'], box['b']]
+        return [box['l'], height - box['t'], box['r'], height - box['b']]
+
+    def inside(box):
+        return [c for c in characters if c['text'].strip() and
+                box[0] - .5 <= (c['bbox'][0] + c['bbox'][2]) / 2 <= box[2] + .5 and
+                box[1] - .5 <= (c['bbox'][1] + c['bbox'][3]) / 2 <= box[3] + .5]
+
+    notes = defaultdict(list)
+    for node in native.get('texts', []):
+        marker = re.match(r'^(\d{1,3})\s+\S', node.get('text', ''))
+        parts = node.get('prov', [])
+        if not marker or node.get('label') != 'footnote' or len(parts) != 1:
+            continue
+        part = parts[0]
+        if part.get('page_no') != page or not part.get('bbox'):
+            continue
+        box = bounds(part['bbox'])
+        literal = ''.join(c['text'] for c in inside(box))
+        # Verify the marker and opening words; later native line wrapping or
+        # ligature normalization must not hide an otherwise literal reference.
+        compact = lambda text: ''.join(text.translate(str.maketrans({'’': "'", '‘': "'"})).split())
+        prefix = compact(node['text'])[:24]
+        if compact(literal).startswith(prefix):
+            notes[marker[1]].append({'docling_ref': node['self_ref'], 'page': page, 'bbox': box})
+
+    result = []
+    for cell in cells:
+        cell = dict(cell)
+        result.append(cell)
+        if cell.get('bbox') is None:
+            continue
+        box = bounds(cell['bbox'])
+        glyphs = inside(box)
+        value = cell['text']
+        positions = [i for i, c in enumerate(value) if not c.isspace()]
+        if (not glyphs or ''.join(c['text'] for c in glyphs) !=
+                ''.join(value.split()) or any(len(c['text']) != 1 for c in glyphs)):
+            continue
+        repairs = []
+        index = 1
+        while index < len(glyphs):
+            prior, first = glyphs[index - 1], glyphs[index]
+            a, b = prior['bbox'], first['bbox']
+            size = a[3] - a[1]
+            if (not prior['text'].isascii() or not prior['text'].isdigit() or
+                    not first['text'].isascii() or not first['text'].isdigit() or size <= 0 or
+                    not 0 < b[3] - b[1] <= size * .82 or
+                    not size * .25 <= a[3] - b[3] <= size * .85 or
+                    not -.5 <= b[0] - a[2] <= size):
+                index += 1
+                continue
+            end = index + 1
+            while end < len(glyphs):
+                c, previous = glyphs[end], glyphs[end - 1]
+                z = c['bbox']
+                if (not c['text'].isascii() or not c['text'].isdigit() or
+                        abs(z[3] - b[3]) > size * .15 or
+                        z[3] - z[1] > size * .82 or
+                        not -.5 <= z[0] - previous['bbox'][2] <= size * .6):
+                    break
+                end += 1
+            marker = ''.join(c['text'] for c in glyphs[index:end])
+            targets = [n for n in notes.get(marker, []) if n['bbox'][1] > box[3]]
+            # A following same-line digit would make the number/marker split
+            # ambiguous. Leave it unchanged for inspection.
+            following = glyphs[end] if end < len(glyphs) else None
+            if len(targets) == 1 and not (following and following['text'].isdigit() and
+                    abs(following['bbox'][3] - a[3]) < size * .25):
+                repairs.append((index, end, marker, targets[0]))
+            index = end
+        if not repairs:
+            continue
+        references = []
+        for start, end, marker, target in reversed(repairs):
+            left, right = positions[start], positions[end - 1] + 1
+            value = value[:left].rstrip() + ' [' + marker + ']' + value[right:]
+            selected = glyphs[start:end]
+            references.insert(0, {'marker': marker, 'note': target,
+                'bbox': [min(c['bbox'][0] for c in selected), min(c['bbox'][1] for c in selected),
+                         max(c['bbox'][2] for c in selected), max(c['bbox'][3] for c in selected)],
+                'glyph_indices': [c['index'] for c in selected]})
+        cell.update(text=value, footnote_references=references)
+    return result
+
+
+def order_single_column_pages(flow, pages):
+    """Restore geometric order only on unambiguous, nonoverlapping text pages.
+
+    Do this before computing heading scope. Leave columns, nested visuals,
+    tables, missing locations and multi-page nodes in native traversal order.
+    A contiguous, single-column native list group can be ordered independently
+    of unrelated pictures or columns elsewhere on the page.
+    """
+    by_page = defaultdict(list)
+    blocked = set()
+    text_labels = {'text', 'section_header', 'title', 'list_item', 'caption', 'footnote',
+                   'page_header', 'page_footer', 'checkbox_selected', 'checkbox_unselected'}
+    for index, (node, _) in enumerate(flow):
+        parts = getattr(node, 'prov', []) or []
+        if not parts:
+            return list(flow)
+        for part in parts:
+            if len(parts) != 1 or str(getattr(node, 'label', '')).lower() not in text_labels:
+                blocked.add(part.page_no)
+        if len(parts) != 1:
+            continue
+        part = parts[0]
+        if part.bbox is None or part.page_no not in pages:
+            blocked.add(part.page_no)
+            continue
+        box = part.bbox.to_top_left_origin(pages[part.page_no].size.height)
+        by_page[part.page_no].append((index, box))
+    ordered = list(flow)
+    for page, entries in by_page.items():
+        if page in blocked:
+            continue
+        height = pages[page].size.height
+        prose = [box for index, box in entries
+                 if str(getattr(flow[index][0], 'label', '')).lower() in {'text', 'list_item'}
+                 and box.r - box.l >= height * .15]
+        if any(a.r <= b.l or b.r <= a.l for i, a in enumerate(prose) for b in prose[i + 1:]):
+            continue
+        geometric = sorted(entries, key=lambda entry: entry[1].t)
+        if any(b.t < a.b - 1 for (_, a), (_, b) in zip(geometric, geometric[1:])):
+            continue
+        for (target, _), (source, _) in zip(entries, geometric):
+            ordered[target] = flow[source]
+    groups = defaultdict(list)
+    for index, (node, _) in enumerate(ordered):
+        parent = getattr(getattr(node, 'parent', None), 'cref', '')
+        if parent.startswith('#/groups/'):
+            groups[parent].append(index)
+    for indices in groups.values():
+        if len(indices) < 2 or indices != list(range(indices[0], indices[-1] + 1)):
+            continue
+        entries = []
+        for index in indices:
+            node = ordered[index][0]
+            parts = getattr(node, 'prov', []) or []
+            if (str(getattr(node, 'label', '')).lower() != 'list_item' or len(parts) != 1 or
+                    parts[0].bbox is None or parts[0].page_no not in pages):
+                break
+            part = parts[0]
+            entries.append((index, part.page_no,
+                            part.bbox.to_top_left_origin(pages[part.page_no].size.height)))
+        if len(entries) != len(indices) or len({page for _, page, _ in entries}) != 1:
+            continue
+        if max(b.l for _, _, b in entries) >= min(b.r for _, _, b in entries):
+            continue
+        geometric = sorted(entries, key=lambda e: e[2].t)
+        # Two points allow slight detector-box overlap at adjoining lines,
+        # without moving side-by-side alternatives or nested visual blocks.
+        if any(a.t > b.t and a.t < b.b - 2
+               for offset, (_, _, a) in enumerate(entries) for _, _, b in entries[offset + 1:]):
+            continue
+        original = list(ordered)
+        for target, (source, _, _) in zip(indices, geometric):
+            ordered[target] = original[source]
+    return ordered
 
 
 def repair_footnotes(items, page_sizes):
@@ -175,12 +390,22 @@ def rotated_header_rows(cells, characters, comparable):
     rows = defaultdict(list)
     for cell in cells:
         box = getattr(cell, 'bbox', None)
-        if (getattr(cell, 'column_header', False) and box and hasattr(box, 'b') and
-                abs(box.b - box.t) > 3 * (box.r - box.l)):
+        if getattr(cell, 'column_header', False) and box and hasattr(box, 'b'):
             rows[(cell.start_row_offset_idx, getattr(cell, 'row_span', 1) or 1)].append(cell)
     replacements = {}
     for row in rows.values():
-        if len(row) < 2 or not characters:
+        vertical = [c for c in row if abs(c.bbox.b - c.bbox.t) > 3 * (c.bbox.r - c.bbox.l)]
+        if not vertical or not characters:
+            continue
+        # A merged rotated label can be wider than it is tall. Include the
+        # neighbouring headers in the same vertical band, even when their
+        # native column indices are crossed. Horizontal headers stay native.
+        top = min(c.bbox.t for c in vertical)
+        bottom = max(c.bbox.b for c in vertical)
+        vertical_ids = {id(c) for c in vertical}
+        row = [c for c in row if id(c) in vertical_ids or
+               c.bbox.b - c.bbox.t > (bottom - top) / 2]
+        if len(row) < 2:
             continue
         box = copy.copy(row[0].bbox)
         box.l = min(c.bbox.l for c in row)
@@ -188,10 +413,15 @@ def rotated_header_rows(cells, characters, comparable):
         box.t = min(c.bbox.t for c in row)
         box.b = max(c.bbox.b for c in row)
         groups = table_text_groups(box, characters)
-        if comparable(''.join(c.text for c in row)) != comparable(''.join(g['text'] for g in groups)):
+        # Native column order is precisely what may be wrong. Prove full glyph
+        # conservation independently of it; source geometry supplies the order.
+        if Counter(comparable(''.join(c.text for c in row))) != Counter(
+                comparable(''.join(g['text'] for g in groups))):
             continue
-        local = [g for c in row for g in table_text_groups(c.bbox, characters)]
-        if [comparable(g['text']) for g in local] == [comparable(g['text']) for g in groups]:
+        local_groups = [table_text_groups(c.bbox, characters) for c in row]
+        local = [g for parts in local_groups for g in parts]
+        if (all(len(parts) == 1 for parts in local_groups) and
+                [comparable(g['text']) for g in local] == [comparable(g['text']) for g in groups]):
             continue
         rewritten = []
         for index, group in enumerate(groups):
@@ -225,6 +455,10 @@ def restore_numeric_identifiers(text, box, characters):
         candidates[re.sub(r'[-‐‑]', '', value)].add(value)
     for compact, values in candidates.items():
         if len(values) == 1:
-            text = re.sub(r'(?<![\w-])' + re.escape(compact) + r'(?![\w-])',
-                          lambda _: next(iter(values)), text)
+            value = next(iter(values))
+            # Extraction can lose only one separator of a compound identifier.
+            # Existing separators must still occur at the source boundaries.
+            pattern = r'[-‐‑]?'.join(re.escape(part) for part in re.split(r'[-‐‑]', value))
+            text = re.sub(r'(?<![\w‐‑-])' + pattern + r'(?![\w‐‑-])',
+                          lambda _: value, text)
     return text

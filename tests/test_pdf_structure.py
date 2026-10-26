@@ -5,11 +5,11 @@ import json
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from knowledge_foundry.chunking import _chunk_document
-from knowledge_foundry.parsers import _pdf_table_cells, _pdf_table_text, parse_pdf
-from knowledge_foundry.pdf_structure import repair_footnotes, restore_numeric_identifiers
+from knowledge_foundry.parsers import _pdf_heading_level, _pdf_table_cells, _pdf_table_text, parse_pdf
+from knowledge_foundry.pdf_structure import order_single_column_pages, pdf_page_characters, repair_footnotes, restore_numeric_identifiers
 from knowledge_foundry.parsing import ROOT, _normalize
 
 
@@ -21,6 +21,157 @@ def block(kind, text, key, top, height=8, left=40, page=1):
 
 
 class PdfStructureTests(unittest.TestCase):
+    def test_native_list_group_orders_locally_on_a_page_with_unrelated_figures(self):
+        def node(label, top, bottom, left=40, right=400, parent='#/groups/1', page=1):
+            return SimpleNamespace(label=label, parent=SimpleNamespace(cref=parent),
+                prov=[SimpleNamespace(page_no=page, bbox=SimpleNamespace(
+                    to_top_left_origin=lambda height: SimpleNamespace(l=left, t=top, r=right, b=bottom)))])
+        pages = {1: SimpleNamespace(size=SimpleNamespace(height=800)),
+                 2: SimpleNamespace(size=SimpleNamespace(height=800))}
+        picture = (node('picture', 30, 90, parent='#/body'), 1)
+        introduction = (node('list_item', 200, 211), 2)
+        first = (node('list_item', 210, 230, left=70), 2)
+        second = (node('list_item', 229, 250, left=70), 2)
+        flow = [picture, first, introduction, second]
+        self.assertEqual(order_single_column_pages(flow, pages), [picture, introduction, first, second])
+        earlier = [(node('list_item', 100, 125), 2), (node('list_item', 121, 140), 2)]
+        self.assertEqual(order_single_column_pages([picture, *earlier, first, introduction, second], pages),
+                         [picture, *earlier, introduction, first, second])
+        for changed in [node('list_item', 200, 211, left=410, right=500),
+                        node('list_item', 200, 225), node('list_item', 200, 211, page=2),
+                        node('text', 200, 211)]:
+            with self.subTest(changed=changed):
+                blocked = [picture, first, (changed, 2), second]
+                self.assertEqual(order_single_column_pages(blocked, pages), blocked)
+
+    def test_pdfium_hyphen_sentinels_require_positive_source_api_evidence(self):
+        text_page = Mock()
+        text_page.count_chars.return_value = 3
+        text_page.get_charbox.return_value = (10, 20, 15, 22)
+        text_page.get_text_range.side_effect = ['\ufffe', '\ufffe', '-']
+        page = Mock()
+        page.get_height.return_value = 800
+        page.get_textpage.return_value = text_page
+        document = Mock()
+        document.__getitem__ = Mock(return_value=page)
+        document.__enter__ = Mock(return_value=document)
+        document.__exit__ = Mock(return_value=False)
+        with patch('pypdfium2.PdfDocument', return_value=document), \
+                patch('pypdfium2.raw.FPDFText_IsHyphen', side_effect=[1, -1]):
+            characters = pdf_page_characters('unused.pdf', 1)
+        self.assertEqual([c['text'] for c in characters], ['-', '\ufffe', '-'])
+        self.assertTrue(characters[0]['pdfium_hyphen'])
+        self.assertNotIn('pdfium_hyphen', characters[1])
+        self.assertEqual(characters[0]['bbox'], [10, 778, 15, 780])
+
+    def test_pdfium_layout_hyphen_requires_a_following_line_in_the_same_flow(self):
+        text_page = Mock()
+        text_page.count_chars.return_value = 4
+        text_page.get_text_range.side_effect = ['\ufffe', 'a', '\ufffe', 'b']
+        text_page.get_charbox.side_effect = [(100, 700, 105, 702), (40, 680, 45, 690),
+                                             (100, 660, 105, 662), (140, 640, 145, 650)]
+        page = Mock()
+        page.get_height.return_value = 800
+        page.get_textpage.return_value = text_page
+        document = Mock()
+        document.__getitem__ = Mock(return_value=page)
+        document.__enter__ = Mock(return_value=document)
+        document.__exit__ = Mock(return_value=False)
+        with patch('pypdfium2.PdfDocument', return_value=document), \
+                patch('pypdfium2.raw.FPDFText_IsHyphen', return_value=1):
+            characters = pdf_page_characters('unused.pdf', 1)
+        self.assertTrue(characters[0]['layout_break_after'])
+        self.assertNotIn('layout_break_after', characters[2])
+
+    def test_single_column_order_is_restored_before_legal_heading_scope(self):
+        def node(label, text, index, top, left=40, right=500):
+            return SimpleNamespace(label=label, text=text, orig=text, marker=None,
+                self_ref=f'#/texts/{index}', parent=SimpleNamespace(cref='#/body'),
+                prov=[SimpleNamespace(page_no=1, bbox=SimpleNamespace(
+                    to_top_left_origin=lambda height: SimpleNamespace(l=left, t=top, r=right, b=top + 10)))])
+        nodes = [node('text', 'An operator must retain the records.', 0, 180),
+                 node('section_header', 'CHAPTER IV', 1, 40, 250, 350),
+                 node('section_header', 'SECTION 2', 2, 70, 250, 350),
+                 node('text', 'Article 12', 3, 100, 275, 325),
+                 node('section_header', 'Record retention', 4, 120, 230, 370)]
+        document = SimpleNamespace(iterate_items=lambda with_groups: iter((n, 1) for n in nodes),
+            pages={1: SimpleNamespace(size=SimpleNamespace(height=800))},
+            export_to_dict=lambda: {'texts': [], 'tables': [], 'pictures': [], 'groups': []})
+        converter = Mock()
+        converter.convert.return_value = SimpleNamespace(status='success', document=document)
+        items, _, _ = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'off'}}, converter)
+        self.assertEqual([i['text'] for i in items],
+                         ['CHAPTER IV', 'SECTION 2', 'Article 12', 'Record retention',
+                          'An operator must retain the records.'])
+        self.assertEqual(items[-1]['details']['heading_path'],
+                         ['CHAPTER IV', 'SECTION 2', 'Article 12', 'Record retention'])
+        self.assertEqual(items[2]['kind'], 'heading')
+        self.assertEqual(_pdf_heading_level('Article premier', [], {}), (5, 'legal'))
+        base = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
+        bundle, sidecar = _normalize(base['sources'][0], base['documents'][0], items)
+        chunks, _ = _chunk_document(bundle, {'elements': sidecar}, 'build:test', {'max_tokens': 256})
+        body_chunk = next(c for c in chunks if 'An operator must retain' in c['text'])
+        self.assertIn('Article 12', body_chunk['text'])
+        # Side-by-side columns, figures, unlocated nodes and multi-page nodes
+        # cannot be reordered by this one-column repair.
+        columns = [node('text', 'Right column', 5, 40, 320, 500),
+                   node('text', 'Left column', 6, 40, 40, 250)]
+        staggered = [node('text', 'Right column', 9, 60, 320, 500),
+                     node('text', 'Left column', 10, 80, 40, 250)]
+        figure = node('picture', '', 7, 220)
+        multipage = node('text', 'Two pages', 8, 220)
+        multipage.prov.append(SimpleNamespace(page_no=2, bbox=None))
+        unlocated = SimpleNamespace(label='text', prov=[])
+        for flow in [[*nodes, figure], [*nodes, *columns], [*nodes, *staggered],
+                     [*nodes, multipage], [*nodes, unlocated]]:
+            pairs = [(n, 1) for n in flow]
+            self.assertEqual(order_single_column_pages(pairs, document.pages), pairs)
+
+    def test_wide_rotated_header_and_crossed_native_columns_use_conserved_glyph_order(self):
+        def cell(column, text, left, right, bottom=100):
+            return SimpleNamespace(start_row_offset_idx=0, start_col_offset_idx=column,
+                text=text, row_span=1, col_span=1, column_header=True, row_header=False,
+                bbox=SimpleNamespace(l=left, r=right, t=0, b=bottom))
+        table = SimpleNamespace(data=SimpleNamespace(table_cells=[
+            cell(0, 'Instrument', 0, 60, 8),
+            cell(1, 'East lab West lab', 200, 270),  # Too wide for the vertical seed test.
+            cell(2, 'North lab', 100, 108),
+        ]))
+        before = copy.deepcopy(table)
+        characters = []
+        for text, left in [('North lab', 100), ('East lab', 200), ('West lab', 260)]:
+            for index, char in enumerate(text):
+                characters.append({'text': char, 'index': len(characters),
+                                   'bbox': [left, index * 8, left + 8, index * 8 + 8]})
+        cells = _pdf_table_cells(table, characters)
+        self.assertEqual([(c['column'], c['text']) for c in cells],
+                         [(0, 'Instrument'), (1, 'North lab'), (2, 'East lab'), (3, 'West lab')])
+        self.assertEqual(table, before)
+        ordered = copy.deepcopy(table)
+        ordered.data.table_cells[1].start_col_offset_idx = 2
+        ordered.data.table_cells[2].start_col_offset_idx = 1
+        self.assertEqual([(c['column'], c['text']) for c in _pdf_table_cells(ordered, characters)],
+                         [(0, 'Instrument'), (1, 'North lab'), (2, 'East lab'), (3, 'West lab')])
+        # A mismatching glyph cannot justify rewriting the recognised headers.
+        characters[-1]['text'] = 'X'
+        self.assertEqual([c['text'] for c in _pdf_table_cells(table, characters)],
+                         ['Instrument', 'East lab West lab', 'North lab'])
+
+    def test_partly_compacted_identifiers_restore_only_source_separator_boundaries(self):
+        def glyphs(value):
+            return [{'index': i, 'text': char, 'bbox': [i, 0, i + 1, 1]}
+                    for i, char in enumerate(value)]
+        source = glyphs('Rule 735-82-4 applies.')
+        for damaged in ['73582-4', '735-824', '735824']:
+            self.assertEqual(restore_numeric_identifiers(damaged, [0, 0, 100, 10], source),
+                             '735-82-4')
+        for unsupported in ['735-28-4', '7358-24', '73582-5', '73582-40']:
+            self.assertEqual(restore_numeric_identifiers(unsupported, [0, 0, 100, 10], source),
+                             unsupported)
+        ambiguous = glyphs('735-82-4 7358-2-4')
+        self.assertEqual(restore_numeric_identifiers('73582-4', [0, 0, 100, 10], ambiguous),
+                         '73582-4')
+
     def test_rotated_headers_wrap_across_native_cells_and_group_headers_cannot_capture_markers(self):
         def cell(row, column, text, left, right, top, bottom, header=False, span=1):
             return SimpleNamespace(start_row_offset_idx=row, start_col_offset_idx=column,

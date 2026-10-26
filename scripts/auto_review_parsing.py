@@ -18,10 +18,16 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
 from knowledge_foundry.parsers import (  # noqa: E402
-    _pdf_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
+    _pdf_text, _pdf_table_cells, _pdf_table_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
+    _pdf_running_headers,
 )
-from knowledge_foundry.pdf_structure import pdf_page_characters, restore_numeric_identifiers  # noqa: E402
+from knowledge_foundry.pdf_structure import (  # noqa: E402
+    pdf_page_characters, restore_numeric_identifiers, separate_table_note_markers,
+)
+from knowledge_foundry.pdf_tables import (  # noqa: E402
+    pdf_page_geometry, ruled_cells, table_context_errors, table_row_map, link_table_continuations, native_page_fragment,
+)
 
 SUBSTANTIVE_TOKENS = 5
 SUBSTANTIVE_CHARS = 30
@@ -104,6 +110,21 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
 
     ids = {element["id"]: element for element in elements}
     details = {detail["element_id"]: detail for detail in sidecar}
+    native_path = folder / 'docling.json'
+    saved_native = json.loads(native_path.read_text(encoding='utf-8')) if native_path.is_file() else None
+    recorded_adapters = [d['pdf_source_adapter'] for d in sidecar if d.get('pdf_source_adapter')]
+    expected_adapter = None
+    if saved_native and source_path and Path(source_path).is_file():
+        from knowledge_foundry.pdf_source import adapt_native
+        settings = json.loads((folder / 'parse.json').read_text()).get('settings', {})
+        saved_native, expected_adapter = adapt_native(saved_native, source_path, settings.get('ocr', {'mode': 'off'}))
+    if recorded_adapters != ([expected_adapter] if expected_adapter else []):
+        flag('PDF_SOURCE_ADAPTER_MISMATCH', 'error', {'reason': 'source_repair_not_reproduced'})
+    for uncertainty in (expected_adapter or {}).get('uncertainties', []):
+        flag('PDF_SOURCE_VERIFICATION_UNCERTAIN', 'error', uncertainty)
+    native_headers = _pdf_running_headers(saved_native) if saved_native else set()
+    for error in table_context_errors(elements, details):
+        flag('INVALID_TABLE_CONTEXT', 'error', error)
     repeated_pages = defaultdict(set)
     page_counts = Counter()
     for element in elements:
@@ -143,6 +164,11 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
         running_header = (detail.get("evidence_role") == "structural" and
                           element["kind"] == "paragraph" and
                           len(repeated_pages[value]) >= 3)
+        if saved_native and detail.get('evidence_role') == 'structural' and element['kind'] == 'paragraph':
+            location = element['location']
+            height = saved_native.get('pages', {}).get(str(location.get('page')), {}).get('size', {}).get('height')
+            running_header |= bool(height and location.get('bbox') and location['bbox'][1] <= height * .16 and
+                                   ' '.join(element['text'].split()) in native_headers)
         drop_cap = (detail.get("evidence_role") == "structural" and
                     element["kind"] == "paragraph" and
                     len(element["text"].strip()) == 1 and
@@ -252,11 +278,160 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
         flag("STATUS_COMPLETENESS_MISMATCH", "error",
              {"status": outcome["status"], "incomplete_warning": incomplete})
 
-    native_path = folder / "docling.json"
+    if not native_path.is_file() and any(d.get('table_geometry') or d.get('table_continuation') for d in sidecar):
+        flag('TABLE_SOURCE_EVIDENCE_MISSING', 'error', {'reason': 'native_parser_evidence_missing'})
     if native_path.is_file():
-        native = json.loads(native_path.read_text(encoding="utf-8"))
+        native = saved_native
         pages = native.get("pages", {})
+        running_headers = _pdf_running_headers(native)
+        for element in elements:
+            location = element['location']
+            height = pages.get(str(location.get('page')), {}).get('size', {}).get('height')
+            if (height and location.get('bbox') and location['bbox'][1] <= height * .16 and
+                    ' '.join(element['text'].split()) in running_headers and
+                    element['kind'] in {'paragraph', 'heading', 'list_item'} and
+                    (element['kind'] != 'paragraph' or
+                     details[element['id']].get('evidence_role') != 'structural')):
+                flag('PDF_RUNNING_HEADER_ROLE', 'error', {'element_id': element['id']})
         character_cache = {}
+        geometry_cache = {}
+        source_tables = {}
+        source_cells = {}
+        for element in elements:
+            detail = details.get(element['id'], {})
+            proof = detail.get('table_geometry')
+            if proof is None:
+                if detail.get('table_continuation'):
+                    flag('TABLE_SOURCE_EVIDENCE_MISSING', 'error', {'element_id': element['id']})
+                if element['kind'] == 'table':
+                    children = [e for e in elements if e['kind'] == 'table_cell' and
+                                details[e['id']].get('parent_element_id') == element['id']]
+                    node = next((t for t in native.get('tables', [])
+                                 if t['self_ref'] == detail.get('docling_ref')), None)
+                    if any(details[c['id']].get('header_origin') == 'pdf_rulings_and_glyphs' for c in children):
+                        flag('TABLE_SOURCE_EVIDENCE_MISSING', 'error', {'element_id': element['id']})
+                    elif children and node and any(details[c['id']].get('header_origin') ==
+                                                   'docling_table_structure' for c in children):
+                        from types import SimpleNamespace
+                        page = element['location']['page']
+                        if source_path and Path(source_path).is_file() and page not in character_cache:
+                            character_cache[page] = pdf_page_characters(source_path, page)
+                        raw = [SimpleNamespace(**{**c, 'bbox': SimpleNamespace(**c['bbox'])
+                                                  if c.get('bbox') else None})
+                               for c in node['data']['table_cells']]
+                        observed = _pdf_table_cells(SimpleNamespace(data=SimpleNamespace(table_cells=raw)),
+                                                    character_cache.get(page, []))
+                        observed = separate_table_note_markers(observed, character_cache.get(page, []), native, page)
+                        actual = {(details[c['id']]['row'], details[c['id']]['column']): c for c in children}
+                        mismatch = len(actual) != len(children) or len(actual) != len(observed)
+                        for cell in observed:
+                            found = actual.get((cell['row'], cell['column']))
+                            bounds = cell['bbox']
+                            if bounds is not None:
+                                height = pages[str(page)]['size']['height']
+                                bounds = ([bounds.l, bounds.t, bounds.r, bounds.b]
+                                          if getattr(bounds, 'coord_origin', 'TOPLEFT') == 'TOPLEFT' else
+                                          [bounds.l, height - bounds.t, bounds.r, height - bounds.b])
+                            mismatch |= (found is None or found['text'] != cell['text'] or any(
+                                details[found['id']].get(k) != cell[k] for k in ['row_span', 'col_span', 'header']) or
+                                bounds is not None and found['location'].get('bbox') != bounds or
+                                found is not None and details[found['id']].get('footnote_references', []) !=
+                                cell.get('footnote_references', []))
+                        if mismatch or element['text'] != _pdf_table_text(None, None, cells=observed).strip():
+                            flag('TABLE_NATIVE_MISMATCH', 'error', {'element_id': element['id']})
+                continue
+            if not isinstance(proof, dict):
+                flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': element['id']})
+                continue
+            page = element['location'].get('page')
+            node = next((t for t in native.get('tables', []) if t['self_ref'] == detail.get('docling_ref')), None)
+            if not source_path or not Path(source_path).is_file() or not node or len(node.get('prov', [])) != 1:
+                flag('TABLE_SOURCE_EVIDENCE_MISSING', 'error', {'element_id': element['id']})
+                continue
+            from types import SimpleNamespace
+            height = pages.get(str(page), {}).get('size', {}).get('height')
+            box = node['prov'][0]['bbox']
+            bounds = ([box['l'], box['t'], box['r'], box['b']] if box.get('coord_origin') == 'TOPLEFT'
+                      else [box['l'], height - box['t'], box['r'], height - box['b']])
+            raw_cells = [SimpleNamespace(**{**c, 'bbox': SimpleNamespace(**c['bbox']) if c.get('bbox') else None})
+                         for c in node['data']['table_cells']]
+            if page not in character_cache:
+                character_cache[page] = pdf_page_characters(source_path, page)
+                geometry_cache[page] = pdf_page_geometry(source_path, page)
+            elif page not in geometry_cache:
+                geometry_cache[page] = pdf_page_geometry(source_path, page)
+            observed, evidence, error = ruled_cells(_pdf_table_cells(
+                SimpleNamespace(data=SimpleNamespace(table_cells=raw_cells)), character_cache[page]),
+                character_cache[page], geometry_cache[page], bounds, normalize_text=_pdf_text,
+                page_fragment=native_page_fragment(native, node['self_ref']))
+            children = [e for e in elements if e['kind'] == 'table_cell' and
+                        details[e['id']].get('parent_element_id') == element['id']]
+            if observed is None or evidence != proof or len(children) != len(observed):
+                flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': element['id'], 'reason': error})
+            if observed is None:
+                continue
+            observed = separate_table_note_markers(observed, character_cache[page], native, page)
+            for cell in observed:
+                matches = [c for c in children if c['location'].get('bbox') == cell['bbox']]
+                if len(matches) != 1:
+                    flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': element['id'],
+                                                           'row': cell['row'], 'column': cell['column']})
+                    continue
+                source_cells[matches[0]['id']] = {**cell, 'text': ' '.join(_pdf_text(cell['text']).split())}
+            normalized_cells = [{**c, 'text': ' '.join(_pdf_text(c['text']).split())} for c in observed]
+            source_tables[element['id']] = _pdf_table_text(None, None, cells=normalized_cells).strip()
+        # Replay continuation selection on physical, source-validated page tables.
+        table_items = [{'kind': e['kind'], 'text': e['text'], 'locator_key': e['id'],
+                        'location': e['location'], 'parent_key': details[e['id']].get('parent_element_id'),
+                        'details': {k: v for k, v in details[e['id']].items() if k not in
+                                    {'table_continuation', 'table_headers', 'table_rows', 'table_continues_to', 'table_role'}}}
+                       for e in elements]
+        for item in table_items:
+            key = item['locator_key']
+            if key in source_tables:
+                item['text'] = source_tables[key]
+            if key in source_cells:
+                cell = source_cells[key]
+                item['text'] = cell['text']
+                item['details'].update({k: cell[k] for k in ['row', 'column', 'row_span', 'col_span', 'header']})
+        try:
+            link_table_continuations(table_items, {int(p): v['size']['height'] for p, v in pages.items()}, [])
+            for item in table_items:
+                key = item['locator_key']
+                original = ids[key]
+                if key in source_cells and (item['text'] != original['text'] or any(
+                        item['details'][k] != details[key].get(k)
+                        for k in ['row', 'column', 'row_span', 'col_span', 'header'])):
+                    flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': key})
+                if key in source_cells and (source_cells[key].get('footnote_references', []) !=
+                                           details[key].get('footnote_references', [])):
+                    flag('TABLE_FOOTNOTE_MISMATCH', 'error', {'element_id': key})
+                if key in source_tables and item['text'] != original['text']:
+                    flag('TABLE_AGGREGATE_MISMATCH', 'error', {'element_id': key})
+                expected = item['details'].get('table_continuation')
+                actual = details[item['locator_key']].get('table_continuation')
+                if expected:
+                    expected = json.loads(json.dumps(expected))
+                    expected['previous_table_id'] = expected.pop('previous_table_key')
+                    for kind in ['header_context', 'row_context']:
+                        for ref in expected[kind]:
+                            ref['element_id'] = ref.pop('element_key')
+                            if 'cell_key' in ref:
+                                ref['cell_element_id'] = ref.pop('cell_key')
+                if expected != actual:
+                    flag('TABLE_CONTINUATION_MISMATCH', 'error', {'element_id': item['locator_key']})
+                if item['details'].get('table_geometry'):
+                    if item['details']['table_rows'] != details[item['locator_key']].get('table_rows'):
+                        flag('TABLE_ROW_SPAN_MISMATCH', 'error', {'element_id': item['locator_key']})
+                    expected_headers = [{'element_id': r['element_key'], 'span': r['span']}
+                                        for r in item['details']['table_headers']]
+                    if (expected_headers != details[item['locator_key']].get('table_headers') or
+                            item['details'].get('table_role') != details[item['locator_key']].get('table_role') or
+                            item['details'].get('table_continues_to_keys', []) !=
+                            details[item['locator_key']].get('table_continues_to', [])):
+                        flag('TABLE_CONTINUATION_MISMATCH', 'error', {'element_id': item['locator_key']})
+        except (KeyError, TypeError, ValueError) as exc:
+            flag('TABLE_CONTINUATION_MISMATCH', 'error', {'reason': str(exc)})
 
         def source_fragment(node, part):
             value = node.get("text", "")

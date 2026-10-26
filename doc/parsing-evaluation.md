@@ -25,6 +25,41 @@ at most five examples per finding code. Identical text at distinct source locati
 is genuine repetition. Missing canonical text/assets and invalid structures are
 errors; documented furniture/visual/OCR limitations may remain warnings.
 
+Before native comparison, the audit replays the explicit source-evidence adapter
+against the untouched native JSON and original PDF. Missing, changed or
+unreproducible `pdf_source_adapter` evidence is an error. This includes excluded
+occluded duplicates as well as recovered cells, captions, note units,
+heading roles and image extents. The audit then applies the existing native,
+geometry, aggregate, location, role and continuation checks to the verified
+working structure. It does not accept a correction merely because its metadata
+claims source support. OCR verification is local and records actual engine and
+language-model hashes; regression tests mock it. Neither replay nor fixture
+success supplies an independent review judgment.
+Unverified graphic OCR and short unmatched text suffixes are preserved. Replayed
+source-verification uncertainties fail the audit even if their saved warnings
+were omitted; lack of glyphs or low OCR confidence cannot justify deletion.
+
+For tables carrying `table_geometry`, the audit replays the explicit Docling
+adapter against the saved original's literal glyphs and painted geometry. It
+compares cells, boxes, row/column spans, the aggregate, grid metadata and glyph
+digest. Missing source evidence or changed cell associations fail the gate.
+Tables retained by the explicit native adapter are compared with saved native
+cells and aggregates, including values, column/row associations, spans and boxes.
+Source-verified staggered divider aliases are replayed with their physical grid;
+the audit does not accept the recorded mapping without reconstructing it.
+Numeric note-marker separation is replayed against original glyphs and native
+footnotes for both table adapters. Merged values, changed digits, missing marker
+metadata or altered note references fail the gate. Source-located running headers
+must retain structural furniture roles, including fragments of multi-page nodes.
+Continuation checks replay source-grid selection and verify reciprocal links,
+header spans, governing-cell scope and any mapping from coarser physical columns
+to the original header grid. Each removed boundary must lie inside a source header
+cell on every header row; source boxes and glyph conservation still apply.
+The chunk audit requires inherited context
+with its original evidence spans, excludes that context from duplicate body counts,
+and still rejects unrelated table mixing or lost text. Geometry and continuation
+uncertainties remain errors; these checks do not independently approve a repair.
+
 | Option | Use |
 | --- | --- |
 | Omit `--output` | Print JSON to stdout. |
