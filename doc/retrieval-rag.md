@@ -2,7 +2,14 @@
 
 From the repository root, reuse the saved pilot with Python 3.11+ (tested on 3.12),
 direnv and PostgreSQL/pgvector; Docker is optional. For new inputs use the
-[runbook](pipeline-runbook.md) and explicit output paths.
+[runbook](manual-workflow.md) and explicit output paths.
+
+The saved `20261019` run below contains the original five-document corpus. It is
+separate from the [active 13-file source pilot](french-aml-cft-pilot-sources-and-evaluation.md)
+selected on 26 October 2026. Its historical AMF smoke cases remain tied to that
+snapshot. Use a fresh workflow run and fresh acceptance reviews to build and
+publish the 13-file corpus; changing the source manifest does not update saved
+artifacts or published snapshots.
 
 ## 1. Create the local database once
 

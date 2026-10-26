@@ -4,21 +4,17 @@
   "manifest_ids": [
     "A",
     "T",
-    "M",
     "L1",
     "L2",
     "P",
-    "T2",
     "BASEL20",
-    "COLB24",
     "NRA23",
-    "AMFRA24",
     "R24EN",
     "R24FR",
-    "EUROPOL23",
     "TFR23EN",
-    "D24EN",
-    "AR24EN"
+    "KYC21",
+    "GEL26",
+    "PANN24"
   ],
   "chunking": {
     "max_tokens": 256

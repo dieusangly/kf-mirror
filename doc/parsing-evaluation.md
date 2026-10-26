@@ -106,7 +106,7 @@ evidence, not approval judgments. Reports distinguish selected, inspected and to
 Approval binds sources, artifacts, audit, selection, policy and review-tool code.
 Missing inspection stays pending; off-sample findings block acceptance. Thresholds:
 80% pass rate, weighted score ≥90 and zero critical failures, with all samples
-assessed. The [workflow](resumable-pilot-workflow.md) verifies prior-session evidence
+assessed. The [workflow](automated-workflow.md) verifies prior-session evidence
 before carrying unchanged judgments forward; revised judgments need reinspection.
 
 ## Limits

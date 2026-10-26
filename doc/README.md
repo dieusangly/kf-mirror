@@ -1,6 +1,6 @@
 # Knowledge Foundry documentation
 
-Start with the [manual runbook](pipeline-runbook.md), [automated workflow](resumable-pilot-workflow.md)
+Start with the [manual runbook](manual-workflow.md), [automated workflow](automated-workflow.md)
 or [saved-pilot RAG setup](retrieval-rag.md).
 
 | Order | Guide | Covers |

@@ -76,7 +76,7 @@ supply the improved hierarchy.
 For RAG, import these summaries with the same frozen structural build and
 `--embed-missing`: grouping vectors do not cover every final summary. The importer
 reuses compatible saved vectors and fills gaps, including claim vectors. Continue
-with [indexing and publication](pipeline-runbook.md#7-import-vectors-into-an-unpublished-snapshot).
+with [indexing and publication](manual-workflow.md#7-import-vectors-into-an-unpublished-snapshot).
 
 Summaries remain drafts: provenance identifies their inputs, not proof of every
 sentence. Compression errors can accumulate across levels. There is currently no

@@ -1,6 +1,6 @@
 Repair claim review defects. Read AGENTS.md, .agents/AGENTS.md,
 doc/claim-generation-and-classification.md and doc/claim-evaluation.md, and repair rules in
-doc/pipeline-runbook.md and doc/resumable-pilot-workflow.md.
+doc/manual-workflow.md and doc/automated-workflow.md.
 
 RUN_ID="your-reviewed-run-id"
 Read artifacts/${RUN_ID}/claim-review/review.json and report.json,

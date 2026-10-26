@@ -1,6 +1,6 @@
 Repair chunking review defects. Read AGENTS.md, .agents/AGENTS.md,
 doc/chunking.md and doc/chunking-evaluation.md, and repair rules in
-doc/pipeline-runbook.md and doc/resumable-pilot-workflow.md.
+doc/manual-workflow.md and doc/automated-workflow.md.
 
 RUN_ID="your-reviewed-run-id"
 Read artifacts/${RUN_ID}/chunking-review/review.json and report.json,

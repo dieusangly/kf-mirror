@@ -1,7 +1,9 @@
-# Resumable AML/CFT workflow
+# Automated pipeline workflow
 
-The [17-file scope](french-aml-cft-pilot-sources-and-evaluation.md) shares one
-pipeline, including the accepted historical PPE limitation. See [manual commands](pipeline-runbook.md).
+The [13-file scope](french-aml-cft-pilot-sources-and-evaluation.md) shares one
+pipeline, including the 2018 PPE body paired with its saved 2024 annex (PANN24).
+No missing-annex exception applies; pairing does not update the 2018 body's legal
+references. See [manual commands](manual-workflow.md).
 
 Prerequisites: Python environment, Tesseract with French/English data, Poppler,
 authenticated Codex CLI, explicit reviewer model/reasoning settings, API credentials,
@@ -88,7 +90,7 @@ direnv exec . .venv/bin/python scripts/workflow.py publish \
 per-stage `attempt-N` commands, logs, bundles, gate reports and sessions. PDF bundles
 retain layout JSON/figure PNGs. Failed attempts remain; diagnostic/staging replays
 are not approved stages. `artifacts/` is ignored by Git.
-Stage folders use the names in the [manual runbook](pipeline-runbook.md), e.g.
+Stage folders use the names in the [manual runbook](manual-workflow.md), e.g.
 `ingestion/attempt-N/report.json`, `parsing/attempt-N/` and
 `parsing/automatic-review/attempt-N/report.json`. Automated runs retain immutable
 attempts referenced by state. Bundle files sit directly in each stage/attempt;

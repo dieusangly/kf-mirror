@@ -1,4 +1,4 @@
-# Source-to-chatbot runbook
+# Manual pipeline workflow
 
 Run one stage at a time from the repository root. Prerequisites:
 [Python/direnv](ingestion.md), [Tesseract French/English](parsing.md#setup), Poppler,
@@ -9,7 +9,7 @@ For older saved outputs, use [RAG setup](retrieval-rag.md).
 
 Save originals and update manifest paths, hashes, sizes and editions. Configure
 selection, parsers, taxonomy, models and retrieval in `config/workflow.json` and
-its referenced configs. Defaults select the [17-file pilot](french-aml-cft-pilot-sources-and-evaluation.md).
+its referenced configs. Defaults select the [13-file pilot](french-aml-cft-pilot-sources-and-evaluation.md).
 Both structural/claim configs must [reference each other](structural-chunks-and-semantic-clusters.md#configuration-and-budgets).
 
 ```sh
@@ -186,4 +186,4 @@ reuse checkpoints; pending reviews retain judgments. Other interrupted stages
 archive before restarting. Repeated lack of progress exhausts bounded retries and
 needs escalation. Shared caches remain outside run directories. Existing standalone
 outputs are not moved/imported automatically; use exact paths in their original
-review process or start a managed run. [Automated workflow](resumable-pilot-workflow.md).
+review process or start a managed run. [Automated workflow](automated-workflow.md).

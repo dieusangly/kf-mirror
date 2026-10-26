@@ -34,7 +34,7 @@ partial generation before making model calls. A complete subset is classifiable.
 
 Invoke the [agent reviewer](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
 with `RUN_ID`, or use [manual evaluation](claim-evaluation.md). Then inspect the
-[graph](knowledge-provenance-graph.md) and follow the [indexing runbook](pipeline-runbook.md#7-import-vectors-into-an-unpublished-snapshot).
+[graph](knowledge-provenance-graph.md) and follow the [indexing runbook](manual-workflow.md#7-import-vectors-into-an-unpublished-snapshot).
 
 The build can be shared across full/subset runs. Generation accepts optional
 `--subset-clusters N` (length-stratified) or `--cluster-numbers N ...` (explicit,

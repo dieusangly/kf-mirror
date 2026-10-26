@@ -35,15 +35,18 @@ def test_saved_corpus_and_development_cases_have_consistent_scope():
     manifest = json.loads((root / 'data/manifest.json').read_text())
     result = readiness(root / 'config/pipeline.json')
     assert result['ready']
-    assert result['registered_files'] == result['selected_files'] == result['active_files'] == 17
+    assert result['registered_files'] == result['selected_files'] == result['active_files'] == 13
     entries = {e['manifest_id']: e for e in manifest['sources']}
     for entry in entries.values():
         assert Path(entry['local_path']).name.startswith(entry['manifest_id'] + '-')
     en, fr = entries['R24EN'], entries['R24FR']
     assert en['source_id'] != fr['source_id'] and en['work_id'] == fr['work_id']
     assert en['language_variant_of'] == fr['source_id'] and fr['language_variant_of'] == en['source_id']
-    assert entries['P']['historical'] and entries['P']['completeness'] == 'incomplete_annex_pairing'
-    assert [e['manifest_id'] for e in result['accepted_limitations']] == ['P']
+    assert entries['P']['source_version'] == '2018-body'
+    assert entries['P']['completeness'] == 'complete_annex_pairing'
+    assert entries['P']['requires_source_ids'] == [entries['PANN24']['source_id']]
+    assert not entries['P'].get('accepted_missing_dependencies')
+    assert not result['accepted_limitations']
     cases = json.loads((root / 'tests/fixtures/retrieval-expanded-development.json').read_text())
     assert {c['source_id'] for c in cases} == {e['source_id'] for e in entries.values()}
     assert all(c['label_status'] in {'development_unreviewed', 'source_reviewed'} for c in cases)
@@ -116,9 +119,11 @@ def test_mandatory_parsing_review_locations_retain_known_defect_pages():
     assert len(pairs) == len(locations)
     manifest = json.loads((root / 'data/manifest.json').read_text())
     assert {sid for sid, _ in pairs} <= {e['source_id'] for e in manifest['sources']}
-    # Source-confirmed split note, rotated table and recovered picture notes must
-    # remain mandatory even when future parsing fixes remove their warnings.
+    # Known defects on retained sources remain mandatory even when future fixes
+    # remove warnings; excluded AMF sources no longer belong to the active scope.
     assert ('src:fr-colb-national-risk-assessment-2023', 50) in pairs
     assert ('src:tracfin-threat-report-tome-3', 75) in pairs
-    assert {('src:amf-sector-risk-assessment-2024', p) for p in [35, 49]} <= pairs
+    assert {('src:acpr-identification-2021', p) for p in [40, 46, 47]} <= pairs
+    assert ('src:acpr-dgt-asset-freezing-2026', 35) in pairs
+    assert ('src:acpr-ppe-annex-2024', 4) in pairs
     assert all(type(page) is int and page > 0 for _, page in pairs)

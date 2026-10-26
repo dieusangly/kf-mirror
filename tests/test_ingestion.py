@@ -25,8 +25,9 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual([item["manifest_id"] for item in report["outcomes"]], selected)
         self.assertTrue(all(item["status"] == "ingested" for item in report["outcomes"]))
         outcomes = {item["manifest_id"]: item for item in report["outcomes"]}
-        self.assertEqual([outcomes[mid]["detected_format"] for mid in ("A", "T", "M", "L1", "L2")],
-                         ["pdf", "pdf", "pdf", "html", "html"])
+        self.assertEqual([outcomes[mid]["detected_format"]
+                          for mid in ("A", "T", "KYC21", "GEL26", "PANN24", "L1", "L2")],
+                         ["pdf", "pdf", "pdf", "pdf", "pdf", "html", "html"])
         for manifest_id, example_name in (("A", "artifact-bundle-pdf.json"), ("L1", "artifact-bundle-html.json")):
             example = json.loads((ROOT / "examples" / example_name).read_text(encoding="utf-8"))
             self.assertEqual(outcomes[manifest_id]["source"], example["sources"][0])

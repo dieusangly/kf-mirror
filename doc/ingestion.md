@@ -37,6 +37,11 @@ coverage decisions. Pilot filenames use `<manifest_id>-<filename>`. Renaming lea
 hashes and IDs unchanged; retain `source_id` across URL/edition changes and update
 `source_version` for new editions.
 
+The [active pilot](french-aml-cft-pilot-sources-and-evaluation.md) has 13 originals
+directly in `data/` and exactly 13 manifest entries. Its seven excluded sources
+are documented with publisher links and reuse conditions, without saved copies.
+The 2018 PPE body requires the saved 2024 annex; no missing-annex exception applies.
+
 Detection uses PDF/HTML signatures, DOCX ZIP members and UTF-8 Markdown extensions.
 Size, SHA-256 and media type must match. Success returns v1.0.0 source/document
 records with the saved-byte hash; failure returns an error without a document.
