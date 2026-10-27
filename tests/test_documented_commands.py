@@ -43,3 +43,32 @@ def test_documented_cli_options_exist(document, script, args):
     options = cli_options(script)
     flags = {arg.split('=', 1)[0] for arg in args if re.fullmatch(r'--[a-z][\w-]*(?:=.*)?', arg)}
     assert flags <= options, f'{document}: {script}: unsupported options {flags - options}'
+
+
+@pytest.mark.parametrize('extra_dirs,reference', [([], ''), (['subset one', 'subset two'], 'reference fixture.json')])
+def test_parsing_review_wrapper_retains_optional_inputs(tmp_path, extra_dirs, reference):
+    prompt = (ROOT / 'src/knowledge_foundry/prompts/agent_prompt_parsing_review').read_text()
+    wrapper = re.search(r'auto_review_parsing\(\) \{.*?\n\}', prompt, re.S).group()
+    capture = tmp_path / 'arguments'
+    script = '\n'.join([
+        'direnv() { printf "%s\\0" "$@" >> "$CAPTURE"; }',
+        'PARSED_DIR=parsed SOURCE_ROOT=. MANIFEST_PATH=manifest REVIEW_POLICY=policy',
+        'SAMPLE_PER_DOCUMENT=12 EVALUATION_REPORT=report REQUIRED_PAGES=required',
+        'REFERENCE_PATH=' + shlex.quote(reference),
+        'ADDITIONAL_INPUT_DIRS=(' + ' '.join(map(shlex.quote, extra_dirs)) + ')',
+        wrapper,
+        'auto_review_parsing --initialize-review review',
+        'auto_review_parsing --review-file review',
+    ])
+    subprocess.run(['bash', '-c', script], env={**os.environ, 'CAPTURE': str(capture)}, check=True)
+    calls = capture.read_bytes().decode().split('\0')[:-1]
+    midpoint = len(calls) // 2
+    initial, final = calls[:midpoint], calls[midpoint:]
+    assert initial.count('--initialize-review') == final.count('--review-file') == 1
+    assert [arg.replace('--initialize-review', '--review-file') for arg in initial] == final
+    for call in (initial, final):
+        assert call.count('--additional-input-dir') == len(extra_dirs)
+        assert [call[i + 1] for i, arg in enumerate(call) if arg == '--additional-input-dir'] == extra_dirs
+        assert call.count('--reference') == bool(reference)
+        if reference:
+            assert call[call.index('--reference') + 1] == reference

@@ -85,16 +85,12 @@ before lists do not become persistent section headings; later
 [structural assembly](chunking.md#structural-assembly-after-original-chunking)
 adds numbered-paragraph and local-list scope.
 
-Repairs require source evidence:
-
-The explicit `pdf-source-v2` adapter makes a working copy of saved Docling
-structure; `docling.json` retains the original parser result. Its
-`pdf_source_adapter` ledger in the sidecar binds each correction to the original
-PDF hash, original/corrected node hashes and source evidence. It can recover
-dotted-leader contents entries, complete aligned final table rows, separate
-source captions/notes, and coarsen columns supported by a full painted divider
-and independent headers. Grouped headers retain their existing adapter. All
-glyphs must be accounted for; source boxes and note scopes remain explicit.
+The `pdf-source-v5` adapter corrects a working copy; `docling.json` stays unchanged.
+The sidecar ledger records source/node hashes and evidence for each repair:
+contents entries, aligned lists/final rows, captions, notes, headings and column
+headers. Column coarsening requires painted-divider and independent-header proof.
+Every glyph must be accounted for. Verified parallel lists retain entry rows even
+without painted separators; box and note scopes remain explicit.
 
 An occluded duplicate requires a complete textual witness and zero changed
 pixels when its whole text objects are removed from an in-memory page render.
@@ -168,6 +164,11 @@ audit independently replays them, so deleting warnings cannot make the gate pass
   cells remain blocking continuation warnings. Chunking cites these original spans,
   repeats all governing header rows, and fails if mandatory context cannot fit the
   configured budget.
+  Open two-column fragments retain native boxes only with three painted column
+  boundaries and exact glyph ownership (`native_fields_with_source_columns`).
+  Painted section bands provide `table_section_headers` for the next page, not
+  earlier rows. Inherit only the last section and labels contained in its wording;
+  never invent borders or copy cells.
 - **Notes:** recover recognised or multiply body-referenced markers; join only
   within a supported page/column. Preserve native refs and recompute roles.
   Filename-only notes remain structural; no cross-page attachment is inferred.

@@ -6,6 +6,13 @@ independent inspection against saved originals. Both must pass before chunking.
 Managed `parsing-review` performs and records the audit itself; the standalone
 audit command below is optional for diagnosis.
 
+For normalization/source-adapter repairs, a manual `parsing` step may reuse archived
+Docling JSON with `--native-input-dir PATH`. Source identity and parser settings
+must match; input/output directories must differ. It rebuilds elements, corrections
+and figures, recording native hashes/parser versions. Conversion changes require a
+full parse. Code changes still invalidate from `ingest`; all rebuilt outputs need
+fresh automatic and independent review.
+
 ## Automated audit
 
 ```sh
@@ -35,9 +42,12 @@ working structure. It does not accept a correction merely because its metadata
 claims source support. OCR verification is local and records actual engine and
 language-model hashes; regression tests mock it. Neither replay nor fixture
 success supplies an independent review judgment.
-Unverified graphic OCR and short unmatched text suffixes are preserved. Replayed
-source-verification uncertainties fail the audit even if their saved warnings
-were omitted; lack of glyphs or low OCR confidence cannot justify deletion.
+Preserve uncertain OCR transcripts. Inconclusive verification requires source
+review of every affected page, including when saved warnings were omitted.
+A parse remains complete only while its transcript, page and native reference
+remain represented. Lost/altered text, unmatched suffixes and unreproducible repairs
+fail the audit. Low confidence permits neither deletion nor approval. Reports count
+warnings and errors separately, even under the same finding code.
 
 For tables carrying `table_geometry`, the audit replays the explicit Docling
 adapter against the saved original's literal glyphs and painted geometry. It
@@ -89,6 +99,9 @@ direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
   --initialize-review "$PARSING_REVIEW_DIR/review.json" \
   --output "$PARSING_REVIEW_DIR/report.json"
 ```
+
+Record reviewer model, reasoning effort and launch mode using the
+[attribution rules](manual-workflow.md#1-ingest-parse-and-review).
 
 After inspection, repeat with `--review-file` instead of `--initialize-review`,
 keeping every other selection. Initialization refuses to overwrite a review and

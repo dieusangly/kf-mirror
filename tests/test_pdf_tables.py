@@ -10,7 +10,7 @@ import unittest
 
 from knowledge_foundry.pdf_tables import (
     context_for_spans, link_table_continuations, pdf_page_geometry, ruled_cells,
-    table_context_errors, native_page_fragment, text_key,
+    table_context_errors, native_page_fragment, text_key, open_field_cells,
 )
 from knowledge_foundry.pdf_structure import pdf_page_characters, separate_table_note_markers
 from knowledge_foundry.parsers import parse_pdf
@@ -155,6 +155,97 @@ def coarsening_fixture(*, merged_header=True):
 
 
 class PdfTableTests(unittest.TestCase):
+    def test_isolated_header_governs_adjacent_same_page_table_and_is_not_stranded(self):
+        original, _ = continuation_fixture()
+        items = [i for i in original if not (i.get('parent_key') == 'table-1' and i['details']['row'] == 1)]
+        first = next(i for i in items if i['locator_key'] == 'table-1')
+        first['text'] = 'Station | Finding'
+        first['location']['bbox'][3] = 220
+        first['details']['table_geometry'].update(bbox=[40, 180, 260, 220], rows=[180, 220])
+        for i in items:
+            i['details'].pop('table_continuation', None)
+            i['details'].pop('table_continues_to_keys', None)
+            if i['location']['page'] == 2:
+                i['location']['page'] = 1
+                i['location']['bbox'][1] += 190; i['location']['bbox'][3] += 190
+                if i['kind'] == 'table':
+                    i['details']['table_geometry'].update(bbox=[40, 230, 260, 350], rows=[230, 290, 350])
+            if i['locator_key'] == 'table-2:r0:c0':
+                i['text'] = 'Station A'
+        next(i for i in items if i['locator_key'] == 'table-2')['text'] = 'Station A | the readings.\nStation B | Complete.'
+        warnings = []
+        link_table_continuations(items, {1: 400}, warnings)
+        self.assertEqual(warnings, [])
+        base = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
+        bundle, details = _normalize(base['sources'][0], base['documents'][0], items)
+        chunks, _ = _chunk_document(bundle, {'elements': details}, 'build:test', {'max_tokens': 64})
+        self.assertEqual(len(chunks), 1)
+        self.assertIn('Station | Finding', chunks[0]['text'])
+        self.assertIn('Station A', chunks[0]['text'])
+        audit = _audit_document(bundle['documents'][0], bundle['sources'][0], chunks,
+                                bundle['elements'], {'elements': details}, 64, 0)
+        self.assertEqual(audit['findings'], [])
+        # A separate caption in the gap must prevent inherited columns.
+        for i in items:
+            i['details'].pop('table_continuation', None)
+            i['details'].pop('table_continues_to_keys', None)
+        items.insert(0, {'kind': 'caption', 'text': 'Independent table', 'locator_key': 'caption',
+                        'location': {'format': 'pdf', 'page': 1, 'bbox': [40, 222, 260, 228]},
+                        'details': {'evidence_role': 'authoritative'}})
+        link_table_continuations(items, {1: 400}, [])
+        self.assertNotIn('table_continuation', next(i for i in items if i['locator_key'] == 'table-2')['details'])
+
+    def test_open_field_proof_requires_painted_columns_and_unique_complete_glyphs(self):
+        cells, chars = [], []
+        for row in range(3):
+            for col, x in enumerate([50, 170]):
+                value = chr(65 + row * 2 + col)
+                chars.append({'index': len(chars), 'text': value,
+                              'bbox': [x, 50 + row * 40, x + 5, 60 + row * 40]})
+                cells.append({'row': row, 'column': col, 'row_span': 1, 'col_span': 1,
+                              'text': value, 'bbox': SimpleNamespace(l=x, t=50 + row * 40,
+                                  r=x + 5, b=60 + row * 40, coord_origin='TOPLEFT')})
+        geometry = {'strokes': [[x, 40, x, 160] for x in [40, 150, 260]],
+                    'fills': [], 'unsupported_regions': []}
+        box = [40, 40, 260, 160]
+        proof = open_field_cells(cells, chars, geometry, box)
+        self.assertEqual(proof['columns'], [40, 150, 260])
+        self.assertEqual(proof['glyph_indices'], list(range(6)))
+        incomplete = {**geometry, 'strokes': geometry['strokes'][:2]}
+        self.assertIsNone(open_field_cells(cells, chars, incomplete, box))
+        cells[0]['row_section'] = True
+        self.assertIsNone(open_field_cells(cells, chars, geometry, box))
+        geometry['fills'] = [{'bbox': [40, 45, 260, 65], 'color': [217, 217, 217, 255]}]
+        self.assertEqual(open_field_cells(cells, chars, geometry, box)['section_rows'], [0])
+        self.assertIsNone(open_field_cells(cells, chars + [chars[0]], geometry, box))
+
+    def test_open_fields_inherit_source_section_rows_without_copying_cells(self):
+        items, _ = continuation_fixture()
+        for item in items:
+            item['details'].pop('table_continuation', None)
+            item['details'].pop('table_continues_to_keys', None)
+            if item['kind'] == 'table':
+                item['details']['table_geometry']['origin'] = 'native_fields_with_source_columns'
+                item['details']['table_geometry']['section_rows'] = [0] if item['location']['page'] == 1 else []
+            if item['kind'] == 'table_cell':
+                item['details']['header'] = False
+                item['details']['row_section'] = item['locator_key'] == 'table-1:r0:c0'
+        before = next(i for i in items if i['locator_key'] == 'table-1')
+        after = next(i for i in items if i['locator_key'] == 'table-2')
+        original = [i['text'] for i in items]
+        warnings = []
+        link_table_continuations(items, {1: 400, 2: 400}, warnings)
+        self.assertEqual([i['text'] for i in items], original)
+        context = after['details']['table_continuation']['header_context']
+        self.assertEqual(context, before['details']['table_section_headers'])
+        self.assertEqual(before['details']['table_headers'], [])
+        self.assertEqual(before['text'][context[0]['span']['start']:context[0]['span']['end']],
+                         'Station | Finding')
+        self.assertEqual(after['details']['table_role'], 'continued_fields')
+        base = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
+        bundle, sidecar = _normalize(base['sources'][0], base['documents'][0], items)
+        self.assertEqual(table_context_errors(bundle['elements'], {d['element_id']: d for d in sidecar}), [])
+
     def test_source_verified_leaf_headers_prevent_paint_from_merging_native_columns(self):
         with TemporaryDirectory() as name:
             source = Path(name) / 'columns.pdf'

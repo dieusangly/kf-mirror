@@ -10,6 +10,101 @@ FILENAME_FOOTNOTE = re.compile(
     r"^\s*(?:\d+[.)]?\s+)?[^\s]+\.(?:pdf|docx?|xlsx?|pptx?|html?)\s*$", re.I)
 
 
+def order_figure_blocks(items):
+    """Order unambiguous single-column figure/caption units by source geometry."""
+    by_page = defaultdict(list)
+    for item in items:
+        by_page[item['location']['page']].append(item)
+    result = []
+    for page_items in by_page.values():
+        figures = [i for i in page_items if i['kind'] == 'figure' and i['location'].get('bbox')]
+        owners = {}
+        for node in page_items:
+            if node['kind'] == 'figure' or not node['location'].get('bbox'):
+                continue
+            b = node['location']['bbox']
+            candidates = [f for f in figures if node.get('parent_key') == f['locator_key'] or (
+                node['kind'] == 'caption' and f['location']['bbox'][0] - 3 <= b[0] < f['location']['bbox'][2] and
+                min(abs(b[3] - f['location']['bbox'][1]), abs(b[1] - f['location']['bbox'][3])) <= 30)]
+            if len(candidates) == 1:
+                owners[node['locator_key']] = candidates[0]['locator_key']
+        groups = []
+        for node in page_items:
+            if node['locator_key'] in owners:
+                continue
+            group = [node, *(n for n in page_items if owners.get(n['locator_key']) == node['locator_key'])]
+            boxes = [n['location'].get('bbox') for n in group]
+            if not all(boxes):
+                groups = []
+                break
+            box = [min(b[0] for b in boxes), min(b[1] for b in boxes),
+                   max(b[2] for b in boxes), max(b[3] for b in boxes)]
+            captions = [n for n in group if n['kind'] == 'caption' and n['location']['bbox'][3] <= node['location']['bbox'][1] + 1]
+            groups.append((box, captions + [n for n in group if n not in captions]))
+        ordered = sorted(groups, key=lambda g: g[0][1])
+        if (figures and ordered and all(b[0][1] >= a[0][3] - 1 and
+                max(a[0][0], b[0][0]) < min(a[0][2], b[0][2]) for a, b in zip(ordered, ordered[1:]))):
+            result.extend(n for _, group in ordered for n in group)
+        else:
+            result.extend(page_items)
+    return result
+
+
+def mark_prose_boxes(items, geometry, page_sizes):
+    """Detach prose enclosed by a proven frame, preserving its paragraph order."""
+    from knowledge_foundry.pdf_tables import table_rulings, _merge_lines, _coverage
+    boxed_headings, framed = set(), set()
+    for page, (width, height) in page_sizes.items():
+        page_items = [i for i in items if i['location']['page'] == page]
+        prose = [i for i in page_items if i['kind'] in {'paragraph', 'list_item'} and
+                 i['details'].get('evidence_role') == 'authoritative' and i['location'].get('bbox')]
+        if not prose:
+            continue
+        horizontal, vertical = table_rulings(geometry(page), [0, 0, width, height])
+        vertical = _merge_lines(vertical)
+        boxes = []
+        for index, (left, top, bottom) in enumerate(vertical):
+            for right, t, b in vertical[index + 1:]:
+                if (right - left < width * .4 or abs(t-top) > 2 or abs(b-bottom) > 2 or bottom-top < 20 or
+                        _coverage(horizontal, top, left, right) < right-left-2 or
+                        _coverage(horizontal, bottom, left, right) < right-left-2):
+                    continue
+                box = [left, top, right, bottom]
+                if any(i['kind'] in {'table', 'figure'} and i['location'].get('bbox') and
+                       left <= i['location']['bbox'][0] <= i['location']['bbox'][2] <= right and
+                       top <= i['location']['bbox'][1] <= i['location']['bbox'][3] <= bottom for i in page_items):
+                    continue
+                boxes.append(box)
+        for node in prose:
+            b = node['location']['bbox']
+            matching = [box for box in boxes if box[0] <= b[0] and b[2] <= box[2] and box[1] <= b[1] and b[3] <= box[3]]
+            if len(matching) == 1:
+                node['details']['prose_box'] = {'page': page, 'bbox': matching[0]}
+                framed.add(node['locator_key'])
+                local_headings = [i for i in page_items if i['kind'] == 'heading' and
+                                  i['location'].get('bbox') and matching[0][0] <= i['location']['bbox'][0] and
+                                  i['location']['bbox'][2] <= matching[0][2] and
+                                  matching[0][1] <= i['location']['bbox'][1] and
+                                  i['location']['bbox'][3] <= matching[0][3]]
+                boxed_headings.update(i['text'] for i in local_headings)
+                framed.update(i['locator_key'] for i in local_headings)
+                continuation = matching[0][1] <= height * .2 and any(
+                    title in boxed_headings for title in node['details'].get('heading_path', []))
+                if not local_headings and not continuation:
+                    node['details']['heading_path'] = []
+                    node['parent_key'] = None
+    for position, node in enumerate(items):
+        if node['locator_key'] in framed:
+            continue
+        path = node['details'].get('heading_path', [])
+        closed = next((index for index, title in enumerate(path) if title in boxed_headings), None)
+        if closed is not None:
+            node['details']['heading_path'] = path[:closed] + ([node['text']] if node['kind'] == 'heading' else [])
+            node['parent_key'] = next((i['locator_key'] for i in reversed(items[:position])
+                                       if i['kind'] == 'heading' and
+                                       i['details'].get('heading_path') == node['details']['heading_path']), None)
+
+
 def pdf_page_characters(path, page, *, styles=False):
     """Read literal PDF glyphs with top-left geometry, without inferring text."""
     import pypdfium2 as pdfium

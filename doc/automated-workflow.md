@@ -53,8 +53,11 @@ Configure `reviewers.parsing_review`, `chunk_review` and `claim_review` in
 `config/workflow.json`: `model`, `model_reasoning_effort`, optional `model_provider`
 and `service_tier`. Workflow values override explicit system/user/ancestor-project
 Codex TOML settings. Missing model/effort, unknown keys and unsupported profiles/catalogs
-fail closed; there is no model fallback. Manual sessions must be launched with
-these settings explicitly; the prompts cannot select their own running model.
+fail closed; there is no fallback. Reports record the resolved `reviewer.model`,
+`model_reasoning_effort` and `launch_mode: automated_workflow` (`manual_workflow`
+for manual steps). Conflicting returned attribution is rejected. Standalone sessions
+use user-confirmed settings; prompts cannot select their model. See
+[attribution and repair reports](manual-workflow.md#1-ingest-parse-and-review).
 
 Settings, configuration hashes, thread IDs and usage are pinned in state/report
 and session measurements. Disposable private runtime settings/authentication are

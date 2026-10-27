@@ -18,7 +18,10 @@ sys.path.insert(0, str(ROOT / 'src'))
 from knowledge_foundry.claim_generation_and_classification import (  # noqa: E402
     _candidate_manifest, _generation_coverage, _validate_candidate, canonical, digest, file_digest,
 )
-from knowledge_foundry.review import apply_reviews, read_review_policy, review_policy_digest, select_samples as _select  # noqa: E402
+from knowledge_foundry.review import (  # noqa: E402
+    apply_reviews, read_review_policy, review_policy_digest, select_samples as _select,
+    validate_reviewer_settings,
+)
 from scripts.validate_artifact_examples import check  # noqa: E402
 
 EVALUATION_VERSION = 'claim-eval-v3'
@@ -280,6 +283,7 @@ def _samples(context, sources, count):
 def _review_metadata(review):
     reviewer = review.get('reviewer', {})
     _require(isinstance(reviewer, dict), 'reviewer must be an object')
+    validate_reviewer_settings(reviewer)
     assessed = any(row.get('status') in {'pass', 'fail'} for row in review['reviews']) or review.get('additional_findings')
     if assessed:
         _require(reviewer.get('kind') in {'human', 'agent'} and
@@ -412,7 +416,8 @@ def evaluate(candidates_dir, classified_dir, sample_count=12, review_path=None,
                 'classification_duration_seconds': classification_report.get('duration_seconds')},
             'review_sample': samples, 'additional_findings': extra_reviews, 'findings': findings,
             'review_template': {'build_id': classification_report['build_id'], 'snapshot_sha256': snapshot_sha,
-                'reviewer': {'kind': None, 'name': None, 'model': None},
+                'reviewer': {'kind': None, 'name': None, 'model': None,
+                             'model_reasoning_effort': None, 'launch_mode': None},
                 'telemetry': {'started_at': None, 'finished_at': None, 'duration_seconds': None,
                               'requests': None, 'usage': None, 'estimated_cost_usd': None},
                 'reviews': [{'sample_id': s['sample_id'], 'dimension': s['dimension'], 'status': 'pending',

@@ -9,7 +9,8 @@ from unittest.mock import Mock, patch
 
 from knowledge_foundry.chunking import _chunk_document
 from knowledge_foundry.parsers import _pdf_heading_level, _pdf_table_cells, _pdf_table_text, parse_pdf
-from knowledge_foundry.pdf_structure import order_single_column_pages, pdf_page_characters, repair_footnotes, restore_numeric_identifiers
+from knowledge_foundry.pdf_structure import (order_single_column_pages, pdf_page_characters,
+    repair_footnotes, restore_numeric_identifiers, order_figure_blocks, mark_prose_boxes)
 from knowledge_foundry.parsing import ROOT, _normalize
 
 
@@ -21,6 +22,41 @@ def block(kind, text, key, top, height=8, left=40, page=1):
 
 
 class PdfStructureTests(unittest.TestCase):
+    def test_caption_and_figure_keep_source_position_before_later_prose(self):
+        first = block('paragraph', '38. First rule.', 'first', 40)
+        later = block('paragraph', '39. Later rule.', 'later', 220)
+        figure = block('figure', '', 'figure', 100, height=100)
+        caption = block('caption', 'Case A', 'caption', 85)
+        label = block('paragraph', 'Sensor', 'label', 140)
+        label['parent_key'] = 'figure'; label['details']['evidence_role'] = 'auxiliary'
+        ordered = order_figure_blocks([first, later, figure, label, caption])
+        self.assertEqual([i['locator_key'] for i in ordered], ['first', 'caption', 'figure', 'label', 'later'])
+        self.assertEqual(label['details']['evidence_role'], 'auxiliary')
+        # Side-by-side independent prose cannot be safely reordered.
+        later['location']['bbox'] = [450, 150, 550, 170]
+        original = [first, later, figure, label, caption]
+        self.assertEqual(order_figure_blocks(original), original)
+
+    def test_framed_prose_detaches_box_context_and_closes_quoted_heading(self):
+        geometry = {'strokes': [[40, 50, 500, 50], [40, 150, 500, 150],
+                                [40, 50, 40, 150], [500, 50, 500, 150]], 'fills': []}
+        heading = block('heading', 'Quoted article', 'quote', 60, left=50)
+        heading['details']['heading_path'] = ['Section', 'Quoted article']
+        inside = block('paragraph', 'A future rule applies.', 'inside', 80, left=50)
+        inside['details']['heading_path'] = ['Section', 'Quoted article']
+        outside = block('paragraph', 'The next independent rule.', 'outside', 180)
+        outside['details']['heading_path'] = ['Section', 'Quoted article']
+        items = [heading, inside, outside]
+        mark_prose_boxes(items, lambda page: geometry, {1: (600, 800)})
+        self.assertEqual(inside['details']['heading_path'], ['Section', 'Quoted article'])
+        self.assertEqual(outside['details']['heading_path'], ['Section'])
+        self.assertIn('prose_box', inside['details'])
+        # An open frame does not prove an independent box.
+        standalone = block('paragraph', 'Do not guess the grouping.', 'open', 80, left=50)
+        geometry['strokes'].pop()
+        mark_prose_boxes([standalone], lambda page: geometry, {1: (600, 800)})
+        self.assertNotIn('prose_box', standalone['details'])
+
     def test_native_list_group_orders_locally_on_a_page_with_unrelated_figures(self):
         def node(label, top, bottom, left=40, right=400, parent='#/groups/1', page=1):
             return SimpleNamespace(label=label, parent=SimpleNamespace(cref=parent),

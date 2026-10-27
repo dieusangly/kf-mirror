@@ -18,7 +18,7 @@ from pathlib import Path
 from knowledge_foundry.pdf_structure import pdf_page_characters
 
 
-VERSION = 'pdf-source-v2'
+VERSION = 'pdf-source-v5'
 _ADAPTED_CACHE = OrderedDict()
 
 
@@ -155,7 +155,7 @@ def contents_cells(table, chars, height):
     box = bounds(table['prov'][0], height)
     selected = inside(chars, box, 2)
     physical = lines(selected)
-    if sum(bool(re.search(r'(?:\.\s*){4,}', text(g))) for g in physical) < 5:
+    if sum(bool(re.search(r'(?:[._]\s*){4,}', text(g))) for g in physical) < 5:
         return None
     entries, pending = [], []
     for group in physical:
@@ -165,7 +165,7 @@ def contents_cells(table, chars, height):
         if match:
             count = len(match[0].strip())
             digits = sorted(group, key=lambda c: c['bbox'][0])[-count:]
-        end = bool(digits and (re.search(r'(?:\.\s*){3,}\d+\s*$', value) or
+        end = bool(digits and (re.search(r'(?:[._]\s*){3,}\d+\s*$', value) or
                    re.fullmatch(r'\d+', value.strip()) and pending or
                    min(c['bbox'][0] for c in digits) >= box[2] - 25))
         if not end:
@@ -188,6 +188,33 @@ def contents_cells(table, chars, height):
         result.extend([cell(value, row, 0, union(sum(title, []))),
                        cell(text(digits), row, 1, union(digits))])
     return result
+
+
+def column_list_cells(table, chars, height):
+    """Separate aligned, parallel one-line lists without splitting wrapped prose."""
+    raw = table['data']['table_cells']
+    if (len(raw) < 2 or any(c['row_span'] != 1 or c['col_span'] != 1 or
+            c['start_row_offset_idx'] != 0 or c['column_header'] or not c.get('bbox') for c in raw)):
+        return None
+    columns = []
+    for c in sorted(raw, key=lambda c: c['start_col_offset_idx']):
+        selected = inside(chars, bounds({'bbox': c['bbox']}, height))
+        groups = lines(selected)
+        if len(groups) < 3 or key(c['text']) != key(''.join(text(g) for g in groups)):
+            return None
+        # A repeated lexical prefix on every source line distinguishes list
+        # entries from a paragraph that merely wraps inside a tall cell.
+        words = [text(g).split() for g in groups]
+        if any(len(w) < 2 for w in words) or len({tuple(w[:2]) for w in words}) != 1:
+            return None
+        columns.append((c, groups))
+    if len({len(g) for _, g in columns}) != 1:
+        return None
+    for row in zip(*(g for _, g in columns)):
+        if max(union(g)[1] for g in row) - min(union(g)[1] for g in row) > 2:
+            return None
+    return [cell(text(g), row, c['start_col_offset_idx'], union(g))
+            for c, groups in columns for row, g in enumerate(groups)]
 
 
 def complete_final_row(table, chars, height):
@@ -336,6 +363,9 @@ def ocr_region(path, page_no, box, source_hash, options):
     settings = {'engine': command, 'languages': options.get('languages', ['fra', 'eng']),
                 'scale': options.get('scale', 3.0), 'psm': 6,
                 'tessdata_path': options.get('tessdata_path')}
+    preprocessing = options.get('verification_preprocessing')
+    if preprocessing:
+        settings['preprocessing'] = preprocessing
     try:
         version, models = _ocr_engine(command, settings['tessdata_path'], tuple(settings['languages']))
         settings['version'] = version
@@ -351,6 +381,13 @@ def ocr_region(path, page_no, box, source_hash, options):
             scale = settings['scale']
             image = page.render(scale=scale).to_pil()
             crop = image.crop(tuple(round(v * scale) for v in box))
+            if preprocessing:
+                from PIL import ImageChops, ImageFilter, ImageOps
+                crop = ImageOps.invert(crop.convert('L'))
+                if preprocessing == 'light_text_local_contrast':
+                    background = crop.filter(ImageFilter.GaussianBlur(10 * scale))
+                    crop = ImageChops.subtract(crop, background, offset=128).point(
+                        lambda value: 255 if value > 113 else 0)
             buffer = io.BytesIO()
             crop.save(buffer, format='PNG')
             page.close()
@@ -440,6 +477,9 @@ def adapt_native(native, path, ocr=None):
         before = copy.deepcopy(table)
         repaired = contents_cells(table, chars(page), height)
         method = 'source_contents_entries'
+        if repaired is None:
+            repaired = column_list_cells(table, chars(page), height)
+            method = 'source_column_list_entries'
         if repaired is None:
             repaired = complete_final_row(table, chars(page), height)
             method = 'source_final_table_row'
@@ -557,6 +597,34 @@ def adapt_native(native, path, ocr=None):
         record(a, before_a, 'source_heading_lines', {'page': page, 'glyph_indices': [g['index'] for g in sum(heading, [])]})
         record(b, before_b, 'source_caption_line', {'page': page, 'glyph_indices': [g['index'] for g in caption]})
 
+    # White bold column labels on a painted dark band are independent source
+    # evidence when native header flags are missing (including isolated headers).
+    for table in adapted.get('tables', []):
+        parts = table.get('prov', [])
+        first = [c for c in table.get('data', {}).get('table_cells', []) if c.get('start_row_offset_idx') == 0]
+        if len(parts) != 1 or len(first) < 2 or not all(c.get('bbox') and c.get('col_span', 1) == 1 for c in first):
+            continue
+        page = parts[0]['page_no']; height = pages[str(page)]['size']['height']
+        witnessed = True
+        for c in first:
+            selected = inside(chars(page), bounds({'bbox': c['bbox']}, height))
+            if (not selected or not re.search(r'[^\W\d_]', c['text']) or
+                    key(c['text']) != key(''.join(g['text'] for g in sorted(selected, key=lambda g: g['index']))) or
+                    not all(tuple(g.get('color', [])) == (255, 255, 255, 255) and
+                            g.get('font_weight', 0) >= 600 for g in selected)):
+                witnessed = False
+                break
+            if not all(any(sum(f['color'][:3]) < 600 and f['bbox'][0] <= (g['bbox'][0]+g['bbox'][2])/2 <= f['bbox'][2]
+                           and f['bbox'][1] <= (g['bbox'][1]+g['bbox'][3])/2 <= f['bbox'][3]
+                           for f in geometry(page)['fills']) for g in selected):
+                witnessed = False
+                break
+        if witnessed:
+            before = copy.deepcopy(table)
+            for c in first:
+                c['column_header'] = True
+            record(table, before, 'source_contrast_column_headers', {'page': page, 'glyph_sha256': digest(chars(page))})
+
     # Separate mixed text/OCR provenance before classifying fragments. A real
     # native text span must not make an unrelated decorative span authoritative.
     for node in list(adapted.get('texts', [])):
@@ -595,6 +663,20 @@ def adapt_native(native, path, ocr=None):
         parts = node.get('prov', [])
         if len(parts) == 1 and parts[0].get('bbox'):
             text_by_page[parts[0]['page_no']].append(node)
+    # An isolated literal annex title is sometimes tagged as running furniture.
+    # Require source glyphs and uniqueness, rather than accepting an OCR label.
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for node in nodes:
+            if (node.get('label') != 'page_header' or not re.fullmatch(r'annex(?:e)?(?:\s+\d+)?', node['text'], re.I)
+                    or sum(key(n.get('text', '')).casefold() == key(node['text']).casefold()
+                           for n in adapted['texts']) != 1):
+                continue
+            selected = inside(chars(page), bounds(node['prov'][0], height))
+            if selected and key(node['text']) == key(''.join(c['text'] for c in sorted(selected, key=lambda c: c['index']))):
+                before = copy.deepcopy(node)
+                node.update(label='section_header', content_layer='body', level=1)
+                record(node, before, 'source_annex_heading', {'page': page, 'glyph_indices': [c['index'] for c in selected]})
     for page, nodes in text_by_page.items():
         height = pages[str(page)]['size']['height']
         ordered = sorted(nodes, key=lambda n: bounds(n['prov'][0], height)[1])
@@ -640,6 +722,8 @@ def adapt_native(native, path, ocr=None):
         for node in nodes:
             if node.get('content_layer') == 'furniture' or node.get('label') not in {'text', 'section_header', 'list_item'}:
                 continue
+            if not any(char.isprintable() and not char.isspace() for char in node.get('text', '')):
+                continue  # Native control bytes are not a source transcript.
             box = bounds(node['prov'][0], height)
             selected = inside(chars(page), box)
             before = copy.deepcopy(node)
@@ -666,17 +750,24 @@ def adapt_native(native, path, ocr=None):
                     continue
             # Colored, full-width, sentence-free text above aligned body prose
             # is source section structure, rather than a diagram label.
-            if node['label'] == 'text' and key(literal) == key(node['text']) and selected and not node['text'].endswith(('.', ';', ':', '!', '?')):
+            if node['label'] in {'text', 'list_item'} and key(literal) == key(node['text']) and selected and not node['text'].endswith(('.', ';', ':', '!', '?')):
                 colors = {tuple(c.get('color', [])) for c in selected}
                 following = [n for n in nodes if n is not node and n.get('label') in {'text', 'list_item'} and
-                             len(n['text'].split()) >= 12 and
+                             len(n['text'].split()) >= 4 and
                              0 <= bounds(n['prov'][0], height)[1] - box[3] <= 40 and
-                             abs(bounds(n['prov'][0], height)[0] - box[0]) <= 3]
+                             abs(bounds(n['prov'][0], height)[0] - box[0]) <= 25]
                 if (len(colors) == 1 and next(iter(colors)) not in {(), (0, 0, 0, 255), (255, 255, 255, 255)} and
-                        box[2] - box[0] > width * .6 and len(node['text'].split()) >= 8 and following):
+                        box[2] - box[0] > width * .4 and len(node['text'].split()) >= 5 and following and
+                        (node['label'] == 'text' or all(c.get('font_weight', 0) >= 600 for c in selected if c['text'].isalnum())) and
+                        not any(p.get('bbox') and bounds(p, height)[0] <= box[0] and
+                                bounds(p, height)[1] <= box[1] and bounds(p, height)[2] >= box[2] and
+                                bounds(p, height)[3] >= box[3] for picture in adapted.get('pictures', [])
+                                for p in picture.get('prov', []) if p['page_no'] == page)):
                     body_chars = inside(chars(page), bounds(following[0]['prov'][0], height))
                     if body_chars and {tuple(c.get('color', [])) for c in body_chars} != colors:
                         node['label'] = 'section_header'; node['level'] = 1
+                        node.pop('enumerated', None)
+                        node.pop('marker', None)
                         record(node, before, 'source_colored_section', {'page': page, 'color': list(next(iter(colors))),
                                'following_ref': following[0]['self_ref'], 'glyph_indices': [c['index'] for c in selected]})
                         continue
@@ -690,15 +781,35 @@ def adapt_native(native, path, ocr=None):
             small_graphic = (box[2] - box[0]) * (box[3] - box[1]) < width * height * .05
             if ocr_calls[page] >= 12 or not (sparse_raster or small_graphic or node['label'] == 'section_header'):
                 continue
-            crop = [max(0, box[0] - 3), max(0, box[1] - 3), min(width, box[2] + 3), min(height, box[3] + 3)]
-            if images:
+            # Native OCR boxes can cover only the middle of a glyph. Leave
+            # vertical room for ascenders/descenders, without importing every
+            # neighboring label in the containing diagram.
+            padding = max(3, min(12, (box[3] - box[1]) * .75))
+            local_label = node['label'] != 'section_header' and len(node['text'].split()) <= 2 and not sparse_raster
+            crop = [max(0, box[0] - 3), max(0, box[1] - padding),
+                    min(width, box[2] + 3), min(height, box[3] + padding)]
+            if images and not local_label:
                 image = min(images, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
                 crop[0], crop[2] = max(0, min(crop[0], image[0])), min(width, max(crop[2], image[2]))
             verification = ocr_region(path, page, crop, source_hash, ocr); ocr_calls[page] += 1
             if verification is None:
+                uncertainties.append({'code': 'source_ocr_verification_uncertain', 'ref': node['self_ref'],
+                                      'page': page, 'bbox': box, 'reason': 'ocr_unavailable', 'crop': crop})
                 continue
+            # Pale display text on a gradient can defeat global thresholding.
+            # Retry only sparse raster pages, using source pixels and the same
+            # confidence requirement; never replace text with a weak result.
+            if sparse_raster and not (verification['words'] and all(
+                    w['confidence'] >= 85 for w in verification['words'])):
+                for preprocessing in ('invert', 'light_text_local_contrast'):
+                    alternative = ocr_region(path, page, crop, source_hash,
+                                             {**ocr, 'verification_preprocessing': preprocessing})
+                    if alternative and alternative['words'] and all(
+                            w['confidence'] >= 85 for w in alternative['words']):
+                        verification = alternative
+                        break
             words = verification['words']
-            if node['label'] != 'section_header' and len(node['text'].split()) <= 2 and not sparse_raster:
+            if local_label:
                 words = [w for w in words if box[0] <= (w['bbox'][0] + w['bbox'][2]) / 2 <= box[2] and
                          box[1] <= (w['bbox'][1] + w['bbox'][3]) / 2 <= box[3]]
             reliable = words and all(w['confidence'] >= 85 for w in words)
@@ -706,7 +817,7 @@ def adapt_native(native, path, ocr=None):
             if (reliable and key(v) != key(node['text']) and any(c.isalpha() for c in v) and
                     (node['label'] == 'section_header' or sparse_raster)):
                 node.update(text=v, orig=v, prov=provenance(page, union([{'bbox': w['bbox']} for w in words]), v))
-                record(node, before, 'source_pixel_ocr', {'page': page, **verification})
+                record(node, before, 'source_pixel_ocr', {'page': page, **verification, 'selected_words': words})
                 if images:
                     image = min(images, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
                     for picture in adapted.get('pictures', []):
@@ -721,14 +832,13 @@ def adapt_native(native, path, ocr=None):
                             picture['prov'] = provenance(page, image, '')
                             record(picture, old_picture, 'source_image_extent', {'page': page, 'bbox': image,
                                                                                 'title_ref': node['self_ref']})
-            elif (not reliable and node['label'] != 'section_header' and key(v) != key(node['text']) and
-                  (len(node['text'].split()) <= 1 or small_graphic and not images or
-                   sparse_raster and node.get('parent', {}).get('$ref', '').startswith('#/pictures/') and
-                   raster_display_title(node['text'], box, height, words))):
+            elif not reliable or key(v) != key(node['text']):
                 uncertainties.append({'code': 'source_ocr_verification_uncertain', 'ref': node['self_ref'],
-                                      'page': page, 'bbox': box, 'evidence': verification})
+                                      'page': page, 'bbox': box,
+                                      'evidence': {**verification, 'selected_words': words}})
     result = (adapted, {'version': VERSION, 'source_sha256': source_hash,
-                       'ocr': ocr, 'verification_limits': {'regions_per_page': 12, 'ocr_timeout_seconds': 30},
+                       'ocr': ocr, 'verification_limits': {'regions_per_page': 12, 'ocr_timeout_seconds': 30,
+                                                          'preprocessing_attempts_per_region': 3},
                        'repairs': repairs, 'uncertainties': uncertainties}) if repairs or uncertainties else (native, None)
     _ADAPTED_CACHE[cache_key] = copy.deepcopy(result)
     while len(_ADAPTED_CACHE) > 2:

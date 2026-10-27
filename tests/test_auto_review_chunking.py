@@ -24,6 +24,69 @@ REVIEW_POLICY = _read_review_policy(ROOT / "config/review-policy.json")
 
 
 class ChunkEvaluationTests(unittest.TestCase):
+    def test_split_opening_context_is_required_and_not_duplicate_body(self):
+        bundle = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())
+        element = copy.deepcopy(bundle['elements'][0])
+        element.update(kind='list_item', ordinal=0, text='(85) Foreign entities present a risk. ' +
+                       ' '.join('Those risks require ' + 'detail ' * 15 + '.' for _ in range(8)))
+        bundle['elements'] = [element]
+        sidecar = {'elements': [{'element_id': element['id'], 'evidence_role': 'authoritative', 'heading_path': []}]}
+        chunks, _ = _chunk_document(bundle, sidecar, 'build:test', {'max_tokens': 64})
+        audit = lambda cs: _audit_document(bundle['documents'][0], bundle['sources'][0], cs,
+                                           [element], sidecar, 64, 0)
+        self.assertEqual(audit(chunks)['findings'], [])
+        broken = copy.deepcopy(chunks)
+        broken[1]['evidence'].pop(0)
+        codes = {f['code'] for f in audit(broken)['findings']}
+        self.assertIn('PASSAGE_CONTEXT_MISSING', codes)
+
+    def test_cross_page_body_and_detached_notes_have_exact_independent_order(self):
+        bundle = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())
+        template = bundle['elements'][0]
+        rows = [('list_item', '10. A person does not qualify when the', 1),
+                ('footnote', '2 A detached note.', 1),
+                ('paragraph', 'conditions are absent.', 2)]
+        elements, details = [], []
+        for index, (kind, text, page) in enumerate(rows):
+            element = {**template, 'id': 'el:' + digest(str(index)), 'ordinal': index,
+                       'kind': kind, 'text': text, 'location': {'format': 'pdf', 'page': page, 'label': str(index)}}
+            elements.append(element)
+            details.append({'element_id': element['id'], 'evidence_role': 'authoritative', 'heading_path': []})
+        bundle['elements'] = elements
+        sidecar = {'elements': details}
+        chunks, _ = _chunk_document(bundle, sidecar, 'build:test', {'max_tokens': 64})
+        audit = lambda cs: _audit_document(bundle['documents'][0], bundle['sources'][0], cs, elements, sidecar, 64, 0)
+        self.assertEqual(audit(chunks)['findings'], [])
+        changed = copy.deepcopy(chunks)
+        changed[0]['evidence'][0], changed[0]['evidence'][1] = changed[0]['evidence'][1], changed[0]['evidence'][0]
+        self.assertIn('READING_ORDER', {f['code'] for f in audit(changed)['findings']})
+
+    def test_native_multiline_table_headers_preserve_exact_coverage(self):
+        bundle = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())
+        table = copy.deepcopy(bundle['elements'][0])
+        value = '1. Region | Annual results\nArea | Number\n' + '\n'.join(
+            f'area {i} | ' + 'detail ' * 12 for i in range(5))
+        table.update(kind='table', text=value, ordinal=0)
+        elements = [table]
+        sidecar = [{'element_id': table['id'], 'heading_path': [], 'evidence_role': 'authoritative'}]
+        for row in range(2):
+            for col in range(2):
+                cell = copy.deepcopy(table)
+                cell.update(id='el:' + digest(f'{row}:{col}'), kind='table_cell', text='label',
+                            ordinal=len(elements))
+                elements.append(cell)
+                sidecar.append({'element_id': cell['id'], 'parent_element_id': table['id'],
+                                'row': row, 'column': col, 'header': True, 'row_span': 1,
+                                'evidence_role': 'structural'})
+        bundle['elements'] = elements
+        chunks, _ = _chunk_document(bundle, {'elements': sidecar}, 'build:test', {'max_tokens': 40})
+        result = _audit_document(bundle['documents'][0], bundle['sources'][0], chunks,
+                                 elements, {'elements': sidecar}, 40, 0)
+        self.assertEqual(result['findings'], [])
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all('Region | Annual results' in c['text'] and 'Area | Number' in c['text']
+                            for c in chunks))
+
     def test_write_review_uses_default_path_and_refuses_overwrite(self):
         report = {
             "automatic_gate": "pass", "review_gate": "pending", "gate": "pending_review",
@@ -314,12 +377,86 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
         for row in self.review["reviews"]:
             row.update(status="pass", notes="Fixture judgment only.")
 
-    def evaluate_review(self):
+    def evaluate_review(self, **kwargs):
         self.review_path.write_text(json.dumps(self.review), encoding="utf-8")
-        return evaluate(self.chunked, self.parsed, review_path=self.review_path)
+        return evaluate(self.chunked, self.parsed, review_path=self.review_path, **kwargs)
+
+    def prepare_additional_finding(self):
+        parsed_path = next(self.parsed.glob("documents/*/artifact-bundle.json"))
+        bundle = json.loads(parsed_path.read_text())
+        element = copy.deepcopy(bundle["elements"][0])
+        element.update(ordinal=1, locator_key="html:fixture:paragraph-2",
+                       text="Fixture paragraph " + " ".join(f"word{i}" for i in range(52)) + ".")
+        element["id"] = "el:" + digest(element["document_id"] + "\n" + element["locator_key"])
+        element["revision"] = digest(element["kind"] + "\n" + element["text"])
+        element["location"]["selector"] = "article > p:nth-of-type(2)"
+        bundle["elements"].append(element)
+        parsed_path.write_text(json.dumps(bundle))
+        sidecar_path = parsed_path.with_name("parse.json")
+        sidecar = json.loads(sidecar_path.read_text())
+        sidecar["elements"].append({"element_id": element["id"], "evidence_role": "authoritative", "heading_path": []})
+        sidecar_path.write_text(json.dumps(sidecar))
+        self.chunked = self.root / "chunked-extra"
+        build_collection(self.root / "config.json", self.parsed, self.chunked)
+        initial = evaluate(self.chunked, self.parsed, sample_count=1)
+        self.review = copy.deepcopy(initial["review_template"])
+        self.review["reviewer"] = {"kind": "agent", "name": "Fixture reviewer", "model": "test-model"}
+        sampled = {row["chunk_id"] for row in self.review["reviews"]}
+        bundle = json.loads((self.chunked / "artifact-bundle.json").read_text())
+        extra_id = next(chunk["id"] for chunk in bundle["chunks"] if chunk["id"] not in sampled)
+        self.review["additional_findings"] = [{"chunk_id": extra_id, "status": "fail",
+            "severity": "critical", "notes": "Fixture source location: saved HTML article, paragraph 2."}]
+
+    def test_additional_critical_finding_blocks_complete_and_pending_review(self):
+        self.prepare_additional_finding()
+        for status in ("pending", "pass"):
+            self.review["reviews"][0]["status"] = status
+            report = self.evaluate_review(sample_count=1)
+            self.assertEqual(report["automatic_gate"], "pass")
+            self.assertEqual(report["review_gate"], "fail")
+            self.assertEqual(report["gate"], "fail")
+            self.assertEqual(report["review"]["to_review"], 2)
+            self.assertEqual(report["review"]["severity_counts"]["critical"], 1)
+            self.assertEqual(report["additional_findings"], self.review["additional_findings"])
+        output = self.root / "evaluation.json"
+        before = self.review_path.read_bytes()
+        with redirect_stdout(io.StringIO()):
+            code = main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                         "--sample-per-document", "1", "--review-file", str(self.review_path),
+                         "--output", str(output)])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output.read_text())["additional_findings"], self.review["additional_findings"])
+        self.assertEqual(self.review_path.read_bytes(), before)
+
+    def test_additional_noncritical_findings_use_selected_policy(self):
+        self.prepare_additional_finding()
+        self.assess()
+        policy = {**REVIEW_POLICY, "minimum_review_pass_rate": 0.5}
+        policy_path = self.root / "policy.json"
+        policy_path.write_text(json.dumps(policy))
+        del self.review["review_policy_sha256"]  # legacy review uses the explicitly selected policy
+        for severity, score, gate in [("minor", 90.0, "pass"), ("major", 60.0, "fail")]:
+            self.review["additional_findings"][0]["severity"] = severity
+            report = self.evaluate_review(sample_count=1, review_policy_path=policy_path)
+            self.assertEqual(report["review"]["weighted_score"], score)
+            self.assertEqual(report["gate"], gate)
+
+    def test_invalid_additional_findings_are_rejected(self):
+        self.prepare_additional_finding()
+        extra = self.review["additional_findings"][0]
+        invalid = [None, {}, [extra, extra],
+                   [{**extra, "chunk_id": self.review["reviews"][0]["chunk_id"]}],
+                   [{**extra, "chunk_id": "chunk:unknown"}], [{**extra, "status": "pass"}],
+                   [{**extra, "severity": None}], [{**extra, "notes": ""}]]
+        for additional in invalid:
+            with self.subTest(additional=additional):
+                self.review["additional_findings"] = additional
+                with self.assertRaises(ValueError):
+                    self.evaluate_review(sample_count=1)
 
     def test_initial_template_and_pending_review_have_unknown_identity(self):
-        unknown = {"kind": None, "name": None, "model": None}
+        unknown = {"kind": None, "name": None, "model": None,
+                   "model_reasoning_effort": None, "launch_mode": None}
         self.assertIsNone(self.initial["reviewer"])
         self.assertEqual(self.review["reviewer"], unknown)
         report = self.evaluate_review()
@@ -328,6 +465,24 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
         seed = self.root / "seed.json"
         _write_review_seed(seed, self.initial)
         self.assertEqual(json.loads(seed.read_text())["reviewer"], unknown)
+
+    def test_session_attribution_reaches_report_and_legacy_scores_are_preserved(self):
+        self.assess()
+        self.review['reviewer'] = {'kind': 'agent', 'name': 'Fixture reviewer', 'model': 'gpt-6.1-sol'}
+        legacy = self.evaluate_review()
+        for mode in ('manual_workflow', 'automated_workflow'):
+            self.review['reviewer'].update(model_reasoning_effort='medium', launch_mode=mode)
+            report = self.evaluate_review()
+            self.assertEqual(report['reviewer'], self.review['reviewer'])
+            self.assertEqual(report['review'], legacy['review'])
+        for field, value in [('model_reasoning_effort', ''), ('model_reasoning_effort', 3),
+                             ('launch_mode', 'standalone'), ('launch_mode', [])]:
+            with self.subTest(field=field, value=value):
+                original = self.review['reviewer'].copy()
+                self.review['reviewer'][field] = value
+                with self.assertRaisesRegex(ValueError, 'reviewer'):
+                    self.evaluate_review()
+                self.review['reviewer'] = original
 
     def test_human_and_agent_identity_reaches_final_cli_report(self):
         self.assess()

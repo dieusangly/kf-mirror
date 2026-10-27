@@ -55,9 +55,14 @@ overall gates before chunking; pending/failed results block progress.
 
 For any of the three review stages, the controller can instead launch only that
 stage's configured independent reviewer by adding `--agent-review --allow-paid`.
-External agents must be launched explicitly with `reviewers` from `config/workflow.json`
-settings; prompts cannot select their running model. External inspection usage
-may remain unknown. Controller publication requires its verifiable session evidence.
+For standalone reviews/repairs, supply user-confirmed `MODEL` and
+`MODEL_REASONING_EFFORT` beside `RUN_ID`. They describe the session, not select it;
+unknown values are `null`, never inferred from workflow defaults. Review reports
+record `reviewer.kind`, `name`, `model`, `model_reasoning_effort` and `launch_mode`.
+Manual sessions use `manual_workflow`; controller launches supply resolved settings.
+Repairs use the same fields under `repairer` in `<stage>-repair/report.json`, keeping
+prior repairer and reviewer attribution. Do not add `settings_source` or `session_id`.
+External usage may be unknown; controller publication requires verified session evidence.
 
 ## 2. Build and review original chunks
 

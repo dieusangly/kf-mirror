@@ -11,9 +11,13 @@ below apply to standalone review sessions.
 Complete all three steps below. Set exact paths and selections from the selected
 workflow/pipeline configuration or existing report, retaining optional references.
 
-```sh
+```bash
 RUN_ID="your-completed-run-id"
+MODEL=""  # session model supplied by user, e.g. gpt-6.1-sol; empty means unknown
+MODEL_REASONING_EFFORT=""  # session effort supplied by user, e.g. medium; empty means unknown
 PARSED_DIR="artifacts/${RUN_ID}/parsing"
+ADDITIONAL_INPUT_DIRS=()  # retain every selected subset rerun directory, in order
+REFERENCE_PATH=""  # retain the selected source-checked reference, if any
 PARSING_REVIEW_DIR="artifacts/${RUN_ID}/parsing-review"
 SOURCE_ROOT="."
 MANIFEST_PATH="data/manifest.json"
@@ -24,11 +28,31 @@ REVIEW_FILE="$PARSING_REVIEW_DIR/review.json"
 EVALUATION_REPORT="$PARSING_REVIEW_DIR/report.json"
 ```
 
-1. Initialize if absent; otherwise validate/reuse without resetting judgments.
-Keep identical inputs throughout. Empty REQUIRED_PAGES omits that option.
+Reviewer attribution: for a standalone session, set MODEL and MODEL_REASONING_EFFORT
+from the session settings explicitly supplied by the user; these variables record
+settings, they do not select or change the running model. Empty values become null.
+Record reviewer.kind="agent", reviewer.name="Codex", reviewer.model=MODEL,
+reviewer.model_reasoning_effort=MODEL_REASONING_EFFORT and
+reviewer.launch_mode="manual_workflow" in the review JSON and final report.
+Do not infer settings from a model-family self-description or workflow.json.
+Controller-launched sessions instead use the controller's resolved model settings
+and launch_mode, including manual_workflow for a manual step with --agent-review.
+Do not add settings_source or session_id to reviewer attribution. Preserve prior
+attribution in notes when another session contributes or corrects metadata.
 
-```sh
+1. Initialize if absent; otherwise validate/reuse without resetting judgments.
+Keep identical inputs throughout. Empty REQUIRED_PAGES or REFERENCE_PATH omits
+that option. Use Bash for these commands; populate ADDITIONAL_INPUT_DIRS with
+the exact recorded directories (one array entry per --additional-input-dir).
+
+```bash
 auto_review_parsing() {
+  for additional_input_dir in "${ADDITIONAL_INPUT_DIRS[@]}"; do
+    set -- "$@" --additional-input-dir "$additional_input_dir"
+  done
+  if [ -n "$REFERENCE_PATH" ]; then
+    set -- "$@" --reference "$REFERENCE_PATH"
+  fi
   if [ -n "$REQUIRED_PAGES" ]; then
     set -- --required-pages "$REQUIRED_PAGES" "$@"
   fi
@@ -61,7 +85,7 @@ Stop and report malformed/stale inputs, missing reports or automatic failures.
 - Inspect warnings and additional high-risk evidence. Inaccessible originals/layout
   remain pending; identify the missing evidence.
 
-Record reviewer kind=agent, name and actual model. Preserve build_id, snapshot_sha256,
+Record reviewer attribution using the settings above; do not guess unknown values. Preserve build_id, snapshot_sha256,
 review_policy_sha256 and every sample_id. Record pass/fail/pending with source-located
 notes; set inspection.original_inspected=true and PDF inspection.layout_inspected=true
 only after inspection. Failures require severity: critical for materially wrong or
@@ -75,7 +99,7 @@ available; leave unavailable measurements null, never estimate or invent them.
 
 3. Record judgments, then run final evaluation; do not leave it for the user:
 
-```sh
+```bash
 auto_review_parsing --review-file "$REVIEW_FILE"
 ```
 

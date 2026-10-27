@@ -226,6 +226,7 @@ class Workflow:
         self.mode = self.state.get('execution_mode', 'automated')
         if mode and mode != self.mode:
             raise ValueError('run execution mode differs; use a distinct manual/automated run ID')
+        self.native_input_dir = None
 
     def stage_path(self, stage):
         return self.directory / (STAGE_PATHS[stage] if self.state.get('layout_version', 1) >= 2 else stage)
@@ -322,22 +323,33 @@ class Workflow:
                     or review.get('additional_findings')):
                 raise ValueError('failed review requires rebuilding affected outputs, not just resetting review')
         affected = descendants(stage)
+        entries = dict(self.state['stages'])
+        if self.mode == 'manual':
+            # External review evaluation may have saved findings before stale
+            # identity prevented registration. Archive those bytes as evidence,
+            # without inventing a registered review or resetting its budgets.
+            for name, (group, _) in ARCHIVE_GROUPS.items():
+                directory = self.directory / STAGE_PATHS[name]
+                if (name in affected and name not in entries and group in entries and
+                        (directory.exists() or directory.is_symlink())):
+                    entries[name] = {'status': 'unregistered', 'directory': str(directory),
+                                     'started_at': entries[group]['started_at']}
         for name in affected & self.state['stages'].keys():
             self.restore_execution_logs(name)
-        for name in affected & self.state['stages'].keys():
-            directory = Path(self.state['stages'][name]['directory'])
+        for name in affected & entries.keys():
+            directory = Path(entries[name]['directory'])
             if directory.is_symlink() or not directory.resolve().is_relative_to(self.directory.resolve()):
                 raise ValueError('stage directory escapes this run; refusing to move evidence')
         # Archive children first, including the audit nested inside parsing.
         for name in reversed(STAGES):
-            if name not in self.state['stages']:
+            if name not in entries:
                 continue
             if name in affected:
-                entry = self.state['stages'][name]
+                entry = entries[name]
                 if self.mode == 'manual':
                     original = Path(entry['directory'])
                     group, part = ARCHIVE_GROUPS.get(name, (name, 'outputs'))
-                    started = self.state['stages'].get(group, entry)['started_at']
+                    started = entries.get(group, entry)['started_at']
                     stamp = datetime.fromisoformat(started).astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%S.%fZ')
                     archived = self.directory / 'history' / STAGE_PATHS[group] / stamp / part
                     if not archived.resolve().is_relative_to(self.directory.resolve()):
@@ -353,7 +365,7 @@ class Workflow:
                     write(archived.parent / (part + '-archive.json'), {'stage': name, 'original_directory': str(original),
                           'archived_directory': str(archived), 'started_at': entry['started_at'], 'reason': note})
                 self.state['history'].append({'stage': name, **entry, 'invalidated_at': now(), 'repair_note': note})
-                self.state['stages'].pop(name)
+                self.state['stages'].pop(name, None)
         self.state['identity'] = input_identity(self.root, self.config_path)
         self.state['workflow_config'] = read(self.config_path)
         if stage == 'ingest' and self.state.get('reviewer'):
@@ -379,6 +391,8 @@ class Workflow:
         if name == 'parse':
             args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(bundle),
                           '--run-id', self.state['run_id']]
+            if self.native_input_dir:
+                args[name] += ['--native-input-dir', str(self.native_input_dir)]
         if name == 'parsing_evaluation':
             args[name] = ['auto_review_parsing.py', '--input-dir', dep('parse'),
                           '--source-root', str(self.source_root), '--output', str(out / 'report.json')]
@@ -537,7 +551,8 @@ class Workflow:
             'manifest': str(self.manifest_path), 'source_root': str(self.source_root),
             'policy': str(self.root / 'config/review-policy.json'), 'taxonomy': str(self.root / self.config['taxonomy']),
             'sample_per_document': self.config['sample_per_document'], 'pdf_page_index': str(out / 'page-index.json'),
-            'model_settings': resolved['settings'], 'verified_prior_inspections': prior_inspections}, indent=2) + (
+            'model_settings': resolved['settings'], 'launch_mode': self.mode + '_workflow',
+            'verified_prior_inspections': prior_inspections}, indent=2) + (
             '\nYou are a fresh independent source reviewer in a read-only session. Initialization is already complete. '
             'Inspect pending samples and any revised judgments against originals; use view_image on rendered PDF pages. '
             'Exact unchanged judgments listed in verified_prior_inspections may carry forward without reinspection. '
@@ -546,7 +561,9 @@ class Workflow:
             'that write files: the controller runs final evaluation. Return the full updated review as review_json, '
             'and requested_pages for any inaccessible additional PDF pages, and inspected_sample_ids only for samples actually inspected against saved originals. Preserve every '
             'existing judgment/finding and its rationale; add evidence and notes on any revision. Set reviewer.kind=agent '
-            'and reviewer.model to the actual configured model; do not claim another model. Never use fixtures as approval.')
+            'and reviewer.model and reviewer.model_reasoning_effort to model_settings.model and '
+            'model_settings.model_reasoning_effort, and reviewer.launch_mode to the controller launch_mode. '
+            'These override manual prompt variables. Do not claim another model or effort. Never use fixtures as approval.')
         (session / 'prompt.txt').write_text(prompt)
         schema = {'type': 'object', 'properties': {'review_json': {'type': 'string'},
                   'inspected_sample_ids': {'type': 'array', 'items': {'type': 'string'}},
@@ -606,6 +623,12 @@ class Workflow:
                 raise ValueError('stale or changed review identity: ' + field)
         if updated.get('reviewer', {}).get('kind') != 'agent' or updated['reviewer'].get('model') != settings['model']:
             raise ValueError('actual reviewer attribution is absent or differs from resolved model')
+        attribution = {'model_reasoning_effort': settings['model_reasoning_effort'],
+                       'launch_mode': self.mode + '_workflow'}
+        for field, value in attribution.items():
+            if updated['reviewer'].get(field) not in (None, value):
+                raise ValueError('actual reviewer attribution differs from controller ' + field)
+        updated['reviewer'].update(attribution)
         if not set(result['inspected_sample_ids']) <= set(before):
             raise ValueError('inspection references an unknown sample')
         for sid, row in after.items():
@@ -922,6 +945,8 @@ def main(argv=None):
     parser.add_argument('--stage', choices=sorted(STAGE_NAMES), help='execute only this stage in a manual run')
     parser.add_argument('--rebuild', action='store_true', help='archive a manual stage and its dependents before rebuilding; requires --repair-note')
     parser.add_argument('--agent-review', action='store_true', help='launch the configured independent reviewer for this manual review stage')
+    parser.add_argument('--native-input-dir', type=Path,
+                        help='reuse source-bound native PDF conversion during a manual parsing repair')
     args = parser.parse_args(argv)
     args.stop_after = STAGE_NAMES.get(args.stop_after, args.stop_after)
     args.repair_from = STAGE_NAMES.get(args.repair_from, args.repair_from)
@@ -929,6 +954,8 @@ def main(argv=None):
         parser.error('step requires --stage; --stage/--rebuild are only valid for step')
     if args.agent_review and (args.command != 'step' or STAGE_NAMES[args.stage] not in REVIEWS):
         parser.error('--agent-review requires a manual review stage')
+    if args.native_input_dir and (args.command != 'step' or STAGE_NAMES[args.stage] != 'parse'):
+        parser.error('--native-input-dir requires a manual parsing step')
     if not math.isfinite(args.max_seconds) or min(args.max_seconds, args.max_stage_attempts) <= 0 or min(args.max_paid_stages, args.max_review_sessions) < 0:
         parser.error('budgets must be finite and nonnegative; time/stage attempts must be positive')
     try:
@@ -944,6 +971,7 @@ def main(argv=None):
         with run_lock(workflow.directory):
             # Reload state under the lock, including after waiting to acquire it.
             workflow = open_run()
+            workflow.native_input_dir = args.native_input_dir
             if args.command == 'run' and workflow.path.exists():
                 raise ValueError('run already exists; use status or resume')
             if args.command not in {'run', 'step'} and not workflow.path.exists():

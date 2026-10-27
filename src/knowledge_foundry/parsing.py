@@ -20,7 +20,9 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from knowledge_foundry.ingestion import ingest
-from knowledge_foundry.parsers import build_pdf_converter, parse_docx, parse_html, parse_markdown, parse_pdf
+from knowledge_foundry.parsers import (
+    SOURCE_REVIEW_WARNINGS, build_pdf_converter, parse_docx, parse_html, parse_markdown, parse_pdf,
+)
 
 
 SCHEMA_VERSION = "1.0.0"
@@ -202,8 +204,9 @@ def _normalize(source, document, items):
                         raise ValueError(f'unresolved table context: {value}')
                     ref[target] = id_by_key[value]
             return ref
-        if 'table_headers' in entry:
-            entry['table_headers'] = [table_reference(ref) for ref in entry['table_headers']]
+        for field in ['table_headers', 'table_section_headers']:
+            if field in entry:
+                entry[field] = [table_reference(ref) for ref in entry[field]]
         if 'table_continues_to_keys' in entry:
             entry['table_continues_to'] = [id_by_key[key] for key in entry.pop('table_continues_to_keys')]
         if 'table_continuation' in entry:
@@ -269,10 +272,14 @@ def _save_pdf_figure_assets(pdf_path, elements, sidecar, staged, warnings):
         pdf.close()
 
 
-def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None, *, run_id=None):
+def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None, *, run_id=None,
+                     native_input_dir=None):
     """Parse verified manifest entries; report each selected source as it finishes."""
     config_path = Path(config_path).resolve()
     output_dir = Path(output_dir).resolve()
+    native_input_dir = Path(native_input_dir).resolve() if native_input_dir else None
+    if native_input_dir == output_dir:
+        raise ValueError('native input and output directories must differ; preserve the prior evidence')
     config = json.loads(config_path.read_text(encoding="utf-8"))
     settings = _configuration(config)
     ingestion_report = ingest(config_path)
@@ -349,7 +356,7 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             reuse_pdf_converter = format_name == "pdf" and parser is parse_pdf
             if format_name == "pdf":
                 parser_settings["ocr"] = settings["ocr"]
-                if reuse_pdf_converter and pdf_converter is None:
+                if reuse_pdf_converter and pdf_converter is None and native_input_dir is None:
                     pdf_converter = build_pdf_converter(parser_settings)
             if format_name == "html":
                 overrides = parser_settings.pop("source_overrides")
@@ -358,8 +365,26 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
                 selector_origin = ("parsing_config" if "content_selector" in selected_override or
                                    "content_selector" in config.get("parsing", {}).get("html", {}) else "parser_default")
             if reuse_pdf_converter:
+                native_document, replay = None, None
+                if native_input_dir:
+                    prior = native_input_dir / 'documents' / document['id'].removeprefix('doc:')
+                    saved_bundle = json.loads((prior / 'artifact-bundle.json').read_text())
+                    saved_parse = json.loads((prior / 'parse.json').read_text())
+                    native_bytes = (prior / 'docling.json').read_bytes()
+                    if (saved_bundle['documents'][0]['id'] != document['id'] or
+                            saved_bundle['documents'][0]['content_sha256'] != document['content_sha256'] or
+                            saved_bundle['sources'][0]['id'] != source['id'] or
+                            saved_parse['settings'] != parser_settings or
+                            saved_parse['parser'] != 'docling'):
+                        raise ValueError('saved native input source identity or parser settings mismatch')
+                    native_document = json.loads(native_bytes)
+                    replay = {'directory': str(prior),
+                              'native_sha256': hashlib.sha256(native_bytes).hexdigest(),
+                              'source_sha256': document['content_sha256'],
+                              'parser_versions': saved_parse['parser_versions']}
                 items, native, warnings = parse_pdf(local_path, source, parser_settings,
-                                                     converter=pdf_converter)
+                                                     converter=pdf_converter,
+                                                     **({'native_document': native_document} if replay else {}))
             else:
                 items, native, warnings = parser(local_path, source, parser_settings)
             if not items:
@@ -370,10 +395,12 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
             metadata.update(_embedded_metadata(local_path, format_name))
             metadata = {key: value for key, value in metadata.items() if value is not None}
             parse_data = {"parse_version": 1, "document_id": document["id"], "parser": parser_name,
-                          "adapter_version": "format-adapters-v7",
+                          "adapter_version": "format-adapters-v10",
                           "parser_versions": _tool_versions(format_name),
                           "settings": parser_settings, "metadata_origins": metadata,
                           "elements": sidecar, "warnings": warnings}
+            if reuse_pdf_converter and replay:
+                parse_data['native_replay'] = replay
             target = output_dir / "documents" / document["id"].removeprefix("doc:")
             target.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=target.parent) as temp_name:
@@ -389,7 +416,7 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
                 os.replace(staged, target)
             harmless_warnings = {"excluded_picture_ocr_fragments", "excluded_picture_corrupt_ocr",
                                  "excluded_picture_furniture", "excluded_figure_text_uncertain",
-                                 "empty_docling_table"}
+                                 "empty_docling_table"} | SOURCE_REVIEW_WARNINGS
             result.update(status="partial" if any(
                 warning.get("code") not in harmless_warnings for warning in warnings
             ) else "parsed", document_id=document["id"],
@@ -430,10 +457,13 @@ def main(argv=None):
     parser.add_argument("--source", action="append", default=[], metavar="ID",
                         help="manifest ID to parse; repeatable (default: all)")
     parser.add_argument("--run-id", help="retain the controlling workflow's run identity")
+    parser.add_argument('--native-input-dir', type=Path,
+                        help='rebuild PDF adapters from prior source-bound native JSON; originals are reverified')
     args = parser.parse_args(argv)
     try:
         report = parse_collection(args.config, args.output_dir, args.source,
-                                  on_progress=_print_progress, run_id=args.run_id)
+                                  on_progress=_print_progress, run_id=args.run_id,
+                                  native_input_dir=args.native_input_dir)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"parsing setup error: {exc}\n")
     report_path = Path(args.output_dir).resolve() / "report.json"

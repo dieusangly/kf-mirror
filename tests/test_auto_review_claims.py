@@ -118,6 +118,10 @@ class CompilationEvaluationTests(unittest.TestCase):
             lambda r: r['reviews'][0].update(status='fail', severity='major', notes=None),
             lambda r: r['reviews'][0].update(status='fail', severity='unknown', notes='p3'),
             lambda r: r.update(reviewer={'kind': 'agent', 'name': ''}),
+            lambda r: r['reviewer'].update(model_reasoning_effort=''),
+            lambda r: r['reviewer'].update(model_reasoning_effort=3),
+            lambda r: r['reviewer'].update(launch_mode='standalone'),
+            lambda r: r['reviewer'].update(launch_mode=[]),
             lambda r: r['telemetry'].update(estimated_cost_usd=-1),
         ]
         for change in changes:
@@ -125,6 +129,19 @@ class CompilationEvaluationTests(unittest.TestCase):
             change(review)
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.evaluate(review_path=self.save(review))
+
+    def test_session_attribution_is_preserved_without_changing_snapshot(self):
+        initial = self.evaluate()
+        review = self.reviewed(initial)
+        for mode in ('manual_workflow', 'automated_workflow'):
+            review['reviewer'].update(model='gpt-6.1-sol', model_reasoning_effort='medium', launch_mode=mode)
+            result = self.evaluate(review_path=self.save(review))
+            self.assertEqual(result['reviewer'], review['reviewer'])
+            self.assertEqual(result['snapshot_sha256'], initial['snapshot_sha256'])
+            self.assertEqual(result['gate'], 'pass')
+        review['reviewer'].pop('model_reasoning_effort')
+        review['reviewer'].pop('launch_mode')
+        self.assertEqual(self.evaluate(review_path=self.save(review))['reviewer'], review['reviewer'])
 
     def test_unsampled_failures_are_counted_once_and_cannot_inflate_score(self):
         initial = self.evaluate(sample_count=1)

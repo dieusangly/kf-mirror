@@ -313,6 +313,49 @@ def native_page_fragment(native, ref):
             all(abs(a[i] - b[i]) <= 2 * TOLERANCE for i in [0, 2]))
 
 
+def open_field_cells(native_cells, characters, geometry, box):
+    """Witness an open page fragment's columns without inventing closed cells."""
+    if (not native_cells or max(c['column'] + c['col_span'] for c in native_cells) != 2 or
+            len({c['row'] for c in native_cells}) < 3 or
+            any(c['row_span'] != 1 or c['col_span'] != 1 or c.get('bbox') is None for c in native_cells)):
+        return None
+    horizontal, vertical = table_rulings(geometry, box)
+    height = box[3] - box[1]
+    columns = [x for x in _cluster([p for p, _, _ in vertical])
+               if _coverage(vertical, x, box[1], box[3]) >= height - 4]
+    if (len(columns) != 3 or abs(columns[0] - box[0]) > 3 or abs(columns[-1] - box[2]) > 3):
+        return None
+    owned = []
+    sections = []
+    for c in native_cells:
+        b = c['bbox']
+        if not hasattr(b, 'l') or str(getattr(b, 'coord_origin', 'TOPLEFT')).split('.')[-1] != 'TOPLEFT':
+            return None
+        selected = [g for g in characters if g['text'].strip() and
+                    b.l - .5 <= (g['bbox'][0] + g['bbox'][2]) / 2 <= b.r + .5 and
+                    b.t - .5 <= (g['bbox'][1] + g['bbox'][3]) / 2 <= b.b + .5]
+        if (Counter(text_key(c['text'])) != Counter(text_key(''.join(g['text'] for g in selected))) or
+                any(not columns[c['column']] - 1 <= (g['bbox'][0] + g['bbox'][2]) / 2 <=
+                        columns[c['column'] + 1] + 1 for g in selected)):
+            return None
+        if c.get('row_section'):
+            y = (b.t + b.b) / 2
+            bands = [(y, f['bbox'][0], f['bbox'][2]) for f in geometry.get('fills', [])
+                     if f['bbox'][1] <= y <= f['bbox'][3] and
+                     f.get('color', [0, 0, 0, 255]) not in ([0, 0, 0, 255], [255, 255, 255, 255])]
+            if _coverage(bands, y, columns[0], columns[-1]) < columns[-1] - columns[0] - 3:
+                return None
+            sections.append(c['row'])
+        owned.extend(g['index'] for g in selected)
+    selected = [g['index'] for g in characters if g['text'].strip() and
+                box[0] <= (g['bbox'][0] + g['bbox'][2]) / 2 <= box[2] and
+                box[1] <= (g['bbox'][1] + g['bbox'][3]) / 2 <= box[3]]
+    if sorted(owned) != sorted(selected):
+        return None
+    return {'origin': 'native_fields_with_source_columns', 'bbox': box, 'columns': columns,
+            'glyph_indices': sorted(owned), 'section_rows': sections}
+
+
 def ruled_cells(native_cells, characters, geometry, box, *, normalize_text=lambda value: value,
                 page_fragment=False):
     """Return (cells, evidence, uncertainty); abstain instead of inventing a grid."""
@@ -366,6 +409,11 @@ def ruled_cells(native_cells, characters, geometry, box, *, normalize_text=lambd
     if page_fragment and not source_top:
         # A source-proved adjacent native page fragment may start within a row.
         # No artificial horizontal closing line or source cell box is invented.
+        proof = open_field_cells(native_cells, characters, geometry, box)
+        if proof:
+            cells = [{**c, 'bbox': [c['bbox'].l, c['bbox'].t, c['bbox'].r, c['bbox'].b]}
+                     for c in native_cells]
+            return cells, proof, None
         return None, None, None
     # A disconnected painted box inside a cell (for example behind rotated
     # lettering) is not part of the table's ruling network. Keep the connected
@@ -640,7 +688,7 @@ def continuation_grid(previous_columns, columns):
 
 
 def link_table_continuations(items, page_heights, warnings):
-    """Link only uniquely supported adjacent-page table fragments, never copy text.
+    """Link uniquely supported adjacent table fragments, never copy text.
 
     Blank governing cells need a same-column lexical continuation witness.
     Compatible columns without that witness leave a blocking uncertainty.
@@ -661,6 +709,10 @@ def link_table_continuations(items, page_heights, warnings):
             if not box:
                 return True
             page = node['location']['page']
+            if previous['location']['page'] == table['location']['page']:
+                if previous['location']['bbox'][3] <= box[1] and box[3] <= table['location']['bbox'][1]:
+                    return True
+                continue
             if (page == previous['location']['page'] and box[1] >= previous['location']['bbox'][3] or
                     page == table['location']['page'] and box[3] <= table['location']['bbox'][1]):
                 return True
@@ -690,7 +742,19 @@ def link_table_continuations(items, page_heights, warnings):
                     not (all(c['details']['header'] for c in members) or year_columns)):
                 break
             own_headers.append({'element_key': key, 'span': row['span']})
+        section_headers = []
+        if table['details']['table_geometry'].get('origin') == 'native_fields_with_source_columns':
+            section_headers = [{'element_key': key, 'span': row['span']} for row in rows
+                               if row['row'] in table['details']['table_geometry'].get('section_rows', [])]
+            table['details']['table_section_headers'] = section_headers
         headers[key] = own_headers
+        if not own_headers and section_headers:
+            # A section inside the table must not become a global header for
+            # earlier rows. Only its source reference may govern the next page.
+            last = section_headers[-1]['span']
+            label = text_key(table['text'][last['start']:last['end']]).casefold()
+            headers[key] = [ref for ref in section_headers if text_key(table['text'][
+                ref['span']['start']:ref['span']['end']]).casefold() in label]
         table['details']['table_headers'] = list(own_headers)
         if not own_headers and len(table['details']['table_geometry']['columns']) == 3 and len(rows) >= 3:
             left = [next((c for c in cells[key] if c['details']['column'] == 0 and
@@ -707,9 +771,13 @@ def link_table_continuations(items, page_heights, warnings):
         key, prior_key = table['locator_key'], previous['locator_key']
         page, prior_page = table['location']['page'], previous['location']['page']
         a, b = previous['details']['table_geometry'], table['details']['table_geometry']
-        if page != prior_page + 1:
+        same_page = page == prior_page
+        if same_page and not (0 <= b['bbox'][1] - a['bbox'][3] <= 20 and
+                previous['details'].get('heading_path') == table['details'].get('heading_path')):
             continue
-        if a['bbox'][3] < page_heights[prior_page] * .5 or b['bbox'][1] > page_heights[page] * .2:
+        if not same_page and page != prior_page + 1:
+            continue
+        if not same_page and (a['bbox'][3] < page_heights[prior_page] * .5 or b['bbox'][1] > page_heights[page] * .2):
             continue
         between = [i for i in items if i['location'].get('page') in {prior_page, page}
                    and i['kind'] != 'table_cell']
@@ -720,7 +788,9 @@ def link_table_continuations(items, page_heights, warnings):
         if headers[key]:
             # A self-contained table cannot require a prior table's columns.
             continue
-        if table['details'].get('table_role') == 'key_value':
+        if (table['details'].get('table_role') == 'key_value' and
+                not (a.get('origin') == b.get('origin') == 'native_fields_with_source_columns' and
+                     headers[prior_key])):
             continue
         prior_columns = previous['details'].get('table_continuation', {}).get('evidence', {}).get(
             'columns', a['columns'])
@@ -759,6 +829,8 @@ def link_table_continuations(items, page_heights, warnings):
         inherited = [] if headers[key] else list(headers[prior_key])
         if inherited:
             headers[key] = inherited
+            if b.get('origin') == 'native_fields_with_source_columns':
+                table['details']['table_role'] = 'continued_fields'
         continuation = {'previous_table_key': prior_key, 'header_context': inherited, 'row_context': [],
                         'evidence': {'origin': 'adjacent_source_grids', 'previous_page': prior_page,
                                      'page': page, 'columns': logical_columns}}
@@ -846,13 +918,18 @@ def table_context_errors(elements, details):
         previous = ids.get(continuation.get('previous_table_id'))
         if (element['kind'] != 'table' or not previous or previous['kind'] != 'table' or
                 previous['ordinal'] >= element['ordinal'] or
-                previous['location'].get('page', 0) + 1 != element['location'].get('page') or
+                element['location'].get('page', 0) - previous['location'].get('page', 0) not in {0, 1} or
                 element['id'] not in details.get(previous['id'], {}).get('table_continues_to', [])):
             fail('invalid_or_nonreciprocal_previous_table')
             continue
         prior_grid = details[previous['id']].get('table_geometry') or {}
         grid = detail.get('table_geometry') or {}
         evidence = continuation['evidence']
+        if element['location'].get('page') == previous['location'].get('page') and not (
+                prior_grid.get('bbox') and grid.get('bbox') and
+                0 <= grid['bbox'][1] - prior_grid['bbox'][3] <= 20 and
+                details[previous['id']].get('heading_path') == detail.get('heading_path')):
+            fail('nonadjacent_same_page_fragments')
         prior_columns = details[previous['id']].get('table_continuation', {}).get('evidence', {}).get(
             'columns', prior_grid.get('columns', [])) if isinstance(prior_grid, dict) else []
         matched = continuation_grid(prior_columns, grid.get('columns', [])) if isinstance(grid, dict) else None
@@ -882,7 +959,9 @@ def table_context_errors(elements, details):
                         not 0 <= start < end <= len(source['text'])):
                     fail('invalid_context_source_span')
                     continue
-                if kind == 'header_context' and ref not in details[source['id']].get('table_headers', []):
+                if kind == 'header_context' and ref not in [
+                        *details[source['id']].get('table_headers', []),
+                        *details[source['id']].get('table_section_headers', [])]:
                     fail('context_is_not_a_source_header')
                 if kind == 'header_context' and matched:
                     header_rows = [r['row'] for r in details[source['id']].get('table_rows', [])

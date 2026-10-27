@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 from docling_core.types.doc import (DoclingDocument, DocItemLabel, Size, BoundingBox,
                                     CoordOrigin, ProvenanceItem)
 from knowledge_foundry.pdf_source import (adapt_native, cell, complete_final_row,
-    contents_cells, coarsen_columns, invisible_objects, key, lines, provenance, text, raster_display_title, joined_lines)
+    contents_cells, column_list_cells, coarsen_columns, invisible_objects, key, lines, provenance, text, raster_display_title, joined_lines)
 from knowledge_foundry.pdf_structure import pdf_page_characters
 from knowledge_foundry.parsers import parse_pdf
 from knowledge_foundry.parsing import _normalize, ROOT
@@ -31,6 +31,174 @@ def glyphs(value, left, top, start=0):
 
 
 class SourceAdapterTests(unittest.TestCase):
+    def test_contrasting_source_column_labels_recover_missing_native_header_flags(self):
+        from docling_core.types.doc import TableData, TableCell
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'columns.pdf'
+            stream = (b'0 0 0.5 rg 40 720 220 40 re f 0 0 0 RG 40 720 220 40 re S '
+                      b'150 720 m 150 760 l S 1 1 1 rg BT /F1 10 Tf 50 735 Td (Foreign) Tj ET '
+                      b'BT /F1 10 Tf 160 735 Td (Domestic) Tj ET')
+            write_pdf(path, stream, font=b'Helvetica-Bold')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            cells = [TableCell(text=value, start_row_offset_idx=0, end_row_offset_idx=1,
+                               start_col_offset_idx=col, end_col_offset_idx=col+1,
+                               bbox=BoundingBox(l=x, t=54, r=x+85, b=70, coord_origin=CoordOrigin.TOPLEFT))
+                     for col, (x, value) in enumerate([(49, 'Foreign'), (159, 'Domestic')])]
+            doc.add_table(data=TableData(num_rows=1, num_cols=2, table_cells=cells),
+                          prov=ProvenanceItem(page_no=1, charspan=(0, 0), bbox=BoundingBox(
+                              l=40, t=40, r=260, b=80, coord_origin=CoordOrigin.TOPLEFT)))
+            adapted, proof = adapt_native(doc.export_to_dict(), path, {'mode': 'off'})
+            self.assertTrue(all(c['column_header'] for c in adapted['tables'][0]['data']['table_cells']))
+            self.assertIn('source_contrast_column_headers', [r['method'] for r in proof['repairs']])
+
+    def test_source_colored_bold_list_heading_is_a_peer_section(self):
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'peer.pdf'
+            title = '- Covered relatives require the same additional measures'
+            body = 'The family members are the following persons.'
+            stream = f'0 0.6 0.8 rg BT /F1 10 Tf 50 700 Td ({title}) Tj ET 0 0 0 rg BT /F1 10 Tf 50 675 Td ({body}) Tj ET'.encode()
+            write_pdf(path, stream, font=b'Helvetica-Bold')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            for value, top, bottom in [(title, 88, 103), (body, 114, 130)]:
+                doc.add_text(DocItemLabel.TEXT, value, prov=ProvenanceItem(page_no=1, charspan=(0, len(value)),
+                    bbox=BoundingBox(l=49, t=top, r=500, b=bottom, coord_origin=CoordOrigin.TOPLEFT)))
+            native = doc.export_to_dict()
+            native['texts'][0].update(label='list_item', enumerated=False, marker='')
+            adapted, proof = adapt_native(native, path, {'mode': 'off'})
+            self.assertEqual(adapted['texts'][0]['label'], 'section_header')
+            DoclingDocument.model_validate(adapted)
+            self.assertIn('source_colored_section', [r['method'] for r in proof['repairs']])
+            self.assertEqual(native['texts'][0]['label'], 'list_item')
+            # A visual container must keep its labels out of prose hierarchy.
+            native['pictures'] = [{'self_ref': '#/pictures/0', 'prov': provenance(1, [40, 80, 530, 150], '')}]
+            unchanged, _ = adapt_native(native, path, {'mode': 'off'})
+            self.assertEqual(unchanged['texts'][0]['label'], 'list_item')
+
+    def test_unique_source_annex_title_is_recovered_from_furniture(self):
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'annex.pdf'
+            write_pdf(path, b'BT /F1 12 Tf 50 700 Td (ANNEXE) Tj ET', font=b'Helvetica-Bold')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            doc.add_text(DocItemLabel.PAGE_HEADER, 'ANNEXE', prov=ProvenanceItem(page_no=1, charspan=(0, 6),
+                bbox=BoundingBox(l=49, t=85, r=120, b=105, coord_origin=CoordOrigin.TOPLEFT)))
+            native = doc.export_to_dict(); native['texts'][0]['content_layer'] = 'furniture'
+            adapted, proof = adapt_native(native, path, {'mode': 'off'})
+            self.assertEqual(adapted['texts'][0]['label'], 'section_header')
+            self.assertEqual(adapted['texts'][0]['content_layer'], 'body')
+            self.assertIn('source_annex_heading', [r['method'] for r in proof['repairs']])
+
+    def test_ruled_container_does_not_merge_source_verified_list_entries(self):
+        from docling_core.types.doc import TableData, TableCell
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'lists.pdf'
+            stream = b'0 0 0 RG 1 w 40 660 400 100 re S 220 660 m 220 760 l S '
+            values = ['Local unit Alpha', 'Local unit Beta', 'Local unit Gamma']
+            for x in [50, 230]:
+                for y, value in zip([735, 715, 695], values):
+                    stream += f'BT /F1 10 Tf {x} {y} Td ({value}) Tj ET '.encode()
+            write_pdf(path, stream)
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            raw = [TableCell(text=' '.join(values), start_row_offset_idx=0, end_row_offset_idx=1,
+                             start_col_offset_idx=col, end_col_offset_idx=col + 1,
+                             bbox=BoundingBox(l=x, t=55, r=x + 150, b=110,
+                                              coord_origin=CoordOrigin.TOPLEFT))
+                   for col, x in enumerate([50, 230])]
+            doc.add_table(data=TableData(num_rows=1, num_cols=2, table_cells=raw),
+                          prov=ProvenanceItem(page_no=1, charspan=(0, 0),
+                              bbox=BoundingBox(l=40, t=40, r=440, b=140,
+                                               coord_origin=CoordOrigin.TOPLEFT)))
+            items, _, warnings = parse_pdf(path, {}, {'ocr': {'mode': 'off'}},
+                                           native_document=doc.export_to_dict())
+            cells = [i for i in items if i['kind'] == 'table_cell']
+            self.assertEqual(len(cells), 6)
+            self.assertEqual({c['details']['row'] for c in cells}, {0, 1, 2})
+            self.assertTrue(all(c['text'] in values for c in cells))
+            self.assertEqual(warnings, [])
+
+    def test_native_control_byte_is_not_sent_for_ocr_verification(self):
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'control.pdf'; write_pdf(path, b'40 650 200 100 re S')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            doc.add_text(DocItemLabel.TEXT, '\b', prov=ProvenanceItem(page_no=1,
+                charspan=(0, 1), bbox=BoundingBox(l=50, t=65, r=60, b=90,
+                                                coord_origin=CoordOrigin.TOPLEFT)))
+            with patch('knowledge_foundry.pdf_source.ocr_region') as engine:
+                adapted, proof = adapt_native(doc.export_to_dict(), path, {'mode': 'auto'})
+            engine.assert_not_called()
+            self.assertEqual(adapted, doc.export_to_dict())
+            self.assertIsNone(proof)
+
+    def test_sparse_raster_title_uses_source_pixel_contrast_fallback(self):
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'gradient.pdf'
+            write_pdf(path, b'q 500 0 0 700 40 50 cm BI /W 1 /H 1 /BPC 8 /CS /RGB ID '
+                      b'\x80\x80\x80 EI Q')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            doc.add_heading('Instrument cal', level=1, prov=ProvenanceItem(page_no=1,
+                charspan=(0, 14), bbox=BoundingBox(l=50, t=100, r=400, b=250,
+                                                 coord_origin=CoordOrigin.TOPLEFT)))
+            original = doc.export_to_dict()
+
+            def verify(_path, _page, box, _hash, options):
+                method = options.get('verification_preprocessing')
+                words = ([{'text': 'Instrument', 'confidence': 96, 'bbox': [50, 100, 200, 120]},
+                          {'text': 'calibration', 'confidence': 96, 'bbox': [210, 100, 400, 120]}]
+                         if method == 'light_text_local_contrast' else [])
+                return {'settings': {'engine': 'mock', 'preprocessing': method}, 'crop': box, 'words': words}
+
+            with patch('knowledge_foundry.pdf_source.ocr_region', side_effect=verify) as engine:
+                adapted, proof = adapt_native(original, path, {'mode': 'auto'})
+            self.assertEqual(engine.call_count, 3)
+            self.assertEqual(adapted['texts'][0]['text'], 'Instrument calibration')
+            self.assertEqual(proof['repairs'][0]['evidence']['settings']['preprocessing'],
+                             'light_text_local_contrast')
+            self.assertEqual(doc.export_to_dict(), original)
+
+    def test_short_graphic_label_keeps_ocr_local_with_room_for_full_glyphs(self):
+        with TemporaryDirectory() as name:
+            path = Path(name) / 'labels.pdf'
+            write_pdf(path, b'q 400 0 0 200 40 400 cm BI /W 1 /H 1 /BPC 8 /CS /RGB ID '
+                      b'\x80\x80\x80 EI Q')
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            doc.add_text(DocItemLabel.TEXT, 'Sensor', prov=ProvenanceItem(page_no=1,
+                charspan=(0, 6), bbox=BoundingBox(l=100, t=250, r=140, b=255,
+                                                coord_origin=CoordOrigin.TOPLEFT)))
+
+            def verify(path, page, crop, source_hash, options):
+                # A neighboring diagram label must not enter this crop, while
+                # the full height of the target word must fit.
+                self.assertLess(crop[2], 200)
+                self.assertLessEqual(crop[1], 247)
+                self.assertGreaterEqual(crop[3], 258)
+                return {'settings': {'engine': 'mock'}, 'crop': crop, 'words': [
+                    {'text': 'Sensor', 'confidence': 96, 'bbox': [100, 247, 140, 258]},
+                    {'text': '|', 'confidence': 25, 'bbox': [143, 248, 145, 257]}]}
+
+            with patch('knowledge_foundry.pdf_source.ocr_region', side_effect=verify) as engine:
+                adapted, proof = adapt_native(doc.export_to_dict(), path, {'mode': 'auto'})
+            engine.assert_called_once()
+            self.assertEqual(adapted, doc.export_to_dict())
+            self.assertIsNone(proof)
+
+    def test_unverified_heading_and_disputed_short_label_remain_blocking(self):
+        for label, words in [(DocItemLabel.SECTION_HEADER, []),
+                             (DocItemLabel.TEXT, [{'text': 'Other', 'confidence': 96,
+                                                  'bbox': [50, 65, 110, 80]}]),
+                             (DocItemLabel.TEXT, [{'text': 'Sensor', 'confidence': 70,
+                                                  'bbox': [50, 65, 110, 80]}])]:
+            with self.subTest(label=label), TemporaryDirectory() as name:
+                path = Path(name) / 'label.pdf'; write_pdf(path, b'40 650 200 100 re S')
+                doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+                doc.add_text(label, 'Sensor', prov=ProvenanceItem(page_no=1,
+                    charspan=(0, 6), bbox=BoundingBox(l=50, t=65, r=130, b=90,
+                                                    coord_origin=CoordOrigin.TOPLEFT)))
+                with patch('knowledge_foundry.pdf_source.ocr_region', return_value={
+                        'settings': {'engine': 'mock'}, 'words': words}):
+                    adapted, proof = adapt_native(doc.export_to_dict(), path, {'mode': 'auto'})
+                if label == DocItemLabel.TEXT:
+                    self.assertEqual(adapted, doc.export_to_dict())
+                self.assertEqual(proof['uncertainties'][0]['code'], 'source_ocr_verification_uncertain')
+
     def test_short_suffix_outside_native_box_is_not_deleted(self):
         with TemporaryDirectory() as name:
             path = Path(name) / 'identifier.pdf'
@@ -184,6 +352,34 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertIsNone(contents_cells(table, orphan, 400))
         self.assertIsNone(contents_cells(table, [c for c in chars if c['text'] != '.'], 400))
 
+    def test_underscore_contents_keep_wrapped_title_with_its_page(self):
+        chars = glyphs('First wrapped', 40, 40)
+        chars += glyphs('title ________', 40, 55, 100)
+        chars += glyphs('6', 220, 55, 200)
+        for row in range(4):
+            chars += glyphs('Chapter ________', 40, 80 + row * 25, 300 + row * 100)
+            chars += glyphs(str(10 + row), 220, 80 + row * 25, 350 + row * 100)
+        table = {'prov': provenance(1, [35, 35, 240, 180], '')}
+        result = contents_cells(table, chars, 400)
+        self.assertEqual(result[0]['text'], 'First wrapped\ntitle ________')
+        self.assertEqual(result[1]['text'], '6')
+        self.assertEqual(len(result), 10)
+
+    def test_parallel_lists_preserve_each_source_line_and_reject_wrapped_prose(self):
+        chars, raw = [], []
+        for col, x in enumerate([40, 240]):
+            values = [f'Local federation {n}' for n in range(3)]
+            for row, value in enumerate(values):
+                chars += glyphs(value, x, 50 + row * 20, col * 1000 + row * 100)
+            raw.append(cell(' '.join(values), 0, col, [x, 45, x + 180, 100]))
+        table = {'data': {'table_cells': raw}}
+        result = column_list_cells(table, chars, 400)
+        self.assertEqual(len(result), 6)
+        self.assertEqual([c['text'] for c in result[:3]],
+                         ['Local federation 0', 'Local federation 1', 'Local federation 2'])
+        raw[0]['text'] += ' extra'
+        self.assertIsNone(column_list_cells(table, chars, 400))
+
     def test_final_table_row_requires_exact_complete_column_witnesses(self):
         values = [('Left unit', 40, 40, 0, 0), ('Right unit', 180, 40, 0, 1),
                   ('Officer', 45, 70, 1, 0), ('Officer', 187, 70, 1, 1)]
@@ -300,4 +496,5 @@ class SourceAdapterTests(unittest.TestCase):
             self.assertEqual(native['texts'][0]['text'], 'Instrument cal')
             with patch('knowledge_foundry.pdf_source.ocr_region', return_value=None):
                 repaired, proof = adapt_native(native, path, {'mode': 'auto', 'tesseract_cmd': 'offline-unavailable'})
-            self.assertEqual(repaired, native); self.assertIsNone(proof)
+            self.assertEqual(repaired, native)
+            self.assertEqual(proof['uncertainties'][0]['reason'], 'ocr_unavailable')

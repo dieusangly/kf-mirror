@@ -15,6 +15,89 @@ from auto_review_parsing import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
+    def test_a_source_verified_short_transcript_cannot_be_dropped(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            source = folder / 'original.pdf'; source.write_bytes(b'saved original')
+            native = {'texts': [{'self_ref': '#/texts/0', 'text': 'Sensor', 'label': 'text',
+                                'prov': [{'page_no': 1, 'charspan': [0, 6]}]}],
+                      'groups': [], 'pictures': [], 'tables': [],
+                      'pages': {'1': {'size': {'width': 600, 'height': 800}}}}
+            proof = {'repairs': [{'method': 'source_pixel_ocr', 'ref': '#/texts/0'}]}
+            (folder / 'docling.json').write_text(json.dumps(native))
+            (folder / 'parse.json').write_text('{"settings": {}, "warnings": []}')
+            with patch('knowledge_foundry.pdf_source.adapt_native', return_value=(native, proof)):
+                result = audit_document({'manifest_id': 'fixture', 'status': 'parsed'}, [], [],
+                                        folder, source_path=source)
+            self.assertIn('VERIFIED_OCR_TEXT_LOST', [f['code'] for f in result['findings']])
+
+    def test_warning_severities_are_counted_separately(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            warnings = [{'code': 'empty_docling_table'}, {'code': 'unlocated_block'}]
+            (folder / 'parse.json').write_text(json.dumps({'warnings': warnings}))
+            result = audit_document({'manifest_id': 'fixture', 'status': 'partial',
+                                     'warnings': warnings}, [], [], folder)
+            self.assertEqual([(f['severity'], f['count']) for f in result['findings']
+                              if f['code'] == 'PARSER_WARNING'], [('error', 1), ('warning', 1)])
+
+    def test_inconclusive_ocr_requires_review_and_literal_transcript_preservation(self):
+        from unittest.mock import patch
+        for value in ['Sensor', '|']:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as name:
+                folder = Path(name)
+                source = folder / 'original.pdf'; source.write_bytes(b'saved original')
+                node = {'self_ref': '#/texts/0', 'label': 'text', 'text': value,
+                        'prov': [{'page_no': 1, 'charspan': [0, len(value)]}]}
+                native = {'texts': [node], 'groups': [], 'tables': [], 'pictures': [],
+                          'pages': {'1': {'size': {'width': 600, 'height': 800}}}}
+                warning = {'code': 'source_ocr_verification_uncertain', 'ref': '#/texts/0', 'page': 1}
+                proof = {'uncertainties': [warning]}
+                (folder / 'docling.json').write_text(json.dumps(native))
+                (folder / 'parse.json').write_text(json.dumps({'warnings': [warning], 'settings': {}}))
+                elements = [{'id': 'label', 'kind': 'paragraph', 'ordinal': 0, 'text': value,
+                             'location': {'format': 'pdf', 'page': 1}}]
+                details = [{'element_id': 'label', 'docling_ref': '#/texts/0',
+                            'evidence_role': 'authoritative', 'pdf_source_adapter': proof}]
+                outcome = {'manifest_id': 'fixture', 'status': 'parsed', 'warnings': [warning]}
+                with patch('knowledge_foundry.pdf_source.adapt_native', return_value=(native, proof)):
+                    retained = audit_document(outcome, elements, details, folder, source_path=source)
+                    elements[0]['text'] = 'different text'
+                    lost = audit_document(outcome, elements, details, folder, source_path=source)
+                self.assertFalse([f for f in retained['findings'] if f['severity'] == 'error'])
+                self.assertEqual(retained['review_requirements'], [warning])
+                self.assertIn('UNCERTAIN_OCR_TEXT_LOST', [f['code'] for f in lost['findings']])
+
+    def test_replayed_uncertainty_requires_short_picture_transcript_even_without_saved_warning(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            source = folder / 'original.pdf'; source.write_bytes(b'saved original')
+            node = {'self_ref': '#/texts/0', 'label': 'text', 'text': 'ZZ',
+                    'parent': {'$ref': '#/pictures/0'},
+                    'prov': [{'page_no': 1, 'charspan': [0, 2], 'bbox': {
+                        'l': 50, 't': 100, 'r': 70, 'b': 110, 'coord_origin': 'TOPLEFT'}}]}
+            native = {'texts': [node], 'groups': [], 'tables': [],
+                      'pages': {'1': {'size': {'width': 600, 'height': 800}}},
+                      'pictures': [{'self_ref': '#/pictures/0', 'prov': [{'page_no': 1}],
+                                    'children': [{'$ref': '#/texts/0'}]}]}
+            proof = {'uncertainties': [{'code': 'source_ocr_verification_uncertain',
+                                       'ref': '#/texts/0', 'page': 1}]}
+            (folder / 'docling.json').write_text(json.dumps(native))
+            (folder / 'parse.json').write_text('{"warnings": [], "settings": {}}')
+            outcome = {'manifest_id': 'fixture', 'status': 'parsed', 'warnings': []}
+            with patch('knowledge_foundry.pdf_source.adapt_native', return_value=(native, proof)):
+                missing = audit_document(outcome, [], [], folder, source_path=source)
+                elements = [{'id': 'label', 'kind': 'paragraph', 'ordinal': 0, 'text': 'ZZ',
+                             'location': {'format': 'pdf', 'page': 1, 'bbox': [50, 100, 70, 110]}}]
+                sidecar = [{'element_id': 'label', 'docling_ref': '#/texts/0',
+                            'evidence_role': 'auxiliary', 'pdf_source_adapter': proof}]
+                retained = audit_document(outcome, elements, sidecar, folder, source_path=source)
+            self.assertIn('UNCERTAIN_OCR_TEXT_LOST', [f['code'] for f in missing['findings']])
+            self.assertNotIn('UNCERTAIN_OCR_TEXT_LOST', [f['code'] for f in retained['findings']])
+            self.assertIn('PDF_SOURCE_VERIFICATION_UNCERTAIN', [f['code'] for f in retained['findings']])
+
     def test_running_header_fragment_requires_structural_role(self):
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name)

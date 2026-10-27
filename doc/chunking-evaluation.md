@@ -84,14 +84,19 @@ Uninspected sources stay pending.
 In `$CHUNK_REVIEW_DIR/review.json`:
 
 - Preserve the build ID and every sampled chunk ID. A new build requires a new review.
-- Set `reviewer.kind` to `human` or `agent`, provide a nonempty `name`, and record
-  `model` when known (`null` otherwise). New reviews require kind/name once any
-  sample is assessed. Legacy reviews without metadata remain accepted as unknown;
-  reports without a supplied review have `reviewer: null`.
+- Record `reviewer.kind` (`human` or `agent`), nonempty `name`, `model`,
+  `model_reasoning_effort` and `launch_mode`; see
+  [attribution rules](manual-workflow.md#1-ingest-parse-and-review).
+  New assessed reviews require kind/name. Unknown settings are `null`; legacy
+  fields may be absent. Reports without a review have `reviewer: null`.
 - Set each status to `pass`, `fail` or `pending`. Pending/failed items need
   source-located notes. Failures need one worst severity: `critical` for materially
   incorrect text/citations/table associations, `major` for misleading missing
   context, or `minor` for presentation defects without a meaning change.
+- Record unsampled failures in `additional_findings`: unique bundle `chunk_id`,
+  `status: fail`, severity and source-located notes. Extra passes are rejected.
+  These findings count in policy scoring; critical failures block acceptance
+  even while sampled judgments remain pending.
 
 ## Rerun chunking evaluation with the human or agent review
 
@@ -109,7 +114,7 @@ direnv exec . .venv/bin/python scripts/auto_review_chunking.py \
 The [policy](../config/review-policy.json) requires 100% review coverage,
 pass rate ≥80%, score ≥90 and zero critical failures. Points are pass 10, minor 8,
 major 2, critical 0; `weighted_score = 100 × awarded points / (reviewed × pass points)`.
-`review.to_review` counts samples; `review.reviewed` counts pass/fail judgments.
+`review.to_review` counts samples plus additional findings; `review.reviewed` counts pass/fail judgments.
 Points and thresholds can be configured before review.
 
 `automatic_gate` covers artifact checks; `review_gate` is `pending`, `pass` or

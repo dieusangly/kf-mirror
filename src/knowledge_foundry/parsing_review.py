@@ -4,7 +4,9 @@ import hashlib
 import json
 from pathlib import Path
 
-from knowledge_foundry.review import apply_reviews, read_review_policy, review_policy_digest, select_samples
+from knowledge_foundry.review import (
+    apply_reviews, read_review_policy, review_policy_digest, select_samples, validate_reviewer_settings,
+)
 
 
 def digest(path):
@@ -39,6 +41,8 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
                  Path(__file__).parent / 'prompts/agent_prompt_parsing_review']:
         files[str(tool.resolve())] = digest(tool)
     samples, coverage, matched = [], [], set()
+    audit_requirements = {document['source']: document.get('review_requirements', [])
+                          for document in audit.get('documents', [])}
     for outcome in outcomes:
         if outcome['status'] not in {'parsed', 'partial'}:
             continue
@@ -75,7 +79,10 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
         native = read(folder / 'docling.json') if (folder / 'docling.json').exists() else {}
         native_pages = {item.get('self_ref'): {prov['page_no'] for prov in item.get('prov', [])}
                         for category in ('texts', 'pictures', 'tables') for item in native.get(category, [])}
-        for warning in sidecar.get('warnings', []):
+        warnings = list(sidecar.get('warnings', []))
+        warnings.extend(requirement for requirement in audit_requirements.get(outcome['manifest_id'], [])
+                        if requirement not in warnings)
+        for warning in warnings:
             page = warning.get('page', warning.get('location', {}).get('page'))
             located = {page} if page is not None else set()
             for ref in [warning.get('picture_ref'), warning.get('ref'), *warning.get('refs', [])]:
@@ -124,9 +131,12 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
             raise ValueError('parsing review sample selection mismatch')
         assessed = [r for r in review['reviews'] if r.get('status') in {'pass', 'fail'}]
         reviewer = review.get('reviewer') or {}
-        if assessed and (reviewer.get('kind') not in {'agent', 'human'} or not reviewer.get('name') or
-                         (reviewer['kind'] == 'agent' and not reviewer.get('model'))):
-            raise ValueError('assessed parsing reviews require reviewer identity and actual agent model')
+        if not isinstance(reviewer, dict):
+            raise ValueError('reviewer must be an object')
+        validate_reviewer_settings(reviewer)
+        if assessed and (reviewer.get('kind') not in {'agent', 'human'} or
+                         not isinstance(reviewer.get('name'), str) or not reviewer['name'].strip()):
+            raise ValueError('assessed parsing reviews require reviewer identity')
         for row in assessed:
             evidence = row.get('inspection', {})
             if evidence.get('original_inspected') is not True or not isinstance(row.get('notes'), str) or not row['notes'].strip():
@@ -135,6 +145,8 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
             if sample['location']['format'] == 'pdf' and evidence.get('layout_inspected') is not True:
                 raise ValueError('PDF review requires layout inspection')
     summary, findings = apply_reviews(review, snapshot, samples, policy, 'sample_id')
+    if summary['severity_counts']['critical'] > policy['maximum_critical_failures']:
+        summary['status'] = 'fail'
     inspected_ids = {r['sample_id'] for r in review['reviews'] if r['status'] in {'pass', 'fail'}} if review else set()
     for row in coverage:
         row['inspected_units'] = sum(s['source_id'] == row['source_id'] and s['sample_id'] in inspected_ids
@@ -160,7 +172,8 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
 
 def seed(report):
     return {k: report[k] for k in ('build_id', 'snapshot_sha256', 'review_policy_sha256')} | {
-        'reviewer': {'kind': None, 'name': None, 'model': None}, 'additional_findings': [],
+        'reviewer': {'kind': None, 'name': None, 'model': None,
+                     'model_reasoning_effort': None, 'launch_mode': None}, 'additional_findings': [],
         'reviews': [{'sample_id': s['sample_id'], 'status': 'pending', 'notes': 'Source inspection pending',
                      'inspection': {'original_inspected': False, 'layout_inspected': False}}
                     for s in report['review_sample']]}

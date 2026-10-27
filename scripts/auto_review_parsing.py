@@ -20,7 +20,7 @@ from scripts.validate_artifact_examples import check as validate_bundle  # noqa:
 from knowledge_foundry.parsers import (  # noqa: E402
     _pdf_text, _pdf_table_cells, _pdf_table_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
-    _pdf_running_headers,
+    _pdf_running_headers, SOURCE_REVIEW_WARNINGS,
 )
 from knowledge_foundry.pdf_structure import (  # noqa: E402
     pdf_page_characters, restore_numeric_identifiers, separate_table_note_markers,
@@ -38,7 +38,7 @@ KNOWN_DOCLING_LABELS = {"text", "section_header", "title", "list_item", "table",
                         "checkbox_unselected"}
 HARMLESS_LIMITATIONS = {"excluded_picture_ocr_fragments", "excluded_picture_corrupt_ocr",
                         "excluded_picture_furniture", "excluded_figure_text_uncertain",
-                        "empty_docling_table"}
+                        "empty_docling_table"} | SOURCE_REVIEW_WARNINGS
 DOCUMENTED_LIMITATIONS = HARMLESS_LIMITATIONS | {"potential_picture_text"}
 METRIC_KEYS = ("source_text_checked", "source_text_lost", "duplicate_content_groups",
                "duplicate_content_excess", "multi_provenance_nodes", "multi_page_nodes",
@@ -100,10 +100,8 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
     findings = {}
 
     def flag(code, severity, example):
-        entry = findings.setdefault(code, {"code": code, "severity": severity,
+        entry = findings.setdefault((code, severity), {"code": code, "severity": severity,
                                            "count": 0, "examples": []})
-        if severity == "error":
-            entry["severity"] = "error"
         entry["count"] += 1
         if len(entry["examples"]) < 5:
             entry["examples"].append(example)
@@ -120,8 +118,12 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
         saved_native, expected_adapter = adapt_native(saved_native, source_path, settings.get('ocr', {'mode': 'off'}))
     if recorded_adapters != ([expected_adapter] if expected_adapter else []):
         flag('PDF_SOURCE_ADAPTER_MISMATCH', 'error', {'reason': 'source_repair_not_reproduced'})
+    review_requirements = []
     for uncertainty in (expected_adapter or {}).get('uncertainties', []):
-        flag('PDF_SOURCE_VERIFICATION_UNCERTAIN', 'error', uncertainty)
+        needs_review = uncertainty['code'] in SOURCE_REVIEW_WARNINGS
+        flag('PDF_SOURCE_VERIFICATION_UNCERTAIN', 'warning' if needs_review else 'error', uncertainty)
+        if needs_review:
+            review_requirements.append(uncertainty)
     native_headers = _pdf_running_headers(saved_native) if saved_native else set()
     for error in table_context_errors(elements, details):
         flag('INVALID_TABLE_CONTEXT', 'error', error)
@@ -215,6 +217,31 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
                 flag("BROKEN_HEADING_PATH", "error", {"element_id": element["id"],
                                                       "parent_element_id": parent_id})
 
+    # Replayed uncertainty is reviewable only while the original transcript and
+    # its page/ref remain represented. Compare literal symbols too: normalized
+    # punctuation alone is empty and would otherwise match any text.
+    from knowledge_foundry.pdf_source import key as source_text_key
+    native_texts = {node['self_ref']: node for node in (saved_native or {}).get('texts', [])}
+    for requirement in review_requirements:
+        ref = requirement['ref']
+        node = native_texts.get(ref, {})
+        expected = source_text_key(_pdf_text(node.get('text', '')))
+        if not expected or not any(
+                expected in source_text_key(_pdf_text(item['text'])) and
+                item['location'].get('page') == requirement.get('page')
+                for item in by_ref[ref]):
+            flag('UNCERTAIN_OCR_TEXT_LOST', 'error', {'ref': ref, 'page': requirement.get('page')})
+    for repair in (expected_adapter or {}).get('repairs', []):
+        if repair['method'] != 'source_pixel_ocr':
+            continue
+        node = native_texts.get(repair['ref'], {})
+        expected = source_text_key(_pdf_text(node.get('text', '')))
+        page = (node.get('prov') or [{}])[0].get('page_no')
+        if not expected or not any(expected in source_text_key(_pdf_text(item['text'])) and
+                                   item['location'].get('page') == page
+                                   for item in by_ref[repair['ref']]):
+            flag('VERIFIED_OCR_TEXT_LOST', 'error', {'ref': repair['ref'], 'page': page})
+
     for (page, value), group in by_page_text.items():
         if not substantive(value) or len(group) < 2:
             continue
@@ -264,15 +291,16 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
     saved_warnings = json.loads((folder / "parse.json").read_text(encoding="utf-8")).get("warnings", [])
     all_warnings = outcome.get("warnings", []) + [warning for warning in saved_warnings
                                                    if warning not in outcome.get("warnings", [])]
-    for warning in outcome.get("warnings", []):
+    for warning in all_warnings:
         metrics["parser_warnings"] += 1
+        if warning.get('code') in SOURCE_REVIEW_WARNINGS:
+            if warning not in (expected_adapter or {}).get('uncertainties', []):
+                flag('UNREPRODUCED_SOURCE_REVIEW_WARNING', 'error', warning)
+            # Replayed uncertainties already have their own finding; do not
+            # count the saved copy a second time in the gate.
+            continue
         flag("PARSER_WARNING", "warning" if warning.get("code") in DOCUMENTED_LIMITATIONS
              else "error", warning)
-    for warning in saved_warnings:
-        if warning not in outcome.get("warnings", []):
-            metrics["parser_warnings"] += 1
-            flag("PARSER_WARNING", "warning" if warning.get("code") in DOCUMENTED_LIMITATIONS
-                 else "error", warning)
     incomplete = any(warning.get("code") not in HARMLESS_LIMITATIONS for warning in all_warnings)
     if outcome.get("status") in {"parsed", "partial"} and (outcome["status"] == "partial") != incomplete:
         flag("STATUS_COMPLETENESS_MISMATCH", "error",
@@ -384,7 +412,8 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
         table_items = [{'kind': e['kind'], 'text': e['text'], 'locator_key': e['id'],
                         'location': e['location'], 'parent_key': details[e['id']].get('parent_element_id'),
                         'details': {k: v for k, v in details[e['id']].items() if k not in
-                                    {'table_continuation', 'table_headers', 'table_rows', 'table_continues_to', 'table_role'}}}
+                                    {'table_continuation', 'table_headers', 'table_section_headers',
+                                     'table_rows', 'table_continues_to', 'table_role'}}}
                        for e in elements]
         for item in table_items:
             key = item['locator_key']
@@ -394,6 +423,7 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
                 cell = source_cells[key]
                 item['text'] = cell['text']
                 item['details'].update({k: cell[k] for k in ['row', 'column', 'row_span', 'col_span', 'header']})
+                item['details']['row_section'] = cell.get('row_section', False)
         try:
             link_table_continuations(table_items, {int(p): v['size']['height'] for p, v in pages.items()}, [])
             for item in table_items:
@@ -403,6 +433,8 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
                         item['details'][k] != details[key].get(k)
                         for k in ['row', 'column', 'row_span', 'col_span', 'header'])):
                     flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': key})
+                if key in source_cells and bool(item['details'].get('row_section')) != bool(details[key].get('row_section')):
+                    flag('TABLE_GEOMETRY_MISMATCH', 'error', {'element_id': key, 'reason': 'section_role'})
                 if key in source_cells and (source_cells[key].get('footnote_references', []) !=
                                            details[key].get('footnote_references', [])):
                     flag('TABLE_FOOTNOTE_MISMATCH', 'error', {'element_id': key})
@@ -425,7 +457,10 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
                         flag('TABLE_ROW_SPAN_MISMATCH', 'error', {'element_id': item['locator_key']})
                     expected_headers = [{'element_id': r['element_key'], 'span': r['span']}
                                         for r in item['details']['table_headers']]
+                    expected_sections = [{'element_id': r['element_key'], 'span': r['span']}
+                                         for r in item['details'].get('table_section_headers', [])]
                     if (expected_headers != details[item['locator_key']].get('table_headers') or
+                            expected_sections != details[item['locator_key']].get('table_section_headers', []) or
                             item['details'].get('table_role') != details[item['locator_key']].get('table_role') or
                             item['details'].get('table_continues_to_keys', []) !=
                             details[item['locator_key']].get('table_continues_to', [])):
@@ -544,7 +579,7 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
 
             for child in picture.get("children", []):
                 visit_picture(child["$ref"])
-            groups = _picture_text_groups(descendants)
+            groups = _picture_text_groups(descendants, native.get('pages', {}))
             for group, role in zip(groups, _picture_group_roles(groups)):
                 value = " ".join(node.get("text", "").strip() for node in group)
                 furniture = _picture_contact_furniture(group, pages)
@@ -723,14 +758,15 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
     if (outcome.get("status") == "parsed" and
             (metrics["source_text_lost"] or metrics["picture_short_text_lost"] or
              metrics["figure_assets_missing"]) and
-            "STATUS_COMPLETENESS_MISMATCH" not in findings):
+            ("STATUS_COMPLETENESS_MISMATCH", "error") not in findings):
         flag("STATUS_COMPLETENESS_MISMATCH", "error",
              {"status": "parsed", "source_text_lost": metrics["source_text_lost"],
               "picture_short_text_lost": metrics["picture_short_text_lost"],
               "figure_assets_missing": metrics["figure_assets_missing"]})
     return {"source": outcome["manifest_id"], "status": outcome["status"],
             "run_id": outcome.get("_run_id"), "metrics": metrics,
-            "findings": sorted(findings.values(), key=lambda item: item["code"])}
+            "review_requirements": review_requirements,
+            "findings": sorted(findings.values(), key=lambda item: (item["code"], item["severity"]))}
 
 
 def select_outcomes(input_dir, additional_input_dirs=()):

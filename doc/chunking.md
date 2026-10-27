@@ -65,29 +65,33 @@ Reference fixtures must still match the source editions.
 ## Configuration and version IDs
 
 - `chunking.max_tokens` must be at least 32; the default is 256. The Unicode word/punctuation counter (`\w+|[^\w\s]`) is reproducible, not a model tokenizer.
-- Build version `chunking-v1` and chunker version `structural-v4` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
+- Build version `chunking-v1` and chunker version `structural-v7` contribute to IDs; an output-changing algorithm needs a new version. Schema version is 1.0.0.
 - Outputs have no timestamps; identical inputs and settings produce identical bytes.
 
 ## Chunking rules
 
-- Fold layout spaces/prose line breaks, remove soft hyphens and preserve table
-  rows; no OCR repair or visual interpretation.
-- Follow element `ordinal`/heading-path changes; repeat earlier authoritative
-  headings/list introductions as cited context when needed. Footnotes stay separate.
-- End a local list introduction when a numbered rule resumes at a less-indented
-  PDF position. Keep ordinary numbered alternatives within their governing list.
-- Keep fitting sentences/list items intact, dropping outer headings before
-  splitting a fitting list item. Oversized sentences split at whitespace; long
-  lists prefer sentence boundaries.
-- Start tables in new chunks; prefer rows and repeat the first header when split.
-  Oversized rows may split. Whole tables are evidence; cells are structural.
-- Deduplicate only matching kind, cleaned text and native location; retain
-  identical wording at distinct locations.
-- Use only `authoritative` text, including picture-contained prose; exclude
-  auxiliary diagram labels/structural figure text. Linked images preserve visuals
-  without asserting relationships.
-- Link evidence to source, document, element revision and split span; native
-  locators live on elements.
+- Normalize layout whitespace and soft hyphens; preserve table rows and wording.
+- Follow source order and heading scope. Repeat cited headings/list introductions
+  when needed; close nested introductions at sibling or peer rules. PDF indentation
+  distinguishes roman and alphabetic markers, including `i`.
+- Join supported sentence continuations across pages before splitting. Keep all
+  original spans; detached notes follow the completed group. Validate exact
+  coverage and source order within both body and notes.
+- Keep fitting sentences and logical list items intact; drop optional headings
+  first. Split oversized sentences at whitespace and long lists at sentence breaks.
+  Repeat bounded, literal opening context for split numbered passages.
+- Start tables separately. Keep rows intact when possible and repeat verified
+  column headers, including across adjacent same-page fragments. Emit isolated
+  headers with their body. Use recorded spans/native header metadata; remove
+  contents leaders before budgeting, while retaining original evidence offsets.
+- Keep framed prose context separate and close quoted headings outside their
+  frame. Order captions/figures only where source geometry is unambiguous.
+- Deduplicate only matching kind, cleaned text and location. Preserve genuine
+  repetition at distinct locations; count repeated cited context only once.
+- Use authoritative prose, including text inside pictures. Exclude diagram labels
+  and structural figure text; image links do not assert visual relationships.
+- Cite source, document, element revision and exact span; native locations stay
+  on the original elements.
 
 Chunking does not resolve parser OCR/layout warnings. Heading context appears as cited text; visual links live in `figure-links.json` because the chunk schema has no dedicated fields for them.
 

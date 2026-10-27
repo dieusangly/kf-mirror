@@ -97,7 +97,9 @@ Generation/classification share sampled candidates; resolve their IDs in
 `CANDIDATES_DIR/claim-candidates.jsonl`, not classified claim records.
 
 Preserve `build_id`, `snapshot_sha256`, sample IDs and dimensions. Record reviewer
-kind (`human` or `agent`), name and model when known. Set every status to `pass`,
+kind, name, model, reasoning effort and launch mode using the
+[attribution rules](manual-workflow.md#1-ingest-parse-and-review).
+Set every status to `pass`,
 `fail` or `pending`; uninspected items remain pending. Pending/failed items need
 source-located notes. Record one worst severity per failed unit:
 

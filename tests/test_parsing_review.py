@@ -57,6 +57,19 @@ def test_selection_covers_tables_warnings_required_pages_and_spread(inputs):
         prepare(required_locations=[{'source_id': 'src:equipment', 'page': 11}])
 
 
+def test_replayed_ocr_requirements_select_pages_even_without_saved_warnings(inputs):
+    _, _, folder, audit, prepare = inputs
+    write(folder / 'parse.json', {'warnings': []})
+    requirements = [{'code': 'source_ocr_verification_uncertain', 'ref': f'#/texts/{page}', 'page': page}
+                    for page in range(2, 10)]
+    audit['documents'] = [{'source': 'E', 'review_requirements': requirements}]
+    report = prepare()
+    selected = {s['location']['page']: s for s in report['review_sample']}
+    assert set(selected) >= set(range(2, 10))
+    assert selected[9]['warnings'] == [requirements[-1]]
+    assert report['gate'] == 'pending_review'
+
+
 def test_pending_failed_and_automatic_failure_gates(inputs):
     root, _, _, audit, prepare = inputs
     report = prepare()
@@ -72,6 +85,51 @@ def test_pending_failed_and_automatic_failure_gates(inputs):
     assert prepare()['automatic_gate'] == 'fail' and prepare()['gate'] == 'fail'
     with pytest.raises(ValueError, match='stale parsing review'):
         prepare(review_path=path)
+
+
+@pytest.mark.parametrize('mode', ['manual_workflow', 'automated_workflow'])
+@pytest.mark.parametrize('model,effort', [('gpt-6.1-sol', 'medium'), (None, None)])
+def test_session_attribution_is_preserved_without_changing_snapshot(inputs, mode, model, effort):
+    root, _, _, _, prepare = inputs
+    initial = prepare()
+    review = judged(initial)
+    review['reviewer'].update(model=model, model_reasoning_effort=effort, launch_mode=mode)
+    report = prepare(review_path=write(root / 'review.json', review))
+    assert report['reviewer'] == review['reviewer']
+    assert report['snapshot_sha256'] == initial['snapshot_sha256']
+    assert report['gate'] == 'pass'
+
+
+@pytest.mark.parametrize('field,value', [
+    ('model_reasoning_effort', ''), ('model_reasoning_effort', 3),
+    ('launch_mode', 'standalone'), ('launch_mode', []),
+])
+def test_invalid_session_attribution_is_rejected(inputs, field, value):
+    root, _, _, _, prepare = inputs
+    review = judged(prepare())
+    review['reviewer'][field] = value
+    with pytest.raises(ValueError, match='reviewer'):
+        prepare(review_path=write(root / 'review.json', review))
+
+
+@pytest.mark.parametrize('severity,expected_gate', [
+    ('critical', 'fail'), ('major', 'pending_review'), ('minor', 'pending_review'),
+])
+def test_critical_failure_blocks_gate_with_pending_samples(inputs, severity, expected_gate):
+    root, _, _, _, prepare = inputs
+    review = p.seed(prepare())
+    review['reviewer'] = {'kind': 'agent', 'name': 'Fixture ONLY', 'model': 'fixture-model'}
+    review['reviews'][0].update(
+        status='fail', severity=severity, notes='Synthetic source-located defect on sampled page',
+        inspection={'original_inspected': True, 'layout_inspected': True})
+    report = prepare(review_path=write(root / 'review.json', review))
+    assert report['automatic_gate'] == 'pass'
+    assert report['gate'] == expected_gate
+    assert report['review_gate'] == report['review']['status'] == (
+        'fail' if severity == 'critical' else 'pending')
+    assert report['review']['failed'] == 1
+    assert report['review']['pending'] == len(review['reviews']) - 1 > 0
+    assert report['review']['severity_counts'][severity] == 1
 
 
 @pytest.mark.parametrize('change', ['artifact', 'source', 'selection', 'reference'])

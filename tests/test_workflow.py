@@ -60,6 +60,13 @@ def test_manual_parsing_review_records_embedded_audit_without_separate_process(m
         manual.run(limits(), only_stage='chunk')
 
 
+def test_manual_parse_repair_passes_native_input_to_builder(manual, tmp_path):
+    prior = tmp_path / 'archived-parsing'
+    manual.native_input_dir = prior
+    command = manual.command('parse', manual.stage_path('parse'))
+    assert command[command.index('--native-input-dir') + 1] == str(prior)
+
+
 @pytest.mark.parametrize('defect', ['failed', 'missing', 'inconsistent', 'invalid_exit'])
 def test_embedded_audit_failures_block_agent_and_downstream_even_on_exit_zero(manual, commands, monkeypatch, defect):
     original = commands[1]
@@ -127,6 +134,42 @@ def test_manual_archive_groups_findings_invalidates_downstream_and_preserves_cos
     report = w.read(manual.directory / 'report.json')
     assert report['execution_mode'] == 'manual'
     assert report['cost']['estimated_total_usd'] is None  # External review usage is unknown.
+
+
+def test_manual_ingest_repair_archives_unregistered_review_without_changing_budgets(manual, commands):
+    for stage in ('ingest', 'parse'):
+        manual.run(limits(), only_stage=stage)
+    review = manual.directory / 'parsing-review'
+    w.write(review / 'review.json', {'reviews': [{'status': 'pending', 'notes': 'Retain original findings'}]})
+    w.write(review / 'report.json', {'automatic_gate': 'fail'})
+    expected = w.fingerprints(review)
+    budgets = {k: copy.deepcopy(manual.state[k]) for k in (
+        'elapsed_seconds', 'paid_stages_started', 'review_sessions_started', 'budget_history')}
+    manual.repair('ingest', 'Corrected parser implementation and changed workflow inputs')
+    assert not review.exists()
+    assert not manual.state['stages']
+    entry = next(e for e in manual.state['history'] if e['stage'] == 'parsing_review')
+    assert entry['status'] == 'unregistered'
+    archived = Path(entry['directory'])
+    assert archived.name == 'review'
+    assert w.fingerprints(archived) == expected
+    assert (archived.parent / 'outputs').exists()
+    assert w.read(archived.parent / 'review-archive.json')['original_directory'] == str(review)
+    assert {k: manual.state[k] for k in budgets} == budgets
+
+
+@pytest.mark.parametrize('dangling', [False, True])
+def test_manual_unregistered_review_symlink_is_rejected_before_archival(manual, commands, tmp_path, dangling):
+    for stage in ('ingest', 'parse'):
+        manual.run(limits(), only_stage=stage)
+    outside = tmp_path / 'external-review'; outside.mkdir()
+    (manual.directory / 'parsing-review').symlink_to(outside, target_is_directory=True)
+    if dangling:
+        outside.rmdir()
+    with pytest.raises(ValueError, match='stage directory escapes'):
+        manual.repair('ingest', 'Keep external review evidence outside archive untouched')
+    assert manual.output('parse').exists()
+    assert manual.output('ingest').exists()
 
 
 def test_manual_interrupted_stage_archives_partial_output_before_restart(manual, commands, monkeypatch):
@@ -662,7 +705,10 @@ def prepare_independent(controller, monkeypatch, result_overrides=None, inspecte
 
 
 @pytest.mark.parametrize('stage', ['parsing_review', 'chunk_review', 'claim_review'])
-def test_independent_session_pins_config_records_usage_and_rejects_reused_thread(controller, monkeypatch, stage):
+@pytest.mark.parametrize('mode', ['manual', 'automated'])
+def test_independent_session_pins_config_records_usage_and_rejects_reused_thread(controller, monkeypatch, stage, mode):
+    controller.mode = mode
+    controller.state['execution_mode'] = mode
     out, commands = prepare_independent(controller, monkeypatch, stage=stage)
     controller.independent_review(stage, out)
     command = commands[0]
@@ -671,6 +717,9 @@ def test_independent_session_pins_config_records_usage_and_rejects_reused_thread
     assert '--ephemeral' in command
     assert 'model_reasoning_effort="high"' in command
     review = w.read(out / 'review.json')
+    assert review['reviewer']['model_reasoning_effort'] == 'high'
+    assert review['reviewer']['launch_mode'] == mode + '_workflow'
+    assert 'settings_source' not in review['reviewer'] and 'session_id' not in review['reviewer']
     measurement = w.read(review['workflow_session']['measurement'])
     assert measurement['usage'][0]['input_tokens'] == 100 and measurement['cost_usd'] is None
     with pytest.raises(ValueError, match='fresh identifiable session'):
@@ -694,6 +743,9 @@ def test_stage_model_overrides_are_pinned_recorded_and_changes_rejected(controll
                for name, value in controller.state['reviewer'].items() if name != stage)
     review = w.read(out / 'review.json')
     assert w.read(review['workflow_session']['measurement'])['resolved']['settings'] == settings
+    assert review['reviewer']['model'] == settings['model']
+    assert review['reviewer']['model_reasoning_effort'] == settings['model_reasoning_effort']
+    assert review['reviewer']['launch_mode'] == 'automated_workflow'
     assert w.read(controller.directory / 'report.json')['reviewer'][stage]['settings'] == settings
     settings['model'] = 'changed-fixture-model'
     assert any('reviewer settings changed' in issue for issue in controller.stale())
@@ -706,6 +758,10 @@ def test_stage_model_overrides_are_pinned_recorded_and_changes_rejected(controll
     ({}, False, 'uninspected judgment'),
     ({'build_id': 'stale'}, True, 'stale or changed review identity'),
     ({'reviewer': {'kind': 'agent', 'model': 'substitute'}}, True, 'actual reviewer attribution'),
+    ({'reviewer': {'kind': 'agent', 'model': 'configured-test-model',
+                   'model_reasoning_effort': 'low'}}, True, 'controller model_reasoning_effort'),
+    ({'reviewer': {'kind': 'agent', 'model': 'configured-test-model',
+                   'launch_mode': 'manual_workflow'}}, True, 'controller launch_mode'),
     ({'reviews': []}, True, 'sample selection'),
 ])
 def test_reviewer_cannot_substitute_model_build_samples_or_uninspected_pass(controller, monkeypatch, overrides, inspected, error):

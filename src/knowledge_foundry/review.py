@@ -9,6 +9,17 @@ REVIEW_SEVERITIES = {"critical", "major", "minor"}
 EXAMPLE_LIMIT = 5
 
 
+def validate_reviewer_settings(reviewer):
+    """Validate optional session attribution without guessing legacy settings."""
+    for field in ('model', 'model_reasoning_effort'):
+        value = reviewer.get(field)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f'reviewer {field} must be a nonempty string or null')
+    mode = reviewer.get('launch_mode')
+    if mode is not None and mode not in ('manual_workflow', 'automated_workflow'):
+        raise ValueError('reviewer launch_mode must be manual_workflow, automated_workflow or null')
+
+
 def read_review_policy(path, subject=None):
     """Load and validate the policy that turns reviewed samples into a gate."""
     policy = json.loads(Path(path).read_text(encoding="utf-8"))

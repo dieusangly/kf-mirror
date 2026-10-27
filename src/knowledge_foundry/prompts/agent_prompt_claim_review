@@ -9,6 +9,8 @@ Run initialization, source review and final evaluation as one agent task. Replac
 
 ```sh
 RUN_ID="your-claim-run-id"
+MODEL=""  # session model supplied by user, e.g. gpt-6.1-sol; empty means unknown
+MODEL_REASONING_EFFORT=""  # session effort supplied by user, e.g. medium; empty means unknown
 CANDIDATES_DIR="artifacts/${RUN_ID}/claim-generation"
 CLASSIFIED_DIR="artifacts/${RUN_ID}/claim-classification"
 CLAIM_REVIEW_DIR="artifacts/${RUN_ID}/claim-review"
@@ -20,6 +22,18 @@ SAMPLE_PER_DOCUMENT=12
 EVALUATION_REPORT="$CLAIM_REVIEW_DIR/report.json"
 REVIEW_FILE="$CLAIM_REVIEW_DIR/review.json"
 ```
+
+Reviewer attribution: for a standalone session, set MODEL and MODEL_REASONING_EFFORT
+from the session settings explicitly supplied by the user; these variables record
+settings, they do not select or change the running model. Empty values become null.
+Record reviewer.kind="agent", reviewer.name="Codex", reviewer.model=MODEL,
+reviewer.model_reasoning_effort=MODEL_REASONING_EFFORT and
+reviewer.launch_mode="manual_workflow" in the review JSON and final report.
+Do not infer settings from a model-family self-description or workflow.json.
+Controller-launched sessions instead use the controller's resolved model settings
+and launch_mode, including manual_workflow for a manual step with --agent-review.
+Do not add settings_source or session_id to reviewer attribution. Preserve prior
+attribution in notes when another session contributes or corrects metadata.
 
 1. Read `doc/claim-generation-and-classification.md`, `doc/claim-evaluation.md` and the taxonomy. Initialize evaluation when the review file is absent; otherwise validate and reuse it without resetting judgments. Use the same arguments for initialization and final evaluation:
 
@@ -67,4 +81,4 @@ to review/report JSON and controller-managed registration; external reviews alon
 not supply verified session evidence required for controller publication.
 Fixture judgments never approve real inputs.
 
-The evaluator scores your recorded judgments; it does not conduct the source review. Report the exit code, automatic/review/overall gates, sample counts, severity counts, coverage, pass rate, combined score and dimension scores, reviewer measurements, and concise findings with candidate-claim, classified-claim, chunk and topic IDs and source locations. Link the review/report files. Explain any pending items and limits of the sample. A failed or pending result is honest; do not change artifacts or conceal findings to obtain a pass.
+The evaluator scores your recorded judgments; it does not conduct the source review. Report the exit code, automatic/review/overall gates, sample counts, severity counts, coverage, pass rate, combined score and dimension scores, reviewer model, reasoning effort, launch mode and measurements, and concise findings with candidate-claim, classified-claim, chunk and topic IDs and source locations. Link the review/report files. Explain any pending items and limits of the sample. A failed or pending result is honest; do not change artifacts or conceal findings to obtain a pass.

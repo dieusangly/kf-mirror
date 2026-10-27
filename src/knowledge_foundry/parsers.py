@@ -9,6 +9,7 @@ from knowledge_foundry.pdf_structure import (
     FILENAME_FOOTNOTE, NOTE_MARKER, order_single_column_pages, pdf_page_characters, repair_footnotes,
     restore_numeric_identifiers, rotated_header_rows, table_text_groups,
     separate_table_note_markers,
+    order_figure_blocks, mark_prose_boxes,
 )
 from knowledge_foundry.pdf_tables import pdf_page_geometry, ruled_cells, link_table_continuations, native_page_fragment
 
@@ -16,7 +17,7 @@ from knowledge_foundry.pdf_tables import pdf_page_geometry, ruled_cells, link_ta
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
 PDF_DECIMAL_HEADING = re.compile(r"^\s*(\d+(?:\.\d+)*)(?:\.)?\s+")
 PDF_ROMAN_HEADING = re.compile(r"^\s*[IVX]+\.\s+", re.I)
-PDF_ANNEX_HEADING = re.compile(r"^\s*annexe\s+\d+\b", re.I)
+PDF_ANNEX_HEADING = re.compile(r"^\s*annex(?:e)?(?:\s+\d+\b|\s*$)", re.I)
 PDF_CASE_HEADING = re.compile(r"^\s*(?:cas|case)\s+n[°o]\s*\d+\b", re.I)
 PDF_BOX_HEADING = re.compile(r"^\s*(?:encadré|box)\s+n[°o]\s*\d+\b", re.I)
 PDF_LEGAL_HEADING = re.compile(r"^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+[a-z]?|premier)$", re.I)
@@ -28,11 +29,15 @@ URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
 WRAPPED_URL = re.compile(r"(?:https?://|www\.)(?:[^\s]*-\s+)*[^\s]+", re.I)
+# The transcript is retained; these require source inspection rather than
+# claiming that an inconclusive second OCR pass proves content was lost.
+SOURCE_REVIEW_WARNINGS = {"source_ocr_verification_uncertain"}
 
 
 def _pdf_text(value):
     """Remove text-layer controls and join a word broken by a layout hyphen."""
     value = PDF_CONTROLS.sub("", value or "")
+    value = re.sub(r'(?<=[a-zà-ÿ])\u00ad\s*(?=[a-zà-ÿ])', '', value, flags=re.I)
     pieces, start = [], 0
     for match in WRAPPED_URL.finditer(value):
         pieces.append(WRAPPED_WORD.sub("", value[start:match.start()]))
@@ -131,6 +136,7 @@ def _pdf_table_cells(item, characters=None):
                 "col_span": 1 if len(values) > 1 else getattr(cell, "col_span", 1) or 1,
                 "header": bool(getattr(cell, "column_header", False) or
                                getattr(cell, "row_header", False)),
+                "row_section": bool(getattr(cell, "row_section", False)),
                 "bbox": getattr(cell, "bbox", None),
                 "alignment_uncertain": uncertain,
             })
@@ -295,6 +301,8 @@ def _picture_text_quality(value, label, vocabulary=None):
     words = re.findall(r"[^\W\d_]+", value, flags=re.UNICODE)
     lowered = {word.casefold() for word in words}
     letters = sum(map(len, words))
+    if label in {'section_header', 'title'} and letters >= 6:
+        return 'canonical'
     if len(words) < 2 or letters < 6:
         return "graphical"
     if (re.search(r"\d\s*%", value) and len(words) >= 2 and
@@ -327,7 +335,7 @@ def _picture_text_quality(value, label, vocabulary=None):
                            words[1].islower()) else "graphical"
 
 
-def _picture_text_groups(nodes):
+def _picture_text_groups(nodes, pages=None):
     """Join only consecutive fragments on a line or an obvious wrapped line."""
     groups = []
     for node in nodes:
@@ -347,6 +355,16 @@ def _picture_text_groups(nodes):
         adjacent = False
         if (same_page and plain_text and safe_text and box_a and box_b and
                 len(prior_prov) == len(node_prov) == 1):
+            if box_a.get('coord_origin', 'BOTTOMLEFT') != box_b.get('coord_origin', 'BOTTOMLEFT'):
+                page = (pages or {}).get(str(a['page_no']), {})
+                page_height = page.get('size', {}).get('height')
+                if not page_height:
+                    groups.append([node])
+                    continue
+                box_a, box_b = [{**box,
+                    't': box['t'] if box.get('coord_origin') == 'TOPLEFT' else page_height - box['t'],
+                    'b': box['b'] if box.get('coord_origin') == 'TOPLEFT' else page_height - box['b']}
+                    for box in (box_a, box_b)]
             height = max(abs(box_a["t"] - box_a["b"]), abs(box_b["t"] - box_b["b"]), 1)
             centre_a = (box_a["t"] + box_a["b"]) / 2
             centre_b = (box_b["t"] + box_b["b"]) / 2
@@ -396,7 +414,9 @@ def _pdf_toc_levels(native):
 
 
 def _pdf_heading_level(text, stack, toc_levels):
-    legal = PDF_LEGAL_HEADING.fullmatch(' '.join(text.split()))
+    legal = PDF_LEGAL_HEADING.fullmatch(' '.join(text.split())) or re.fullmatch(
+        r'(chapter|chapitre|section|article)([IVXLCDM]+|\d+[a-z]?|premier)', re.sub(r'\s+', '', text), re.I)
+    legal = legal or re.match(r'^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+)\s+[-–:]\s+\S', text, re.I)
     if legal:
         return {'chapter': 1, 'chapitre': 1, 'section': 3, 'article': 5}[legal[1].lower()], 'legal'
     match = PDF_DECIMAL_HEADING.match(text)
@@ -768,13 +788,17 @@ def build_pdf_converter(options):
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline)})
 
 
-def parse_pdf(path, _source, options, converter=None):
+def parse_pdf(path, _source, options, converter=None, *, native_document=None):
     """Parse one PDF, optionally reusing a converter created for this run."""
-    converter = converter or build_pdf_converter(options)
-    result = converter.convert(path)
-    if str(result.status).lower().split(".")[-1] != "success":
-        raise ValueError(f"Docling conversion status: {result.status}")
-    doc = result.document
+    if native_document is None:
+        converter = converter or build_pdf_converter(options)
+        result = converter.convert(path)
+        if str(result.status).lower().split(".")[-1] != "success":
+            raise ValueError(f"Docling conversion status: {result.status}")
+        doc = result.document
+    else:
+        from docling_core.types.doc import DoclingDocument
+        doc = DoclingDocument.model_validate(native_document)
     native = doc.export_to_dict()
     original_native = native
     source_adapter = None
@@ -785,6 +809,11 @@ def parse_pdf(path, _source, options, converter=None):
             doc = type(doc).model_validate(native)
     items = []
     warnings = list(source_adapter.get('uncertainties', [])) if source_adapter else []
+    uncertain_ocr_refs = {w['ref'] for w in warnings if w['code'] == 'source_ocr_verification_uncertain'}
+    repaired_ocr_refs = {repair['ref'] for repair in (source_adapter or {}).get('repairs', [])
+                         if repair['method'] == 'source_pixel_ocr'}
+    source_list_tables = {repair['ref'] for repair in (source_adapter or {}).get('repairs', [])
+                          if repair['method'] == 'source_column_list_entries'}
     page_counts = {}
     heading_stack = []
     toc_levels = _pdf_toc_levels(native)
@@ -834,6 +863,11 @@ def parse_pdf(path, _source, options, converter=None):
     excluded_picture_refs = set()
     character_cache = {}
     geometry_cache = {}
+
+    def page_geometry(page):
+        if page not in geometry_cache:
+            geometry_cache[page] = pdf_page_geometry(path, page)
+        return geometry_cache[page]
 
     def page_characters(provenance):
         if len(provenance) != 1 or not Path(path).is_file():
@@ -992,17 +1026,18 @@ def parse_pdf(path, _source, options, converter=None):
 
         for child in picture.get("children", []):
             visit(child["$ref"])
-        groups = _picture_text_groups(text_nodes)
+        groups = _picture_text_groups(text_nodes, native.get('pages', {}))
         for group, role in zip(groups, _picture_group_roles(groups)):
             refs = [node["self_ref"] for node in group]
             value = " ".join(node.get("text", "").strip() for node in group)
             label = group[0].get("label", "text")
-            if _picture_contact_furniture(group, native.get("pages", {})):
+            preserve_ocr = bool((uncertain_ocr_refs | repaired_ocr_refs).intersection(refs))
+            if not preserve_ocr and _picture_contact_furniture(group, native.get("pages", {})):
                 furniture.extend(refs)
                 excluded_picture_refs.update(refs)
                 continue
             quality = _picture_text_quality(value, label, vocabulary)
-            if quality != "canonical":
+            if quality != "canonical" and not preserve_ocr:
                 target = (corrupt if quality == "corrupt_ocr" else
                           visual_uncertain if quality == "potential" and role == "visual" else
                           potential if quality == "potential" else excluded)
@@ -1029,11 +1064,11 @@ def parse_pdf(path, _source, options, converter=None):
                     continue
                 origin = boxes[0].get("coord_origin", "BOTTOMLEFT")
                 if any(box.get("coord_origin", "BOTTOMLEFT") != origin for box in boxes):
-                    (visual_uncertain if role == "visual" else potential).extend(refs)
-                    potential_candidates.append({"refs": refs, "text": value,
-                                                 "reason": "mixed_bbox_origins", "role": role})
-                    excluded_picture_refs.update(refs)
-                    continue
+                    height = native['pages'][str(next(iter(pages)))]['size']['height']
+                    boxes = [{**box, 't': box['t'] if box.get('coord_origin') == 'TOPLEFT' else height - box['t'],
+                              'b': box['b'] if box.get('coord_origin') == 'TOPLEFT' else height - box['b'],
+                              'coord_origin': 'TOPLEFT'} for box in boxes]
+                    origin = 'TOPLEFT'
                 provenance = [{"page_no": next(iter(pages)), "bbox": {
                     "l": min(box["l"] for box in boxes), "r": max(box["r"] for box in boxes),
                     "t": max(box["t"] for box in boxes) if origin != "TOPLEFT" else min(box["t"] for box in boxes),
@@ -1141,13 +1176,14 @@ def parse_pdf(path, _source, options, converter=None):
         table_cells, table_geometry = None, None
         if kind == "table":
             table_cells = _pdf_table_cells(item, characters)
-            if table_cells and len(prov) == 1 and prov[0].bbox is not None and Path(path).is_file():
+            # A ruled container can hold several source-verified list entries
+            # without painted separators. Keep their logical row boundaries.
+            if (table_cells and getattr(item, 'self_ref', None) not in source_list_tables and
+                    len(prov) == 1 and prov[0].bbox is not None and Path(path).is_file()):
                 page = prov[0].page_no
-                if page not in geometry_cache:
-                    geometry_cache[page] = pdf_page_geometry(path, page)
                 box = prov[0].bbox.to_top_left_origin(doc.pages[page].size.height)
                 repaired, table_geometry, uncertain = ruled_cells(
-                    table_cells, characters, geometry_cache[page], [box.l, box.t, box.r, box.b],
+                    table_cells, characters, page_geometry(page), [box.l, box.t, box.r, box.b],
                     normalize_text=_pdf_text, page_fragment=native_page_fragment(native, item.self_ref))
                 if repaired is not None:
                     table_cells = [{**cell, 'text': ' '.join(_pdf_text(cell['text']).split())}
@@ -1227,6 +1263,8 @@ def parse_pdf(path, _source, options, converter=None):
                         evidence_role="structural" if kind == "figure" or filename_only_footnote else "authoritative",
                         checkbox_state=("selected" if label == "checkbox_selected" else "unselected")
                         if label in {"checkbox_selected", "checkbox_unselected"} else None)
+        if kind == 'paragraph' and re.search(r'\b(?:Done at|Fait à)\s+.+\b\d{4}\.?\s*$', text):
+            heading_stack.clear()  # Execution/signature furniture closes provision scope.
         if key is None:
             continue
         items[-1]["details"]["docling_group_depth"] = level
@@ -1261,6 +1299,7 @@ def parse_pdf(path, _source, options, converter=None):
                                                 "row_span": cell["row_span"],
                                                 "col_span": cell["col_span"],
                                                 "header": cell["header"],
+                                                **({'row_section': True} if cell.get('row_section') else {}),
                                                 **({'footnote_references': cell['footnote_references']}
                                                    if cell.get('footnote_references') else {}),
                                                 "header_origin": ('pdf_rulings_and_glyphs' if table_geometry
@@ -1277,6 +1316,10 @@ def parse_pdf(path, _source, options, converter=None):
     # footnotes. Restore page order while retaining Docling's within-page order.
     items.sort(key=lambda item: item["location"]["page"])
     items = repair_footnotes(items, {page: value.size.height for page, value in doc.pages.items()})
+    items = order_figure_blocks(items)
+    if Path(path).is_file():
+        mark_prose_boxes(items, page_geometry,
+                        {page: (value.size.width, value.size.height) for page, value in doc.pages.items()})
     link_table_continuations(items, {page: value.size.height for page, value in doc.pages.items()}, warnings)
     if items and source_adapter:
         items[0]['details']['pdf_source_adapter'] = source_adapter

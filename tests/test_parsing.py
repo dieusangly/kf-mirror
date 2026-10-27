@@ -45,6 +45,107 @@ def _config(root, entries):
 
 
 class ParsingTests(unittest.TestCase):
+    def test_discretionary_hyphen_space_joins_source_word(self):
+        self.assertEqual(_pdf_text('electronic instru\u00ad ments'), 'electronic instruments')
+
+    def test_spaced_legal_headings_and_chapter_titles_reset_peer_scope(self):
+        from knowledge_foundry.parsers import _pdf_heading_level
+        stack = [(1, 'chapter', 'CHAPTER II', 'legal'), (3, 'section', 'Section 1', 'legal'),
+                 (5, 'article', 'Article 8', 'legal')]
+        self.assertEqual(_pdf_heading_level('S e c t i o n 3', stack, {}), (3, 'legal'))
+        self.assertEqual(_pdf_heading_level('Chapitre 5 - A new chapter', stack, {}), (1, 'legal'))
+
+    def test_english_and_standalone_annexes_reset_heading_scope(self):
+        from knowledge_foundry.parsers import _pdf_heading_level
+        stack = [(1, 'old', 'IV. The role of supervisors', 'numbered')]
+        for heading in ('Annex 1', 'Annexe 2', 'ANNEXE'):
+            self.assertEqual(_pdf_heading_level(heading, stack, {}), (1, 'numbered'))
+
+    def test_source_verified_short_picture_transcript_is_retained(self):
+        from docling_core.types.doc import (DoclingDocument, DocItemLabel, Size, BoundingBox,
+                                           CoordOrigin, ProvenanceItem)
+        doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+        picture = doc.add_picture(prov=ProvenanceItem(page_no=1, charspan=(0, 0),
+            bbox=BoundingBox(l=40, t=100, r=500, b=400, coord_origin=CoordOrigin.TOPLEFT)))
+        child = doc.add_text(DocItemLabel.TEXT, 'Sensor', parent=picture, prov=ProvenanceItem(
+            page_no=1, charspan=(0, 6), bbox=BoundingBox(l=50, t=120, r=100, b=130,
+                                                                    coord_origin=CoordOrigin.TOPLEFT)))
+        proof = {'repairs': [{'method': 'source_pixel_ocr', 'ref': child.self_ref}], 'uncertainties': []}
+        converter = Mock(); converter.convert.return_value = SimpleNamespace(status='success', document=doc)
+        with patch('knowledge_foundry.pdf_source.adapt_native', return_value=(doc.export_to_dict(), proof)):
+            items, _, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'auto'}}, converter)
+        self.assertTrue(any(item['text'] == 'Sensor' and item['details']['docling_ref'] == child.self_ref
+                            for item in items))
+        self.assertFalse(warnings)
+
+    def test_native_rebuild_reverifies_identity_and_rebuilds_without_pdf_conversion(self):
+        from docling_core.types.doc import (DoclingDocument, DocItemLabel, Size, BoundingBox,
+                                           CoordOrigin, ProvenanceItem)
+        from test_pdf_tables import write_pdf
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            path = root / 'source.pdf'
+            write_pdf(path, b'BT /F1 12 Tf 50 700 Td (Sensor reading.) Tj ET')
+            entry = _fixture(root, path.name, 'application/pdf', path.read_bytes())
+            config = _config(root, [entry])
+            doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+            doc.add_text(DocItemLabel.TEXT, 'Sensor reading.', prov=ProvenanceItem(page_no=1,
+                charspan=(0, 15), bbox=BoundingBox(l=48, t=85, r=160, b=110,
+                                                coord_origin=CoordOrigin.TOPLEFT)))
+            converter = Mock(); converter.convert.return_value = SimpleNamespace(status='success', document=doc)
+            with patch('knowledge_foundry.parsing.build_pdf_converter', return_value=converter):
+                initial = parse_collection(config, root / 'prior')['outcomes'][0]
+            prior = Path(initial['output'])
+            saved_bundle = json.loads((prior / 'artifact-bundle.json').read_text())
+            saved_parse = json.loads((prior / 'parse.json').read_text())
+            with patch('knowledge_foundry.parsing.build_pdf_converter') as build:
+                outcome = parse_collection(config, root / 'rebuilt', native_input_dir=root / 'prior')['outcomes'][0]
+            build.assert_not_called()
+            self.assertEqual(outcome['status'], 'parsed')
+            rebuilt = Path(outcome['output'])
+            self.assertEqual(json.loads((rebuilt / 'artifact-bundle.json').read_text()), saved_bundle)
+            replay = json.loads((rebuilt / 'parse.json').read_text())['native_replay']
+            self.assertEqual(replay['source_sha256'], entry['sha256'])
+            self.assertEqual(replay['native_sha256'], hashlib.sha256((prior / 'docling.json').read_bytes()).hexdigest())
+            for change in ['identity', 'settings', 'missing_native']:
+                with self.subTest(change=change):
+                    bundle = json.loads(json.dumps(saved_bundle))
+                    settings = json.loads(json.dumps(saved_parse))
+                    if change == 'identity':
+                        bundle['documents'][0]['content_sha256'] = '0' * 64
+                    elif change == 'settings':
+                        settings['settings']['ocr']['mode'] = 'force'
+                    else:
+                        (prior / 'docling.json').unlink()
+                    (prior / 'artifact-bundle.json').write_text(json.dumps(bundle))
+                    (prior / 'parse.json').write_text(json.dumps(settings))
+                    outcome = parse_collection(config, root / 'rejected', native_input_dir=root / 'prior')['outcomes'][0]
+                    self.assertEqual(outcome['status'], 'failed')
+            with self.assertRaisesRegex(ValueError, 'directories must differ'):
+                parse_collection(config, root / 'prior', native_input_dir=root / 'prior')
+
+    def test_uncertain_picture_transcript_is_retained_with_provenance(self):
+        from docling_core.types.doc import (DoclingDocument, DocItemLabel, Size, BoundingBox,
+                                           CoordOrigin, ProvenanceItem)
+        doc = DoclingDocument(name='Fixture'); doc.add_page(1, Size(width=600, height=800))
+        def prov(box, value):
+            return ProvenanceItem(page_no=1, charspan=(0, len(value)), bbox=BoundingBox(
+                l=box[0], t=box[1], r=box[2], b=box[3], coord_origin=CoordOrigin.TOPLEFT))
+        picture = doc.add_picture(prov=prov([40, 100, 500, 400], ''))
+        child = doc.add_text(DocItemLabel.TEXT, 'ZZ', parent=picture, prov=prov([50, 120, 80, 130], 'ZZ'))
+        native = doc.export_to_dict()
+        proof = {'uncertainties': [{'code': 'source_ocr_verification_uncertain', 'ref': child.self_ref,
+                                   'page': 1, 'bbox': [50, 120, 80, 130]}]}
+        converter = Mock(); converter.convert.return_value = SimpleNamespace(status='success', document=doc)
+        with patch('knowledge_foundry.pdf_source.adapt_native', return_value=(native, proof)):
+            items, original, warnings = parse_pdf(Path('unused.pdf'), {}, {'ocr': {'mode': 'auto'}}, converter)
+        retained = next(item for item in items if item['text'] == 'ZZ')
+        self.assertEqual(retained['details']['docling_ref'], child.self_ref)
+        self.assertEqual(retained['location']['page'], 1)
+        self.assertEqual(retained['details']['evidence_role'], 'auxiliary')
+        self.assertEqual(original, native)
+        self.assertEqual([w['code'] for w in warnings], ['source_ocr_verification_uncertain'])
+
     def test_short_numbered_native_picture_notes_preserve_document_evidence(self):
         values = [('footnote', '14 Keep the calibration certificate'),
                   ('caption', '15 Sensor wiring'), ('footnote', '16 sensor-manual.pdf')]
@@ -562,6 +663,8 @@ class ParsingTests(unittest.TestCase):
                                  "parent": {"$ref": picture_ref},
                                  "prov": [{"page_no": page, "bbox": dict(zip(
                                      ("l", "t", "r", "b"), box))}]})
+            if len(entry) > 4:
+                native_nodes[-1]['prov'][0]['bbox']['coord_origin'] = entry[4]
         native = {"pages": {str(page): {"size": {"width": 600, "height": 842}}},
                   "texts": native_nodes, "groups": [], "tables": [], "pictures": [
             {"self_ref": picture_ref, "children": [
@@ -577,6 +680,21 @@ class ParsingTests(unittest.TestCase):
                 status="success", document=document)
             items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
         return items, warnings, native
+
+    def test_picture_fragments_with_mixed_coordinate_origins_keep_text_and_source_parts(self):
+        items, warnings, native = self._picture_fixture(1, [
+            ('text', 'Sensor readings from', [40, 100, 150, 110], 'Sensor readings from', 'TOPLEFT'),
+            ('text', 'the calibration device.', [155, 742, 280, 732], 'the calibration device.', 'BOTTOMLEFT')])
+        combined = next(item for item in items if item['text'] == 'Sensor readings from the calibration device.')
+        self.assertEqual(combined['location']['bbox'], [40, 100, 280, 110])
+        self.assertEqual(combined['details']['source_parts'][1]['provenance'], native['texts'][1]['prov'])
+        self.assertFalse(warnings)
+
+    def test_short_picture_date_heading_is_retained_without_an_ocr_warning(self):
+        items, warnings, _ = self._picture_fixture(1, [
+            ('section_header', 'January 2031', [40, 740, 200, 720])])
+        self.assertTrue(any(item['kind'] == 'heading' and item['text'] == 'January 2031' for item in items))
+        self.assertFalse(warnings)
 
     def test_pdf_picture_short_list_items_a_page_21(self):
         items, warnings, _ = self._picture_fixture(21, [
@@ -1031,6 +1149,20 @@ class ParsingTests(unittest.TestCase):
                 outcome = parse_collection(config, root / "output")["outcomes"][0]
             self.assertEqual(outcome["status"], "parsed")
             self.assertEqual(outcome["warnings"], [warning])
+
+    def test_retained_ocr_review_requirement_does_not_make_parse_partial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entry = _fixture(root, 'sample.md', 'text/markdown', '# Located\n')
+            config = _config(root, [entry])
+            item = {'kind': 'heading', 'text': 'Located', 'locator_key': 'markdown:line-1:block-0',
+                    'location': {'format': 'markdown', 'heading_path': ['Located'],
+                                 'line_start': 1, 'line_end': 1}, 'parent_key': None, 'details': {}}
+            warning = {'code': 'source_ocr_verification_uncertain', 'ref': '#/texts/0', 'page': 1}
+            with patch.dict(PARSERS, {'markdown': (lambda *_: ([item], None, [warning]), 'fixture')}):
+                outcome = parse_collection(config, root / 'output')['outcomes'][0]
+            self.assertEqual(outcome['status'], 'parsed')
+            self.assertEqual(outcome['warnings'], [warning])
 
     def test_markdown_code_block_keeps_text_and_lines(self):
         with tempfile.TemporaryDirectory() as directory:
