@@ -204,9 +204,11 @@ class CompilationContextTests(unittest.TestCase):
                 'size_bytes': source.stat().st_size, 'sha256': digest(source.read_text())}]}))
             pipeline = root / 'pipeline.json'
             pipeline.write_text(json.dumps({'root': '.', 'manifest_file': 'manifest.json',
-                'manifest_ids': ['observatory'], 'parsing': {'ocr': {'mode': 'off'}},
+                'manifest_ids': ['observatory'], 'structuring': {'provider': 'internal', 'options': {'ocr': {'mode': 'off'}}},
                 'chunking': {'max_tokens': 256}}))
             parsed, chunked = root / 'parsed', root / 'chunked'
+            from knowledge_foundry.ingestion import ingest
+            ingest(pipeline, root / 'artifacts/ingested')
             parsing = parse_collection(pipeline, parsed)
             self.assertEqual(parsing['outcomes'][0]['status'], 'parsed', parsing)
             audit = auto_review_parsing(parsed, source_root=root)

@@ -1,4 +1,4 @@
-"""Build, freeze and verify structural chunks and semantic clusters."""
+"""Cluster accepted structural chunks and verify frozen semantic lineage."""
 
 from collections import Counter
 import json
@@ -11,8 +11,7 @@ from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json
 from knowledge_foundry.generation_context import RequestCounter, generation_payload, usable_input_budget
 from knowledge_foundry.semantic_clusters import cluster_members, refine_clusters, similarity_matrix, cosine
 from knowledge_foundry.structural_chunks import VERSION, assemble_structural_chunks, stable_hash
-from knowledge_foundry.document_structure import (assemble_document_hierarchy, structure_snapshot,
-                                                validate_structure)
+from knowledge_foundry.document_structure import assemble_document_hierarchy
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -89,35 +88,6 @@ def pricing_for_step(config, stage):
     return config['pricing']['providers'][step['provider']]['models'][step['model']]
 
 
-def saved_settings(value):
-    """Read frozen legacy settings without accepting the old live config format."""
-    if 'steps' in value:
-        return value
-    import copy
-    old = copy.deepcopy(value)
-    embedding = old['embeddings']
-    rate = {key: embedding.pop(key) for key in (
-        'usd_per_million_input_tokens', 'rate_card_version', 'documentation_url')}
-    models = {key: {**card, 'verified_on': '2026-10-13', 'documentation_url':
-                   'https://developers.openai.com/api/docs/models/' + key}
-              for key, card in old['pricing']['models'].items()}
-    # A fixture may use the same model name as generation; its zero-cost embedding
-    # provenance is read independently of inference pricing.
-    embedding_models = {embedding['model']: {'usd_per_million_input_tokens': rate['usd_per_million_input_tokens'],
-                        'verified_on': '2026-10-16', 'documentation_url': rate['documentation_url']}}
-    providers = {old['provider']: {'models': models}}
-    providers.setdefault(embedding['provider'], {'models': {}})['models'].update(embedding_models)
-    return {'pipeline_version': old['pipeline_version'], 'steps': {
-        'structural_chunks': {'version': old['preparation']['structural_version']},
-        'embeddings': embedding,
-        'semantic_clusters': {'version': old['preparation']['clustering_version'], **old['clustering']},
-        'claim_generation': {'version': old['generation_version'], **{key: old[key] for key in
-                             ('provider', 'model', 'reasoning_effort', 'retries')}, 'budget': old['generation_budget']},
-        'topic_classification': {'version': old['classification_version'], **{key: old[key] for key in
-                                 ('provider', 'model', 'reasoning_effort', 'retries')}}},
-        'pricing': {'version': old['pricing']['rate_card_version'], 'providers': providers}}
-
-
 def validate_settings(config, frozen=False):
     """Validate the step configuration and the shared provider/model price catalogue."""
     from knowledge_foundry.openai_tools import REASONING_EFFORTS
@@ -138,7 +108,7 @@ def validate_settings(config, frozen=False):
     for name, keys in shapes.items():
         if not isinstance(steps[name], dict) or set(steps[name]) != keys:
             raise ValueError('invalid ' + name + ' configuration shape')
-    versions = {VERSION, 'structural-chunks-v1', 'structural-chunks-v2'} if frozen else {VERSION}
+    versions = {VERSION}
     if steps['structural_chunks']['version'] not in versions or steps['semantic_clusters']['version'] != 'all-members-v1':
         raise ValueError('unsupported structural chunk or semantic clustering version')
     embedding, clustering = steps['embeddings'], steps['semantic_clusters']
@@ -253,8 +223,8 @@ def request_for_members(members, structural, bundle, config, prompt, schema):
     return generation_payload(config, text, prompt, schema), ids
 
 
-def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/structural-chunks-and-semantic-clusters.json',
-                          cache_dir=None, fixture_path=None, on_progress=None, parsed_dir=None):
+def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/semantic-clustering.json',
+                          cache_dir=None, fixture_path=None, on_progress=None):
     from knowledge_foundry.claim_generation_and_classification import _config, _prompt, CANDIDATE_SCHEMA
     from scripts.validate_artifact_examples import check
     output_dir = Path(output_dir)
@@ -273,26 +243,13 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/st
     if cache_dir.resolve().is_relative_to(output_dir.resolve()) or output_dir.resolve().is_relative_to(cache_dir.resolve()):
         raise ValueError('structural chunks and semantic clusters output and reusable embedding/token-count directories must be separate')
     prompt, _ = _prompt('claim_generation_v1.txt')
+    from knowledge_foundry.document_structuring import load_validated_structure
+    accepted = load_validated_structure(chunked_dir, allow_test=all(
+        config['steps'][step]['provider'] == 'fixture' for step in ('embeddings', 'claim_generation')))
+    structure, hierarchy = accepted['structure'], accepted['hierarchy']
+    structural, links = accepted['chunks'], accepted['links']
     if on_progress:
-        on_progress({'state': 'assembling_structural_chunks', 'original_chunks': len(bundle['chunks'])})
-    structure_path = Path(chunked_dir) / 'document-structure.json'
-    structure = _json(structure_path) if structure_path.exists() else structure_snapshot([])
-    if parsed_dir is not None:
-        rows = []
-        for document in bundle['documents']:
-            sidecar = _json(Path(parsed_dir) / 'documents' / document['id'].removeprefix('doc:') / 'parse.json')
-            if sidecar['document_id'] != document['id']:
-                raise ValueError('parsed sidecar document mismatch')
-            rows.extend(sidecar['elements'])
-        from_parsed = structure_snapshot(rows)
-        if structure_path.exists() and from_parsed != structure:
-            raise ValueError('parsed sidecars conflict with saved document structure')
-        structure = from_parsed
-    validate_structure(bundle, structure)
-    hierarchy = assemble_document_hierarchy(bundle, structure)
-    structural, links = assemble_structural_chunks(bundle, structure)
-    if on_progress:
-        on_progress({'state': 'structural_chunks_assembled', 'structural_chunks': len(structural)})
+        on_progress({'state': 'validated_structural_chunks_loaded', 'structural_chunks': len(structural)})
     by_id = {r['id']: r for r in structural}
     counter = RequestCounter(config, cache_dir / 'request-counts')
     def payload(ids):
@@ -347,23 +304,32 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/st
                   'oversized_cluster_splits': splits, 'usable_input_tokens': limit,
                   'claim_generation_request_token_counting': counter.telemetry, 'embeddings': adapter.telemetry,
                   'structure_metadata_elements': len(structure['elements']),
-                  'structural_limitations': 'Heading metadata is parser-derived; numbered and local list scopes '
+                  'structural_limitations': 'Heading metadata is provider-derived; numbered and local list scopes '
                                            'are pipeline inferences. Footnotes are non-merging hints. '
                                            'Without parser sidecars, heading levels fall back to source flow/numbering.'}
+        # Preserve acceptance, rich metadata and review evidence with the semantic snapshot.
+        import shutil
+        frozen_names = ['structuring-manifest.json', 'structure-metadata.json', 'figure-links.json', 'acceptance.json']
+        if accepted['acceptance']['status'] == 'accepted':
+            frozen_names += ['parsing-review.json', 'chunking-review.json']
+        for filename in {**accepted['manifest'].get('assets', {}), **accepted['manifest'].get('native_outputs', {})}:
+            target = output_dir / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(chunked_dir) / filename, target)
+        for filename in frozen_names:
+            shutil.copyfile(Path(chunked_dir) / filename, output_dir / filename)
         # Preserve the exact original file bytes, including immutable upstream records.
         (output_dir / 'artifact-bundle.json').write_bytes(input_path.read_bytes())
-        _write_jsonl(output_dir / 'structural-chunks.jsonl', structural)
-        _write_jsonl(output_dir / 'structural-links.jsonl', links)
-        atomic_json(output_dir / 'document-structure.json', structure)
-        atomic_json(output_dir / 'document-hierarchy.json', hierarchy)
+        for filename in ('structural-chunks.jsonl', 'structural-links.jsonl', 'document-structure.json', 'document-hierarchy.json'):
+            shutil.copyfile(Path(chunked_dir) / filename, output_dir / filename)
         _write_jsonl(output_dir / 'embeddings.jsonl', embeddings)
         atomic_json(output_dir / 'semantic-clusters.json', clusters)
         atomic_json(output_dir / 'report.json', report, indent=2)
-        manifest = {'version': 2, 'stage': 'claim-context-preparation', 'config': config,
+        manifest = {'version': 2, 'stage': 'semantic-clustering', 'config': config,
                     'input_bundle_sha256': _file_hash(input_path),
                     'cluster_plan_sha256': stable_hash(clusters),
                     'generation_prompt_sha256': stable_hash(prompt), 'candidate_schema_sha256': stable_hash(CANDIDATE_SCHEMA),
-                    'outputs': [{'path': p.name, 'sha256': _file_hash(p)} for p in sorted(output_dir.iterdir())]}
+                    'outputs': [{'path': str(p.relative_to(output_dir)), 'sha256': _file_hash(p)} for p in sorted(output_dir.rglob('*')) if p.is_file()]}
         atomic_json(output_dir / 'build-manifest.json', manifest)
         load_preparation(output_dir, config)
         return report
@@ -379,18 +345,20 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     from scripts.validate_artifact_examples import check
     directory = Path(context_dir)
     manifest = _json(directory / 'build-manifest.json')
-    schema = _json(ROOT / f"schemas/claim-context-artifact-schema-v{manifest['version']}.json")
+    schema = _json(ROOT / "schemas/semantic-clustering-artifact-schema.json")
     Draft202012Validator(schema).validate(manifest)
-    saved_config = saved_settings(manifest['config'])
+    saved_config = manifest['config']
     validate_settings(saved_config, frozen=True)
-    if (manifest['version'] == 1) != (saved_config['steps']['structural_chunks']['version'] == 'structural-chunks-v1'):
-        raise ValueError('preparation manifest and structural version mismatch')
     if config is not None and execution_settings(saved_config) != execution_settings(config):
         raise ValueError('structural chunks and semantic clusters configuration mismatch; build a fresh artifact directory')
     required = {'artifact-bundle.json', 'structural-chunks.jsonl', 'structural-links.jsonl',
                 'embeddings.jsonl', 'semantic-clusters.json', 'report.json'}
-    if manifest['version'] == 2:
-        required |= {'document-structure.json', 'document-hierarchy.json'}
+    required |= {'document-structure.json', 'document-hierarchy.json', 'structuring-manifest.json',
+                 'structure-metadata.json', 'figure-links.json', 'acceptance.json'}
+    if _json(directory / 'acceptance.json')['status'] == 'accepted':
+        required |= {'parsing-review.json', 'chunking-review.json'}
+    frozen = _json(directory / 'structuring-manifest.json')
+    required |= set(frozen.get('assets', {})) | set(frozen.get('native_outputs', {}))
     if {r['path'] for r in manifest['outputs']} != required or len(manifest['outputs']) != len(required):
         raise ValueError('structural chunks and semantic clusters manifest outputs mismatch')
     for entry in manifest['outputs']:
@@ -411,26 +379,15 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     structural = _jsonl(directory / 'structural-chunks.jsonl')
     validate_records('structural_chunk', structural)
     validate_records('structural_link', _jsonl(directory / 'structural-links.jsonl'))
-    hierarchy = []
-    if manifest['version'] == 1:
-        from knowledge_foundry._structural_chunks_v1 import assemble_structural_chunks as legacy_assemble
-        expected, links = legacy_assemble(bundle)
-    else:
-        structure = _json(directory / 'document-structure.json')
-        validate_records('document_structure', [structure])
-        validate_structure(bundle, structure)
-        if saved_config['steps']['structural_chunks']['version'] == 'structural-chunks-v2':
-            from knowledge_foundry._document_structure_v2 import assemble_document_hierarchy as frozen_hierarchy
-            from knowledge_foundry._structural_chunks_v2 import assemble_structural_chunks as frozen_assemble
-            hierarchy = frozen_hierarchy(bundle, structure)
-            expected, links = frozen_assemble(bundle, structure)
-        else:
-            hierarchy = assemble_document_hierarchy(bundle, structure)
-            expected, links = assemble_structural_chunks(bundle, structure)
-        saved_hierarchy = _json(directory / 'document-hierarchy.json')
-        validate_records('hierarchy_entry', saved_hierarchy)
-        if hierarchy != saved_hierarchy:
-            raise ValueError('document hierarchy mismatch')
+    from knowledge_foundry.document_structuring import load_validated_structure
+    accepted = load_validated_structure(directory, allow_test=all(
+        saved_config['steps'][step]['provider'] == 'fixture' for step in ('embeddings', 'claim_generation')))
+    structure, hierarchy = accepted['structure'], accepted['hierarchy']
+    validate_records('document_structure', [structure])
+    validate_records('hierarchy_entry', hierarchy)
+    if assemble_document_hierarchy(bundle, structure) != hierarchy:
+        raise ValueError('document hierarchy mismatch')
+    expected, links = assemble_structural_chunks(bundle, structure)
     if structural != expected or _jsonl(directory / 'structural-links.jsonl') != links:
         raise ValueError('structural chunks membership, ordering or links mismatch')
     embeddings = _jsonl(directory / 'embeddings.jsonl')

@@ -73,5 +73,5 @@
       }
     }
   },
-  "structural_build_config": "structural-chunks-and-semantic-clusters.json"
+  "structural_build_config": "semantic-clustering.json"
 }

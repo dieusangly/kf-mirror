@@ -46,11 +46,16 @@ class PdfStructureTests(unittest.TestCase):
         inside['details']['heading_path'] = ['Section', 'Quoted article']
         outside = block('paragraph', 'The next independent rule.', 'outside', 180)
         outside['details']['heading_path'] = ['Section', 'Quoted article']
-        items = [heading, inside, outside]
+        figure = block('figure', '', 'diagram', 240, height=100)
+        label = block('paragraph', 'Diagram label', 'label', 270)
+        label['parent_key'] = 'diagram'
+        label['details'].update(evidence_role='auxiliary', heading_path=['Section', 'Quoted article'])
+        items = [heading, inside, outside, figure, label]
         mark_prose_boxes(items, lambda page: geometry, {1: (600, 800)})
         self.assertEqual(inside['details']['heading_path'], ['Section', 'Quoted article'])
         self.assertEqual(outside['details']['heading_path'], ['Section'])
         self.assertIn('prose_box', inside['details'])
+        self.assertEqual(label['parent_key'], 'diagram')
         # An open frame does not prove an independent box.
         standalone = block('paragraph', 'Do not guess the grouping.', 'open', 80, left=50)
         geometry['strokes'].pop()

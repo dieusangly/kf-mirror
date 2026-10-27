@@ -7,11 +7,52 @@ from types import SimpleNamespace
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, canonical, classify_claims, digest, generate_claims as generate_prepared,
 )
-from knowledge_foundry.claim_context import load_settings, prepare_claim_context
+from knowledge_foundry.claim_context import load_settings, prepare_claim_context as _prepare_claim_context
 from knowledge_foundry.document_structure import structure_snapshot
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 from scripts.validate_artifact_examples import check
 
+
+
+def save_structure_fixture(chunked, parsed_dir=None):
+    """Synthetic acceptance is explicitly unusable with production providers."""
+    from knowledge_foundry.document_structuring import freeze_structure, accept_structure
+    import tempfile
+    chunked = Path(chunked)
+    bundle = json.loads((chunked / 'artifact-bundle.json').read_text())
+    if parsed_dir is None:
+        with tempfile.TemporaryDirectory() as directory:
+            parsed = Path(directory)
+            rows = []
+            for doc in bundle['documents']:
+                details = [{'element_id': e['id'], 'parent_element_id': None,
+                            'evidence_role': 'structural' if e['kind'] in {'table_cell', 'figure'} else 'authoritative'}
+                           for e in bundle['elements'] if e['document_id'] == doc['id']]
+                folder = parsed / 'documents' / doc['id'].removeprefix('doc:')
+                folder.mkdir(parents=True)
+                (folder / 'parse.json').write_text(json.dumps({'document_id': doc['id'], 'elements': details}))
+                rows.extend(details)
+            saved = chunked / 'document-structure.json'
+            snapshot = json.loads(saved.read_text()) if saved.exists() else structure_snapshot(rows)
+            valid = {e['id'] for e in bundle['elements']}
+            snapshot['elements'] = [r for r in snapshot['elements'] if r['element_id'] in valid]
+            saved.write_text(json.dumps(snapshot))
+            (chunked / 'figure-links.json').write_text('[]')
+            freeze_structure(chunked, parsed)
+    else:
+        rows = [row for path in Path(parsed_dir).glob('documents/*/parse.json')
+                for row in json.loads(path.read_text())['elements']]
+        (chunked / 'document-structure.json').write_text(json.dumps(structure_snapshot(rows)))
+        (chunked / 'figure-links.json').write_text('[]')
+        freeze_structure(chunked, parsed_dir)
+    accept_structure(chunked, test_only=True)
+
+
+def prepare_claim_context(chunked, output, config_path=None, cache_dir=None, fixture_path=None,
+                          on_progress=None, parsed_dir=None):
+    save_structure_fixture(chunked, parsed_dir)
+    args = (chunked, output) if config_path is None else (chunked, output, config_path, cache_dir, fixture_path)
+    return _prepare_claim_context(*args, on_progress=on_progress)
 
 
 def fixture_settings():

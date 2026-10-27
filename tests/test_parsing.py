@@ -38,9 +38,11 @@ def _config(root, entries):
     (root / "manifest.json").write_text(json.dumps({"schema_version": "1.0.0", "sources": entries}))
     data = {"root": ".", "manifest_file": "manifest.json",
             "manifest_ids": [entry["manifest_id"] for entry in entries],
-            "parsing": {"ocr": {"mode": "off"}}}
+            "structuring": {"provider": "internal", "options": {"ocr": {"mode": "off"}}}}
     path = root / "config.json"
     path.write_text(json.dumps(data))
+    from knowledge_foundry.ingestion import ingest
+    ingest(path, root / 'artifacts/ingested')
     return path
 
 
@@ -93,12 +95,12 @@ class ParsingTests(unittest.TestCase):
                 charspan=(0, 15), bbox=BoundingBox(l=48, t=85, r=160, b=110,
                                                 coord_origin=CoordOrigin.TOPLEFT)))
             converter = Mock(); converter.convert.return_value = SimpleNamespace(status='success', document=doc)
-            with patch('knowledge_foundry.parsing.build_pdf_converter', return_value=converter):
+            with patch('knowledge_foundry.parsers.build_pdf_converter', return_value=converter):
                 initial = parse_collection(config, root / 'prior')['outcomes'][0]
             prior = Path(initial['output'])
             saved_bundle = json.loads((prior / 'artifact-bundle.json').read_text())
             saved_parse = json.loads((prior / 'parse.json').read_text())
-            with patch('knowledge_foundry.parsing.build_pdf_converter') as build:
+            with patch('knowledge_foundry.parsers.build_pdf_converter') as build:
                 outcome = parse_collection(config, root / 'rebuilt', native_input_dir=root / 'prior')['outcomes'][0]
             build.assert_not_called()
             self.assertEqual(outcome['status'], 'parsed')
@@ -929,7 +931,9 @@ class ParsingTests(unittest.TestCase):
 
     def test_pilot_html_clauses_have_resolvable_selectors_and_metadata_origins(self):
         with tempfile.TemporaryDirectory() as directory:
-            report = parse_collection(ROOT / "config/pipeline.json", directory, ["L1", "L2"])
+            from knowledge_foundry.ingestion import ingest
+            ingest(ROOT / 'config/pipeline.json', ROOT / 'artifacts/ingested')
+            report = parse_collection(ROOT / 'config/pipeline.json', directory, ['L1', 'L2'])
             self.assertEqual([item["status"] for item in report["outcomes"]], ["parsed", "parsed"])
             for outcome in report["outcomes"]:
                 folder = Path(outcome["output"])
@@ -955,7 +959,7 @@ class ParsingTests(unittest.TestCase):
             root = Path(directory)
             config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
             config.update(root=str(ROOT), manifest_ids=["L1"])
-            config["parsing"]["html"] = {"content_selector": "main", "source_overrides": {
+            config["structuring"]["options"]["html"] = {"content_selector": "main", "source_overrides": {
                 "L1": {"content_selector": "article.js-article-content-to-copy", "article_id": "test-article"}}}
             path = root / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
@@ -1050,7 +1054,7 @@ class ParsingTests(unittest.TestCase):
             stdout, stderr = io.StringIO(), io.StringIO()
 
             def parse_or_fail(path, source, settings):
-                if path.name == "bad.md":
+                if source["id"] == "src:bad.md":
                     raise ValueError("broken document")
                 return parse_markdown(path, source, settings)
 
@@ -1110,7 +1114,7 @@ class ParsingTests(unittest.TestCase):
             markdown = _fixture(root, "good.md", "text/markdown", "# Heading\n")
             config_path = _config(root, [pdf, markdown])
             config = json.loads(config_path.read_text())
-            config["parsing"]["ocr"] = {"mode": "auto", "tesseract_cmd": "kf-no-such-tesseract"}
+            config["structuring"]["options"]["ocr"] = {"mode": "auto", "tesseract_cmd": "kf-no-such-tesseract"}
             config_path.write_text(json.dumps(config))
             report = parse_collection(config_path, root / "output")
             self.assertEqual([item["status"] for item in report["outcomes"]], ["failed", "parsed"])

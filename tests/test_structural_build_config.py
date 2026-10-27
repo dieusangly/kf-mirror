@@ -5,9 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from knowledge_foundry.claim_context import (
-    ROOT, execution_settings, load_preparation, load_settings, prepare_claim_context,
-)
+from knowledge_foundry.claim_context import ROOT, execution_settings, load_preparation, load_settings
+from claim_fixtures import prepare_claim_context
 from knowledge_foundry.claim_generation_and_classification import generate_claims
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 from claim_fixtures import fixture_settings
@@ -28,7 +27,7 @@ def write_split(root, config):
 
 def test_default_configs_resolve_to_same_complete_settings():
     claim_path = ROOT / 'config/claim-generation-and-classification.json'
-    build_path = ROOT / 'config/structural-chunks-and-semantic-clusters.json'
+    build_path = ROOT / 'config/semantic-clustering.json'
     claims, build = json.loads(claim_path.read_text()), json.loads(build_path.read_text())
     assert set(claims['steps']) == {'claim_generation', 'topic_classification'}
     assert set(build['steps']) == {'structural_chunks', 'embeddings', 'semantic_clusters'}

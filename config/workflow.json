@@ -1,7 +1,7 @@
 {
   "corpus": "aml-cft-expanded-pilot",
   "pipeline": "config/pipeline.json",
-  "structural": "config/structural-chunks-and-semantic-clusters.json",
+  "structural": "config/semantic-clustering.json",
   "claims": "config/claim-generation-and-classification.json",
   "summaries": "config/summaries.json",
   "taxonomy": "config/topics-v1.json",

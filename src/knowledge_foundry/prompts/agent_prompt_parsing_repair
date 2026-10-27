@@ -1,52 +1,18 @@
-Repair parsing review defects. Read AGENTS.md, .agents/AGENTS.md,
-doc/parsing.md and doc/parsing-evaluation.md, and repair rules in
-doc/manual-workflow.md and doc/automated-workflow.md.
+Repair parsing defects within the user's authorized scope.
+Follow AGENTS.md and .agents/AGENTS.md. Read doc/README.md and the pilot guide.
+Inspect the failed review, saved originals, native provider output and metadata;
+reproduce the earliest defect and preserve its source-located evidence.
 
-```sh
-RUN_ID="your-reviewed-run-id"
-MODEL=""  # session model supplied by user, e.g. gpt-6.1-sol; empty means unknown
-MODEL_REASONING_EFFORT=""  # session effort supplied by user, e.g. medium; empty means unknown
-REPAIR_REPORT="artifacts/${RUN_ID}/parsing-repair/report.json"
-```
+Apply a generic implementation/configuration correction and run focused tests.
+Do not alter originals, frozen bundles, judgments, policy thresholds or findings.
+For parser/provider changes, restart Document Structuring at parse using the
+existing ingested artifact. Compatible native conversion can be replayed.
+For boundary/context changes, restart at chunk and reuse saved parsing.
+For semantic/model changes, restart only the affected semantic/output branch.
+Only changed source bytes, provenance/edition or acquisition require ingestion.
 
-Record the repairing session separately from the reviewer. In REPAIR_REPORT, use
-repairer={"kind":"agent","name":"Codex","model":MODEL,
-"model_reasoning_effort":MODEL_REASONING_EFFORT,"launch_mode":"manual_workflow"}.
-These variables describe the selected session; they do not change its settings.
-Use user-confirmed values and null for unknowns; never infer from workflow.json
-or a model-family self-description. If launched by a controller, use its resolved
-settings and launch_mode instead. Do not add settings_source or session_id.
-Preserve prior repair attribution when extending an existing report. Never replace
-reviewer attribution with repairer attribution. Include originating review/report
-paths, cause, changes, tests, blockers and rebuild commands in the repair report
-and summarize the model, reasoning effort and launch mode in the final response.
-Use exact recorded report paths for other artifact layouts.
-
-Read artifacts/${RUN_ID}/parsing-review/review.json and report.json,
-parsing bundles, originals, and available state.json/repair-task.json.
-Use exact recorded paths for other layouts or build IDs; record actual model/settings.
-
-1. Read gates/findings and reproduce failures against originals; identify the earliest
-underlying defect. Pending inspection needs evidence, stale reviews need matching
-inputs/fresh review. Record source-located counterevidence for disputed findings.
-
-Compare originals/rendered PDF pages with parsed elements, parse.json and native
-parser evidence: omissions, reading order, headings/lists, numbers, footnote attachment,
-tables and figures. Distinguish extraction/OCR, normalization, location and audit defects;
-keep parser adapters explicit and checks intact.
-
-2. Apply the smallest generic code/configuration fix; preserve unrelated changes.
-Add/run targeted offline regression tests; mock model-backed behavior. Never edit
-source text, editions, frozen bundles, judgments or state. Never discard findings,
-lower thresholds, hard-code document/page exceptions or fabricate approval.
-
-3. Report cause, changes, tests, blockers and exact rebuild commands. Rebuild only
-when separately authorized. Follow controller archival/downstream invalidation rules;
-code/config/source/model changes require repair from ingestion or a fresh run.
-Retain compatible caches; reject stale approvals. Respect retry/time limits; escalate
-ambiguity, scope expansion or repeated lack of progress. No paid calls, increased
-budgets, publication, commits or pushes without separate authorization.
-
-After authorized rebuilds, request fresh independent agent_prompt_parsing_review.
-Never approve your repair or transfer judgments to changed outputs. Fixture tests
-are not pilot approval. Finish with the next action.
+Use workflow repair from the earliest affected checkpoint (normally parse),
+with a concrete repair note. Archive prior outputs and findings; retain compatible
+caches. Rebuilds need fresh source review; never transfer stale approvals.
+Report cause, changes, validation and genuine limitations. Fixture results are
+mechanical evidence, not approval of the real corpus.

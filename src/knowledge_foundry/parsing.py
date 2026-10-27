@@ -9,7 +9,6 @@ import os
 import re
 import resource
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -19,9 +18,9 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from knowledge_foundry.ingestion import ingest
+from knowledge_foundry.ingestion import load_ingested
 from knowledge_foundry.parsers import (
-    SOURCE_REVIEW_WARNINGS, build_pdf_converter, parse_docx, parse_html, parse_markdown, parse_pdf,
+    SOURCE_REVIEW_WARNINGS, parse_docx, parse_html, parse_markdown, parse_pdf,
 )
 
 
@@ -50,7 +49,7 @@ def _digest(text):
 
 
 def _configuration(config):
-    configured = config.get("parsing", {})
+    configured = config.get("structuring", {}).get("options", {})
     if not isinstance(configured, dict) or set(configured) - set(DEFAULTS):
         raise ValueError("parsing must be an object with pdf, ocr, html, markdown, and docx sections")
     settings = {}
@@ -187,9 +186,9 @@ def _normalize(source, document, items):
             "location": item["location"],
         }
         records.append(record)
-        sidecar.append({"element_id": element_id, "parent_key": item["parent_key"],
+        sidecar.append({"element_id": element_id, "parent_key": item.get("parent_key"),
                         "evidence_role": "structural" if item["kind"] in {"table_cell", "figure"}
-                        else "authoritative", **item["details"]})
+                        else "authoritative", **item.get("details", {})})
     for entry in sidecar:
         parent_key = entry.pop("parent_key")
         entry["parent_element_id"] = id_by_key.get(parent_key) if parent_key else None
@@ -273,166 +272,109 @@ def _save_pdf_figure_assets(pdf_path, elements, sidecar, staged, warnings):
 
 
 def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None, *, run_id=None,
-                     native_input_dir=None):
-    """Parse verified manifest entries; report each selected source as it finishes."""
-    config_path = Path(config_path).resolve()
-    output_dir = Path(output_dir).resolve()
-    native_input_dir = Path(native_input_dir).resolve() if native_input_dir else None
-    if native_input_dir == output_dir:
+                     native_input_dir=None, ingested_dir=None):
+    """Document Structuring substep: consume reusable ingested artifacts only."""
+    from knowledge_foundry.structure_providers import resolve_provider, ProviderResult
+    config_path, output_dir = Path(config_path).resolve(), Path(output_dir).resolve()
+    if native_input_dir and Path(native_input_dir).resolve() == output_dir:
         raise ValueError('native input and output directories must differ; preserve the prior evidence')
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    settings = _configuration(config)
-    ingestion_report = ingest(config_path)
-    manifest = json.loads(Path(ingestion_report["manifest"]).read_text(encoding="utf-8"))
-    entries = {entry["manifest_id"]: entry for entry in manifest["sources"] if isinstance(entry, dict)}
-    selected_ids = list(selected_ids or [])
-    configured_ids = {item["manifest_id"] for item in ingestion_report["outcomes"]}
-    unknown = set(selected_ids) - configured_ids
-    if unknown:
-        raise ValueError(f"manifest IDs are not configured: {', '.join(sorted(unknown))}")
-    outcomes = [item for item in ingestion_report["outcomes"]
-                if not selected_ids or item["manifest_id"] in selected_ids]
-    ocr_error = None
-    if any(item.get("detected_format") == "pdf" and item["status"] == "ingested"
-           for item in outcomes) and settings["ocr"]["mode"] != "off":
-        cmd = settings["ocr"]["tesseract_cmd"]
-        if not (shutil.which(cmd) or Path(cmd).is_file()):
-            ocr_error = f"Tesseract CLI unavailable: {cmd}"
-        else:
-            command = [cmd, "--list-langs"]
-            if settings["ocr"]["tessdata_path"]:
-                command += ["--tessdata-dir", settings["ocr"]["tessdata_path"]]
-            try:
-                checked = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
-                if checked.returncode:
-                    ocr_error = f"Tesseract language check failed: {checked.stderr.strip()}"
-                else:
-                    available = set(checked.stdout.splitlines()[1:])
-                    missing = [language for language in settings["ocr"]["languages"]
-                               if not language.startswith("iso:") and language not in available]
-                    if missing:
-                        ocr_error = f"Tesseract language data unavailable: {', '.join(missing)}"
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                ocr_error = f"Tesseract language check failed: {exc}"
-    root = (config_path.parent / config["root"]).resolve()
-    settings_digest = _digest(json.dumps(settings, ensure_ascii=False, sort_keys=True,
-                                       separators=(",", ":")))
-    started_at = datetime.now(timezone.utc)
-    if run_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", run_id):
-        raise ValueError("run ID must be a safe directory name")
-    run_id = run_id or f"{started_at:%Y%m%d-%H-%M-%S}-{uuid.uuid4().hex[:8]}"
-    report = {"report_version": 1, "schema_version": SCHEMA_VERSION,
-              "run_id": run_id, "started_at": started_at.isoformat(),
-              "manifest": str(Path(ingestion_report["manifest"])),
-              "config_sha256": settings_digest, "settings": settings, "outcomes": []}
+    config = json.loads(config_path.read_text())
+    root = (config_path.parent / config['root']).resolve()
+    artifact = load_ingested(ingested_dir or root / config.get('ingested_dir', 'artifacts/ingested'))
+    name, options, provider = resolve_provider(config, native_input_dir)
+    providers = {}
+    selected = list(selected_ids or config['manifest_ids'])
+    configured = config['manifest_ids']
+    if set(config.get('structuring', {}).get('source_overrides', {})) - set(configured):
+        raise ValueError('structuring source overrides must name configured manifest IDs')
+    outcomes = {row['manifest_id']: row for row in artifact['outcomes']}
+    if not set(selected) <= set(configured) or not set(selected) <= outcomes.keys():
+        raise ValueError('manifest IDs are not configured or ingested')
+    if run_id is not None and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', run_id):
+        raise ValueError('run ID must be a safe directory name')
+    started = datetime.now(timezone.utc)
+    settings = getattr(provider, 'settings', options)
+    report = {'report_version': 2, 'schema_version': SCHEMA_VERSION,
+              'run_id': run_id or f'{started:%Y%m%d-%H-%M-%S}-{uuid.uuid4().hex[:8]}',
+              'started_at': started.isoformat(), 'manifest': artifact['manifest'],
+              'ingested_artifact_id': artifact['artifact_id'], 'provider': name,
+              'provider_version': provider.version,
+              'config_sha256': _digest(json.dumps(settings, sort_keys=True)), 'settings': settings, 'outcomes': []}
     output_dir.mkdir(parents=True, exist_ok=True)
-    total = len(outcomes)
-    pdf_converter = None
-    for index, outcome in enumerate(outcomes, start=1):
-        result = {"manifest_id": outcome["manifest_id"],
-                  "local_path": outcome["local_path"]}
-        if outcome["status"] != "ingested":
-            result.update(status="failed", error=outcome["error"])
-            report["outcomes"].append(result)
-            if on_progress:
-                on_progress({"index": index, "total": total, **result})
-            continue
+    for index, mid in enumerate(selected, 1):
+        outcome = outcomes[mid]
+        result = {'manifest_id': mid, 'local_path': outcome['local_path']}
         start = time.perf_counter()
         if on_progress:
-            on_progress({"index": index, "total": total, **result, "status": "parsing"})
-        error_code = "parse_error"
+            on_progress({'index': index, 'total': len(selected), **result, 'status': 'parsing'})
         try:
-            source = outcome["source"]
-            document = outcome["document"]
-            format_name = outcome["detected_format"]
-            if format_name == "pdf" and ocr_error:
-                error_code = "ocr_setup_error"
-                raise ValueError(ocr_error)
-            manifest_entry = entries[outcome["manifest_id"]]
-            local_path = (root / outcome["local_path"]).resolve()
-            parser, parser_name = PARSERS[format_name]
-            parser_settings = dict(settings[format_name])
-            selector_origin = None
-            reuse_pdf_converter = format_name == "pdf" and parser is parse_pdf
-            if format_name == "pdf":
-                parser_settings["ocr"] = settings["ocr"]
-                if reuse_pdf_converter and pdf_converter is None and native_input_dir is None:
-                    pdf_converter = build_pdf_converter(parser_settings)
-            if format_name == "html":
-                overrides = parser_settings.pop("source_overrides")
-                selected_override = overrides.get(outcome["manifest_id"], {})
-                parser_settings.update(selected_override)
-                selector_origin = ("parsing_config" if "content_selector" in selected_override or
-                                   "content_selector" in config.get("parsing", {}).get("html", {}) else "parser_default")
-            if reuse_pdf_converter:
-                native_document, replay = None, None
-                if native_input_dir:
-                    prior = native_input_dir / 'documents' / document['id'].removeprefix('doc:')
-                    saved_bundle = json.loads((prior / 'artifact-bundle.json').read_text())
-                    saved_parse = json.loads((prior / 'parse.json').read_text())
-                    native_bytes = (prior / 'docling.json').read_bytes()
-                    if (saved_bundle['documents'][0]['id'] != document['id'] or
-                            saved_bundle['documents'][0]['content_sha256'] != document['content_sha256'] or
-                            saved_bundle['sources'][0]['id'] != source['id'] or
-                            saved_parse['settings'] != parser_settings or
-                            saved_parse['parser'] != 'docling'):
-                        raise ValueError('saved native input source identity or parser settings mismatch')
-                    native_document = json.loads(native_bytes)
-                    replay = {'directory': str(prior),
-                              'native_sha256': hashlib.sha256(native_bytes).hexdigest(),
-                              'source_sha256': document['content_sha256'],
-                              'parser_versions': saved_parse['parser_versions']}
-                items, native, warnings = parse_pdf(local_path, source, parser_settings,
-                                                     converter=pdf_converter,
-                                                     **({'native_document': native_document} if replay else {}))
-            else:
-                items, native, warnings = parser(local_path, source, parser_settings)
-            if not items:
-                raise ValueError("parser produced no located elements")
-            bundle, sidecar = _normalize(source, document, items)
-            metadata = _source_metadata(source, document, manifest_entry,
-                                        parser_settings, selector_origin)
-            metadata.update(_embedded_metadata(local_path, format_name))
-            metadata = {key: value for key, value in metadata.items() if value is not None}
-            parse_data = {"parse_version": 1, "document_id": document["id"], "parser": parser_name,
-                          "adapter_version": "format-adapters-v10",
-                          "parser_versions": _tool_versions(format_name),
-                          "settings": parser_settings, "metadata_origins": metadata,
-                          "elements": sidecar, "warnings": warnings}
-            if reuse_pdf_converter and replay:
-                parse_data['native_replay'] = replay
-            target = output_dir / "documents" / document["id"].removeprefix("doc:")
+            if outcome['status'] != 'ingested':
+                raise ValueError('source was not successfully ingested: ' + str(outcome.get('error')))
+            override = config.get('structuring', {}).get('source_overrides', {}).get(mid, {})
+            selected_name, selected_provider = name, provider
+            effective = {**options, **override.get('options', {})}
+            if 'provider' in override:
+                key = json.dumps(override, sort_keys=True)
+                if key not in providers:
+                    providers[key] = resolve_provider({**config, 'structuring': override})
+                selected_name, effective, selected_provider = providers[key]
+            provided = selected_provider.structure(outcome, effective)
+            if not isinstance(provided, ProviderResult):
+                raise ValueError('provider must return ProviderResult')
+            if not provided.elements and provided.chunks:
+                for i, chunk in enumerate(provided.chunks):
+                    key = chunk.get('locator_key', f'provider:chunk-{i}')
+                    provided.elements.append({'kind': chunk.get('kind', 'paragraph'), 'text': chunk['text'],
+                        'locator_key': key, 'location': chunk['location'], 'details': chunk.get('details', {})})
+                    chunk['evidence'] = [{'locator_key': key}]
+            if not provided.elements:
+                raise ValueError('provider must return located elements or located structural chunks')
+            source, document = outcome['source'], outcome['document']
+            bundle, details = _normalize(source, document, provided.elements)
+            parse_data = {'parse_version': 1, 'document_id': document['id'],
+                          'parser': selected_name, 'adapter_version': selected_provider.version, 'parser_versions': {},
+                          'settings': effective, 'metadata_origins': {}, **provided.metadata,
+                          'provider': selected_name, 'ingested_artifact_file': outcome['artifact_file'], 'ingested_artifact_id': artifact['artifact_id'],
+                          'elements': details, 'warnings': provided.warnings}
+            if provided.chunks is not None:
+                parse_data['provider_chunks'] = provided.chunks
+            target = output_dir / 'documents' / document['id'].removeprefix('doc:')
             target.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(dir=target.parent) as temp_name:
-                staged = Path(temp_name)
-                if format_name == "pdf":
-                    _save_pdf_figure_assets(local_path, bundle["elements"], sidecar, staged, warnings)
-                _write_json(staged / "artifact-bundle.json", bundle)
-                _write_json(staged / "parse.json", parse_data)
-                if native is not None:
-                    _write_json(staged / "docling.json", native)
+            with tempfile.TemporaryDirectory(dir=target.parent) as directory:
+                staged = Path(directory)
+                if source['format'] == 'pdf':
+                    _save_pdf_figure_assets(Path(outcome['artifact_file']), bundle['elements'], details,
+                                            staged, provided.warnings)
+                _write_json(staged / 'artifact-bundle.json', bundle)
+                _write_json(staged / 'parse.json', parse_data)
+                if provided.native is not None:
+                    _write_json(staged / ('docling.json' if selected_name == 'internal' else 'provider.json'), provided.native)
                 if target.exists():
                     shutil.rmtree(target)
                 os.replace(staged, target)
-            harmless_warnings = {"excluded_picture_ocr_fragments", "excluded_picture_corrupt_ocr",
-                                 "excluded_picture_furniture", "excluded_figure_text_uncertain",
-                                 "empty_docling_table"} | SOURCE_REVIEW_WARNINGS
-            result.update(status="partial" if any(
-                warning.get("code") not in harmless_warnings for warning in warnings
-            ) else "parsed", document_id=document["id"],
-                          parser=parser_name, element_count=len(items),
-                          page_count=len(native.get("pages", {})) if native is not None else None,
-                          warnings=warnings,
-                          output=str(target), elapsed_seconds=round(time.perf_counter() - start, 3))
+            harmless = {'excluded_picture_ocr_fragments', 'excluded_picture_corrupt_ocr',
+                        'excluded_picture_furniture', 'excluded_figure_text_uncertain', 'empty_docling_table'} | SOURCE_REVIEW_WARNINGS
+            result.update(status='partial' if any(w.get('code') not in harmless for w in provided.warnings) else 'parsed',
+                          document_id=document['id'], parser=parse_data['parser'], element_count=len(provided.elements),
+                          page_count=provided.metadata.get('page_count'), warnings=provided.warnings, output=str(target))
         except Exception as exc:
-            result.update(status="failed", error={"code": error_code, "message": str(exc)},
-                          elapsed_seconds=round(time.perf_counter() - start, 3))
-        result["peak_process_rss_mb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
-        report["outcomes"].append(result)
+            result.update(status='failed', error=outcome['error'] if outcome['status'] != 'ingested' else {
+                'code': 'ocr_setup_error' if 'Tesseract' in str(exc) else 'parse_error', 'message': str(exc)})
+        result['elapsed_seconds'] = round(time.perf_counter() - start, 3)
+        result['peak_process_rss_mb'] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+        report['outcomes'].append(result)
         if on_progress:
-            on_progress({"index": index, "total": total, **result})
-    report["completed_at"] = datetime.now(timezone.utc).isoformat()
-    _write_json(output_dir / "report.json", report)
+            on_progress({'index': index, 'total': len(selected), **result})
+    prior_path = output_dir / 'report.json'
+    if selected_ids and prior_path.exists():
+        prior = json.loads(prior_path.read_text())
+        if prior.get('ingested_artifact_id') != artifact['artifact_id']:
+            raise ValueError('subset repair cannot mix ingestion snapshots; use a fresh collection')
+        combined = {row['manifest_id']: row for row in prior['outcomes']}
+        combined.update({row['manifest_id']: row for row in report['outcomes']})
+        report['outcomes'] = [combined[mid] for mid in configured if mid in combined]
+    report['completed_at'] = datetime.now(timezone.utc).isoformat()
+    _write_json(output_dir / 'report.json', report)
     return report
 
 
@@ -454,6 +396,7 @@ def main(argv=None):
     parser.add_argument("--config", required=True, type=Path, help="pipeline JSON configuration file")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/parsed"),
                         help="output directory (default: artifacts/parsed)")
+    parser.add_argument("--ingested-dir", type=Path, help="reusable ingestion store or immutable snapshot JSON")
     parser.add_argument("--source", action="append", default=[], metavar="ID",
                         help="manifest ID to parse; repeatable (default: all)")
     parser.add_argument("--run-id", help="retain the controlling workflow's run identity")
@@ -463,7 +406,7 @@ def main(argv=None):
     try:
         report = parse_collection(args.config, args.output_dir, args.source,
                                   on_progress=_print_progress, run_id=args.run_id,
-                                  native_input_dir=args.native_input_dir)
+                                  native_input_dir=args.native_input_dir, ingested_dir=args.ingested_dir)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"parsing setup error: {exc}\n")
     report_path = Path(args.output_dir).resolve() / "report.json"

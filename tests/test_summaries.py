@@ -8,7 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from knowledge_foundry.claim_context import ROOT, prepare_claim_context, load_preparation, _file_hash
+from knowledge_foundry.claim_context import ROOT, load_preparation, _file_hash
+from claim_fixtures import prepare_claim_context
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 from knowledge_foundry.summaries import generate_summaries, load_summaries, _summary_id
 from scripts.render_knowledge_graph import build_graph, main as graph_main

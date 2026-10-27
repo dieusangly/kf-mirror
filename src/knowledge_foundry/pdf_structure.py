@@ -100,9 +100,11 @@ def mark_prose_boxes(items, geometry, page_sizes):
         closed = next((index for index, title in enumerate(path) if title in boxed_headings), None)
         if closed is not None:
             node['details']['heading_path'] = path[:closed] + ([node['text']] if node['kind'] == 'heading' else [])
-            node['parent_key'] = next((i['locator_key'] for i in reversed(items[:position])
-                                       if i['kind'] == 'heading' and
-                                       i['details'].get('heading_path') == node['details']['heading_path']), None)
+            parent = next((i for i in items if i['locator_key'] == node.get('parent_key')), None)
+            if parent is None or parent['kind'] == 'heading':
+                node['parent_key'] = next((i['locator_key'] for i in reversed(items[:position])
+                                           if i['kind'] == 'heading' and
+                                           i['details'].get('heading_path') == node['details']['heading_path']), None)
 
 
 def pdf_page_characters(path, page, *, styles=False):

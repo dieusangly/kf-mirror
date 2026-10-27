@@ -47,7 +47,9 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
         if outcome['status'] not in {'parsed', 'partial'}:
             continue
         entry = entries[outcome['manifest_id']]
-        source = Path(source_root) / entry['local_path']
+        folder = Path(outcome['output'])
+        saved_parse = read(folder / 'parse.json')
+        source = Path(saved_parse.get('ingested_artifact_file') or Path(source_root) / entry['local_path'])
         if digest(source) != entry['sha256']:
             raise ValueError('source hash mismatch: ' + outcome['manifest_id'])
         files[str(source.resolve())] = digest(source)
@@ -101,7 +103,7 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
             if not elements:
                 reasons.append('no_parsed_elements')
             row = {'sample_id': identity([entry['source_id'], page]), 'source_id': entry['source_id'],
-                   'manifest_id': entry['manifest_id'], 'source_file': entry['local_path'],
+                   'manifest_id': entry['manifest_id'], 'source_file': str(source),
                    'location': {'format': 'pdf', 'page': page} if pdf else {'format': bundle['sources'][0]['format']},
                    'reasons': reasons, 'elements': elements, 'warnings': warnings,
                    'parsed_directory': str(folder.resolve())}

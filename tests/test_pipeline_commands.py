@@ -57,8 +57,8 @@ def parsed_sources(tmp_path):
     config = write_json(tmp_path / 'pipeline.json', {
         'root': str(tmp_path), 'manifest_file': manifest.name, 'manifest_ids': [s['manifest_id'] for s in sources],
         'chunking': {'max_tokens': 256}, 'evaluation': {'chunking': {'sample_per_document': 12}},
-        'parsing': {'html': {'content_selector': 'main'}, 'ocr': {'mode': 'off'}}})
-    assert all(o['status'] == 'ingested' for o in command('ingest.py', '--config', config)['outcomes'])
+        'structuring': {'provider': 'internal', 'options': {'html': {'content_selector': 'main'}, 'ocr': {'mode': 'off'}}}})
+    assert all(o['status'] == 'ingested' for o in command('ingest.py', '--config', config, '--output-dir', tmp_path / 'artifacts/ingested')['outcomes'])
     parsed = tmp_path / 'parsed'
     assert all(o['status'] == 'parsed' for o in command('parse.py', '--config', config, '--output-dir', parsed)['outcomes'])
     return tmp_path, manifest, config, parsed
@@ -109,7 +109,9 @@ def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources,
     doc_ids = [d['id'] for d in bundle['documents']]
     vectors = {stable_hash(r['text']): [float(doc_ids.index(r['document_id']) == i) for i in range(3)] for r in structural}
     embedding_fixture = write_json(root / 'embeddings.json', {'embedding_vectors': vectors})
-    command('build_structural_chunks_and_semantic_clusters.py', '--chunked-dir', chunked, '--parsed-dir', parsed,
+    from knowledge_foundry.document_structuring import accept_structure
+    accept_structure(chunked, test_only=True)
+    command('build_semantic_clusters.py', '--chunked-dir', chunked,
             '--output-dir', context, '--config', model_config, '--cache-dir', root / 'build-cache', '--fixture', embedding_fixture)
     clusters = json.loads((context / 'semantic-clusters.json').read_text())
     from knowledge_foundry.claim_generation_and_classification import _evidence_choices
@@ -241,5 +243,8 @@ def test_parsing_review_cli_preserves_pending_and_rejects_stale_inputs(parsed_so
     write_json(review_path, review)
     command('auto_review_parsing.py', *args, '--review-file', review_path)
     assert json.loads(report_path.read_text())['gate'] == 'pass'
-    (root / 'equipment.md').write_text('changed source')
+    (root / 'equipment.md').write_text('changed acquisition path; frozen bytes remain valid')
+    command('auto_review_parsing.py', *args, '--review-file', review_path)
+    metadata = json.loads(next(parsed.glob('documents/*/parse.json')).read_text())
+    Path(metadata['ingested_artifact_file']).write_bytes(b'tampered ingested artifact')
     command('auto_review_parsing.py', *args, '--review-file', review_path, expected=2)

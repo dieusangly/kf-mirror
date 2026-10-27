@@ -5,7 +5,7 @@ from pathlib import Path
 from knowledge_foundry.ingestion import ingest
 
 
-def readiness(pipeline_path):
+def readiness(pipeline_path, inventory=None):
     pipeline_path = Path(pipeline_path)
     pipeline = json.loads(pipeline_path.read_text())
     root = (pipeline_path.parent / pipeline['root']).resolve()
@@ -20,7 +20,7 @@ def readiness(pipeline_path):
     if missing:
         problems.append('missing or unselected required originals: ' + ', '.join(missing))
     try:
-        inventory = ingest(pipeline_path)
+        inventory = inventory if inventory is not None else ingest(pipeline_path)
         problems.extend(f"{e['manifest_id']}: {e.get('error', e)}" for e in inventory['outcomes'] if e['status'] != 'ingested')
     except (ValueError, OSError, KeyError) as exc:
         problems.append(str(exc))

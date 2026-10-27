@@ -1,4 +1,4 @@
-"""Inventory saved sources without parsing or exporting their contents."""
+"""Validate sources and persist reusable, content-addressed original bytes."""
 
 import argparse
 import hashlib
@@ -6,6 +6,9 @@ import json
 import re
 import sys
 import zipfile
+import os
+import tempfile
+from urllib.request import urlopen
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
@@ -76,10 +79,37 @@ def _source_path(root, local_path):
     return path
 
 
-def _ingest_entry(entry, root):
+def _ingest_entry(entry, root, store=None, *, fetch=False):
     outcome = {"manifest_id": entry.get("manifest_id"), "local_path": entry.get("local_path")}
     try:
-        path = _source_path(root, entry.get("local_path"))
+        try:
+            path = _source_path(root, entry.get("local_path"))
+        except IngestionError as exc:
+            if exc.code != "missing_file" or not fetch:
+                raise
+            # Download only an explicitly requested missing original. Validate
+            # against the declared size/hash before installing it.
+            relative = Path(entry["local_path"])
+            target = (root / relative).resolve()
+            uri = entry.get("download_url") or entry.get("publisher_url", "")
+            if urlparse(uri).scheme not in {"http", "https"}:
+                raise IngestionError("invalid_url", "fetch requires an HTTP(S) URL")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=target.parent) as directory:
+                candidate = Path(directory) / target.name
+                with urlopen(uri, timeout=60) as response, candidate.open("wb") as output:
+                    limit = entry.get("size_bytes", 0)
+                    size = 0
+                    while block := response.read(1024 * 1024):
+                        size += len(block)
+                        if size > limit:
+                            raise IngestionError("size_mismatch", "download exceeds declared size")
+                        output.write(block)
+                _, size, sha = _file_fingerprint(candidate)
+                if sha != entry.get("sha256") or size != entry.get("size_bytes"):
+                    raise IngestionError("hash_mismatch", "download differs from declared original")
+                os.replace(candidate, target)
+            path = target
         head, size, content_sha256 = _file_fingerprint(path)
         outcome.update(size_bytes=size, content_sha256=content_sha256)
         detected = _detect_format(path, head)
@@ -130,7 +160,32 @@ def _ingest_entry(entry, root):
             "media_type": media_type,
             "retrieved_on": retrieved_on,
         }
-        outcome.update(status="ingested", source=source, document=document)
+        outcome.update(status="ingested", source=source, document=document,
+                       manifest_entry=entry)
+        if store is not None:
+            extension = {"markdown": ".md", "html": ".html", "pdf": ".pdf", "docx": ".docx"}[detected]
+            relative = Path("objects") / (content_sha256 + extension)
+            target = store / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                if _file_fingerprint(target)[2] != content_sha256:
+                    raise IngestionError("artifact_corrupt", "existing ingested bytes failed integrity verification")
+            else:
+                with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temporary:
+                    name = Path(temporary.name)
+                    try:
+                        # Hash the exact bytes copied, closing the validation/copy race.
+                        data = path.read_bytes()
+                        if hashlib.sha256(data).hexdigest() != content_sha256:
+                            raise IngestionError("source_changed", "original changed during ingestion")
+                        temporary.write(data)
+                        temporary.flush()
+                        os.fsync(temporary.fileno())
+                    except BaseException:
+                        name.unlink(missing_ok=True)
+                        raise
+                os.replace(name, target)
+            outcome["artifact_path"] = str(relative)
     except IngestionError as exc:
         error = {"code": exc.code, "message": str(exc)}
         if ("content_sha256" in outcome and isinstance(entry.get("sha256"), str)
@@ -142,7 +197,7 @@ def _ingest_entry(entry, root):
     return outcome
 
 
-def ingest(config_path):
+def ingest(config_path, output_dir=None, *, fetch=False):
     """Return one result per configured manifest ID, including failed entries."""
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -166,19 +221,57 @@ def ingest(config_path):
     unknown = set(selected) - set(by_id)
     if unknown:
         raise ValueError(f"unknown configured manifest IDs: {', '.join(sorted(unknown))}")
-    outcomes = [_ingest_entry(by_id[item], root) for item in selected]
-    return {"report_version": 1, "manifest": str(manifest_path), "outcomes": outcomes}
+    store = Path(output_dir).resolve() if output_dir is not None else None
+    outcomes = [_ingest_entry(by_id[item], root, store, fetch=fetch) for item in selected]
+    report = {"report_version": 2, "manifest": str(manifest_path), "outcomes": outcomes}
+    if store is not None:
+        store.mkdir(parents=True, exist_ok=True)
+        # Immutable snapshot names allow several editions/selections in one store.
+        identity = _digest(json.dumps(outcomes, sort_keys=True, ensure_ascii=False))
+        report["artifact_id"] = "ingested:" + identity
+        snapshots = store / "snapshots"
+        snapshots.mkdir(exist_ok=True)
+        data = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+        (snapshots / (identity + ".json")).write_text(data, encoding="utf-8")
+        temporary = store / "report.json.tmp"
+        temporary.write_text(data, encoding="utf-8")
+        temporary.replace(store / "report.json")
+    return report
+
+
+def load_ingested(path):
+    """Read a frozen ingestion snapshot; never access the manifest or original paths."""
+    path = Path(path).resolve()
+    report_path = path / "report.json" if path.is_dir() else path
+    store = report_path.parent.parent if report_path.parent.name == "snapshots" else report_path.parent
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("report_version") != 2 or not report.get("artifact_id"):
+        raise ValueError("ingested artifact required; run scripts/ingest.py --output-dir first")
+    expected = "ingested:" + _digest(json.dumps(report["outcomes"], sort_keys=True, ensure_ascii=False))
+    if expected != report["artifact_id"]:
+        raise ValueError("ingested snapshot identity mismatch")
+    for row in report["outcomes"]:
+        if row["status"] != "ingested":
+            continue
+        file = (store / row["artifact_path"]).resolve()
+        if not file.is_relative_to(store) or _file_fingerprint(file)[2] != row["document"]["content_sha256"]:
+            raise ValueError("ingested artifact integrity mismatch")
+        row["artifact_file"] = str(file)
+    return report
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Inventory saved source files and verify their manifest metadata")
     parser.add_argument("--config", required=True, type=Path, help="pipeline JSON configuration file")
+    parser.add_argument("--output-dir", type=Path, help="persist verified original bytes and an ingestion snapshot")
+    parser.add_argument("--fetch", action="store_true", help="fetch missing originals and verify declared hashes")
     parser.add_argument("--output", type=Path, help="write the JSON report to this path (stdout by default)")
     args = parser.parse_args(argv)
     try:
-        report = ingest(args.config)
+        report = ingest(args.config, args.output_dir, fetch=args.fetch)
         rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(rendered, encoding="utf-8")
         else:
             sys.stdout.write(rendered)

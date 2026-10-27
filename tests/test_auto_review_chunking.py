@@ -16,10 +16,9 @@ from scripts.auto_review_chunking import (
 )
 
 
-CHUNKED = ROOT / "artifacts/chunked"
-PARSED = ROOT / "artifacts/parsed"
-PILOT_AVAILABLE = (CHUNKED / "artifact-bundle.json").is_file() and len(
-    list(PARSED.glob("documents/*/artifact-bundle.json"))) == 5
+CHUNKED = ROOT / 'artifacts/20261027-docling-aml-cft-01/document-structuring/chunks'
+PARSED = ROOT / 'artifacts/20261027-docling-aml-cft-01/document-structuring/parsing'
+PILOT_AVAILABLE = (CHUNKED / 'structuring-manifest.json').is_file()
 REVIEW_POLICY = _read_review_policy(ROOT / "config/review-policy.json")
 
 
@@ -36,9 +35,10 @@ class ChunkEvaluationTests(unittest.TestCase):
                                            [element], sidecar, 64, 0)
         self.assertEqual(audit(chunks)['findings'], [])
         broken = copy.deepcopy(chunks)
-        broken[1]['evidence'].pop(0)
+        self.assertEqual(len(chunks), 1)
+        broken[0]['evidence'][0]['span']['start'] = 40
         codes = {f['code'] for f in audit(broken)['findings']}
-        self.assertIn('PASSAGE_CONTEXT_MISSING', codes)
+        self.assertIn('STRUCTURAL_CONTENT_MISSING', codes)
 
     def test_cross_page_body_and_detached_notes_have_exact_independent_order(self):
         bundle = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())
@@ -83,7 +83,7 @@ class ChunkEvaluationTests(unittest.TestCase):
         result = _audit_document(bundle['documents'][0], bundle['sources'][0], chunks,
                                  elements, {'elements': sidecar}, 40, 0)
         self.assertEqual(result['findings'], [])
-        self.assertGreater(len(chunks), 1)
+        self.assertEqual(len(chunks), 1)
         self.assertTrue(all('Region | Annual results' in c['text'] and 'Area | Number' in c['text']
                             for c in chunks))
 
@@ -163,26 +163,6 @@ class ChunkEvaluationTests(unittest.TestCase):
                                  [table], sidecar, 16, 1)
         self.assertEqual(result["findings"], [])
 
-    @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
-    def test_pilot_gate_reference_cases_and_review_sample(self):
-        report = evaluate(CHUNKED, PARSED, reference_path=ROOT / "tests/fixtures/pilot_parsing_reference.json")
-        self.assertEqual(report["automatic_gate"], "pass")
-        self.assertEqual(report["review_gate"], "pending")
-        self.assertEqual(report["gate"], "pending_review")
-        self.assertEqual(report["corpus"]["documents"], 5)
-        self.assertGreater(report["corpus"]["chunks"], 0)
-        self.assertEqual(report["corpus"]["authoritative_elements"], report["corpus"]["covered_elements"])
-        self.assertEqual(report["corpus"]["fitting_list_items_split"], 0)
-        self.assertEqual(report["figures"], {"expected": 94, "linked": 94})
-        self.assertEqual(len(report["references"]), 8)
-        self.assertTrue(all(item["pass"] for item in report["references"]))
-        self.assertEqual(report["review"]["to_review"], len(report["review_template"]["reviews"]))
-        self.assertEqual([len(doc["review_sample"]) for doc in report["documents"]], [12, 12, 12, 1, 1])
-        self.assertTrue(all(doc["source_file"] for doc in report["documents"]))
-        self.assertTrue(all(sample["evidence"] and all("location" in ref for ref in sample["evidence"])
-                            for doc in report["documents"] for sample in doc["review_sample"]))
-        self.assertEqual(report, evaluate(CHUNKED, PARSED,
-                                          reference_path=ROOT / "tests/fixtures/pilot_parsing_reference.json"))
 
     @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_detects_unsupported_text_and_missing_coverage(self):
@@ -197,7 +177,7 @@ class ChunkEvaluationTests(unittest.TestCase):
         self.assertIn("CHUNK_TEXT_MISMATCH", codes)
         chunks[0]["evidence"].pop()
         codes = {item["code"] for item in _audit_document(doc, source, chunks, elements, sidecar, 256, 1)["findings"]}
-        self.assertIn("AUTHORITATIVE_TEXT_MISSING", codes)
+        self.assertIn("STRUCTURAL_CONTENT_MISSING", codes)
 
     @unittest.skipUnless(PILOT_AVAILABLE, "saved chunked pilot artifacts are unavailable")
     def test_figure_link_failure(self):

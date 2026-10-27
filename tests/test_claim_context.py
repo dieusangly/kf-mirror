@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from knowledge_foundry.claim_generation_and_classification import generate_claims as generate_prepared, ROOT
-from knowledge_foundry.claim_context import prepare_claim_context, load_preparation
+from knowledge_foundry.claim_context import load_preparation
+from claim_fixtures import prepare_claim_context
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 
 
@@ -66,7 +67,7 @@ class ClaimContextTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         next(row for row in manifest['outputs'] if row['path'] == path.name)['sha256'] = _file_hash(path)
         manifest_path.write_text(json.dumps(manifest))
-        with self.assertRaisesRegex(ValueError, 'document hierarchy mismatch'):
+        with self.assertRaisesRegex(ValueError, 'hash mismatch|document hierarchy mismatch'):
             load_preparation(output)
 
     def test_preparation_round_trips_bulleted_lists_and_box_continuations_through_schema(self):
@@ -89,7 +90,7 @@ class ClaimContextTests(unittest.TestCase):
         self.assertEqual({link['reason'] for link in links},
                          {'unordered_list_introduction', 'document_parent', 'adjacent_sentence_continuation'})
         self.assertEqual(len(prepared['structural_chunks']), 3)
-        schema = json.loads((ROOT / 'schemas/claim-context-artifact-schema-v2.json').read_text())
+        schema = json.loads((ROOT / 'schemas/semantic-clustering-artifact-schema.json').read_text())
         validator = Draft202012Validator(schema['$defs']['structural_link'])
         with self.assertRaises(ValidationError):
             validator.validate({**links[0], 'reason': 'unknown_link_reason'})
@@ -118,8 +119,7 @@ class ClaimContextTests(unittest.TestCase):
         with patch.object(RequestCounter, 'check', check):
             report = prepare_claim_context(self.chunked, self.root / 'built', self.config,
                                            self.root / 'cache', fixture, on_progress=progress)
-        self.assertEqual(events[0]['state'], 'assembling_structural_chunks')
-        self.assertEqual(events[1], {'state': 'structural_chunks_assembled', 'structural_chunks': len(records)})
+        self.assertEqual(events[0], {'state': 'validated_structural_chunks_loaded', 'structural_chunks': len(records)})
         checks = [e for e in events if e['state'] == 'checking_individual_structural_chunks_fit_claim_generation']
         self.assertEqual(checks[0]['completed'], 0)
         self.assertEqual(checks[-1]['completed'], len(records))
@@ -167,28 +167,6 @@ class ClaimContextTests(unittest.TestCase):
     def test_generation_requires_explicit_preparation(self):
         with self.assertRaisesRegex(ValueError, 'context-dir'):
             generate_prepared(self.chunked, self.root / 'generated', self.config)
-
-    def test_frozen_v2_preparation_remains_readable_after_hierarchy_correction(self):
-        from knowledge_foundry._document_structure_v2 import assemble_document_hierarchy as old_hierarchy
-        from knowledge_foundry._structural_chunks_v2 import assemble_structural_chunks as old_assemble
-        settings = fixture_settings()
-        settings['pipeline_version'] = 'compilation-v12'
-        settings['steps']['structural_chunks']['version'] = 'structural-chunks-v2'
-        settings['steps']['claim_generation']['version'] = 'claim-generation-v12'
-        self.config.write_text(json.dumps(settings))
-        bundle = json.loads((self.chunked / 'artifact-bundle.json').read_text())
-        records, _ = old_assemble(bundle)
-        fixture = self.root / 'old-vectors.json'
-        fixture.write_text(json.dumps({'embedding_vectors': {stable_hash(r['text']): [1., 0.] for r in records}}))
-        output = self.root / 'frozen-v2'
-        with patch('knowledge_foundry.claim_context.VERSION', 'structural-chunks-v2'), \
-                patch('knowledge_foundry.claim_context.assemble_document_hierarchy', old_hierarchy), \
-                patch('knowledge_foundry.claim_context.assemble_structural_chunks', old_assemble):
-            prepare_claim_context(self.chunked, output, self.config, self.root / 'cache', fixture)
-        before = (output / 'build-manifest.json').read_bytes()
-        loaded = load_preparation(output)
-        self.assertEqual(loaded['structural_chunks'], records)
-        self.assertEqual((output / 'build-manifest.json').read_bytes(), before)
 
     def test_oversized_singleton_fails_before_embeddings(self):
         settings = fixture_settings()

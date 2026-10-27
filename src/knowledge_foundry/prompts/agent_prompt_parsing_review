@@ -1,119 +1,20 @@
-Review saved parsing outputs against saved originals independently. Parsing is
-already complete: never parse, repair, or edit sources, bundles, code, tests,
-configuration or manifests. Read doc/parsing.md and doc/parsing-evaluation.md.
-Preserve findings; report source-located defects without implementing fixes.
+Review parsing against saved originals. Follow AGENTS.md and .agents/AGENTS.md.
+Read doc/README.md and doc/aml-cft-pipeline.md.
+Use the exact input/review/report paths supplied by the controller or user.
 
-Controller-launched sessions follow the controller's read-only return mechanism:
-return judgments without writing files or running initialization/finalization/registration;
-the controller handles these. An automatic audit to stdout is allowed. The commands
-below apply to standalone review sessions.
+Check extraction completeness, source locations, reading order, headings, lists, tables, figures, OCR and numeric fidelity. Inspect native provider output and metadata; provider confidence is not approval.
 
-Complete all three steps below. Set exact paths and selections from the selected
-workflow/pipeline configuration or existing report, retaining optional references.
+Inspect every selected sample against its original source. For PDF samples,
+inspect rendered layout as well as text. Include relevant neighboring passages.
+Retain earlier findings and notes; identify evidence for any revised judgment.
+Record pending/pass/fail, severity for failures, source-located notes and
+inspection={"original_inspected": true, "layout_inspected": true} only after
+performing those inspections. Leave inaccessible samples pending and request
+specific pages. Record additional discovered defects instead of hiding them.
 
-```bash
-RUN_ID="your-completed-run-id"
-MODEL=""  # session model supplied by user, e.g. gpt-6.1-sol; empty means unknown
-MODEL_REASONING_EFFORT=""  # session effort supplied by user, e.g. medium; empty means unknown
-PARSED_DIR="artifacts/${RUN_ID}/parsing"
-ADDITIONAL_INPUT_DIRS=()  # retain every selected subset rerun directory, in order
-REFERENCE_PATH=""  # retain the selected source-checked reference, if any
-PARSING_REVIEW_DIR="artifacts/${RUN_ID}/parsing-review"
-SOURCE_ROOT="."
-MANIFEST_PATH="data/manifest.json"
-REVIEW_POLICY="config/review-policy.json"
-SAMPLE_PER_DOCUMENT=12
-REQUIRED_PAGES="tests/fixtures/parsing-expanded-review-pages.json"
-REVIEW_FILE="$PARSING_REVIEW_DIR/review.json"
-EVALUATION_REPORT="$PARSING_REVIEW_DIR/report.json"
-```
-
-Reviewer attribution: for a standalone session, set MODEL and MODEL_REASONING_EFFORT
-from the session settings explicitly supplied by the user; these variables record
-settings, they do not select or change the running model. Empty values become null.
-Record reviewer.kind="agent", reviewer.name="Codex", reviewer.model=MODEL,
-reviewer.model_reasoning_effort=MODEL_REASONING_EFFORT and
-reviewer.launch_mode="manual_workflow" in the review JSON and final report.
-Do not infer settings from a model-family self-description or workflow.json.
-Controller-launched sessions instead use the controller's resolved model settings
-and launch_mode, including manual_workflow for a manual step with --agent-review.
-Do not add settings_source or session_id to reviewer attribution. Preserve prior
-attribution in notes when another session contributes or corrects metadata.
-
-1. Initialize if absent; otherwise validate/reuse without resetting judgments.
-Keep identical inputs throughout. Empty REQUIRED_PAGES or REFERENCE_PATH omits
-that option. Use Bash for these commands; populate ADDITIONAL_INPUT_DIRS with
-the exact recorded directories (one array entry per --additional-input-dir).
-
-```bash
-auto_review_parsing() {
-  for additional_input_dir in "${ADDITIONAL_INPUT_DIRS[@]}"; do
-    set -- "$@" --additional-input-dir "$additional_input_dir"
-  done
-  if [ -n "$REFERENCE_PATH" ]; then
-    set -- "$@" --reference "$REFERENCE_PATH"
-  fi
-  if [ -n "$REQUIRED_PAGES" ]; then
-    set -- --required-pages "$REQUIRED_PAGES" "$@"
-  fi
-  direnv exec . .venv/bin/python scripts/auto_review_parsing.py \
-    --input-dir "$PARSED_DIR" --source-root "$SOURCE_ROOT" \
-    --manifest "$MANIFEST_PATH" --review-policy "$REVIEW_POLICY" \
-    --sample-per-document "$SAMPLE_PER_DOCUMENT" \
-    --output "$EVALUATION_REPORT" "$@"
-}
-
-if [ -e "$REVIEW_FILE" ]; then
-  auto_review_parsing --review-file "$REVIEW_FILE"
-else
-  auto_review_parsing --initialize-review "$REVIEW_FILE"
-fi
-```
-
-Read the exit code and automatic_gate, review_gate and gate. Initialization can
-exit 0 while pending; existing pending/failed reviews can exit 1. Continue inspection
-only with valid artifacts, identities and samples and a passing automatic gate.
-Stop and report malformed/stale inputs, missing reports or automatic failures.
-
-2. Inspect EVERY review_sample unit against its saved original and parsed_directory.
-- PDF: inspect the original and rendered page; compare ALL parsed elements and
-  omissions. Inspect adjacent pages when context or reading order requires it.
-- HTML: inspect the complete saved article and selectors, never search excerpts.
-- Check wording, numbers/identifiers, headings, reading order, lists, footnotes and
-  attachment, table headers/rows/columns/spans, citations, diagram labels and figure
-  preservation. Keep visual evidence distinct from authoritative prose.
-- Inspect warnings and additional high-risk evidence. Inaccessible originals/layout
-  remain pending; identify the missing evidence.
-
-Record reviewer attribution using the settings above; do not guess unknown values. Preserve build_id, snapshot_sha256,
-review_policy_sha256 and every sample_id. Record pass/fail/pending with source-located
-notes; set inspection.original_inspected=true and PDF inspection.layout_inspected=true
-only after inspection. Failures require severity: critical for materially wrong or
-unsupported evidence/table associations; major for missing governing context; minor
-for defects without changed meaning. Pending/fail notes must be actionable. Preserve
-earlier findings and explain revisions. Record off-sample defects in additional_findings
-with source_id, location and notes; they block acceptance.
-
-Record timezone-qualified inspection start/end times and measured usage/cost when
-available; leave unavailable measurements null, never estimate or invent them.
-
-3. Record judgments, then run final evaluation; do not leave it for the user:
-
-```bash
-auto_review_parsing --review-file "$REVIEW_FILE"
-```
-
-For a managed manual run with artifacts/${RUN_ID}/state.json, also register results
-through scripts/workflow.py step --run-id "$RUN_ID" --stage parsing-review, using
-its original --config and latest budget_history limits. Include valid pending/failed
-results. Never increase budgets, add --agent-review/--allow-paid, rebuild or edit state.
-Report registration failures. Standalone runs need no registration. Writes are limited
-to review/report JSON and controller-managed registration; external reviews alone do
-not supply verified session evidence required for controller publication.
-
-Report exit codes, all three gates, document counts, selected/inspected PDF pages and
-HTML documents, judgment/severity counts, coverage, pass rate, weighted score,
-reviewer measurements, prioritized source-located findings and artifact paths.
-Never lower thresholds or pass uninspected samples.
-Automatic checks cover all inputs; visual review covers selected pages, not the whole
-corpus or legal correctness. Fixture judgments never approve real inputs.
+Identify the actual human/agent reviewer. Use supplied actual model/settings;
+unknown values stay null. Do not claim a different session's inspections.
+Never change sources, frozen artifacts, policy thresholds or sample selection.
+The controller evaluates gates and saves your returned full review. In a manual
+review, rerun the documented evaluator with --review-file after saving judgments.
+Passing tests or provider confidence never substitute for source review.

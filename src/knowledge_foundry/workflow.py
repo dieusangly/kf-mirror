@@ -22,10 +22,10 @@ import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-STAGES = ('ingest', 'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'structure',
+STAGES = ('ingest', 'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'accept', 'structure',
           'summaries', 'generate', 'classify', 'claim_review', 'graph', 'index', 'retrieval', 'publish')
 DEPS = {'ingest': (), 'parse': ('ingest',), 'parsing_evaluation': ('parse',),
-        'parsing_review': ('parsing_evaluation',), 'chunk': ('parsing_review',), 'chunk_review': ('chunk',), 'structure': ('chunk_review',),
+        'parsing_review': ('parsing_evaluation',), 'chunk': ('parsing_review',), 'chunk_review': ('chunk',), 'accept': ('parsing_review', 'chunk_review'), 'structure': ('accept',),
         'summaries': ('structure',), 'generate': ('structure',), 'classify': ('generate',),
         'claim_review': ('classify',), 'graph': ('claim_review', 'summaries'), 'index': ('graph',),
         'retrieval': ('index',), 'publish': ('retrieval',)}
@@ -33,9 +33,9 @@ PAID = {'structure', 'summaries', 'generate', 'classify', 'index', 'retrieval'}
 REVIEWS = {'parsing_review', 'chunk_review', 'claim_review'}
 RESUMABLE = {'generate', 'classify'}
 BUNDLE_STAGES = {'parse', 'chunk', 'structure', 'summaries', 'generate', 'classify'}
-STAGE_PATHS = {'ingest': 'ingestion', 'parse': 'parsing', 'parsing_evaluation': 'parsing/automatic-review',
-    'parsing_review': 'parsing-review', 'chunk': 'chunking', 'chunk_review': 'chunking-review',
-    'structure': 'structural-chunks-and-semantic-clusters', 'summaries': 'summary-generation',
+STAGE_PATHS = {'ingest': 'ingestion', 'parse': 'document-structuring/parsing', 'parsing_evaluation': 'document-structuring/parsing/automatic-review',
+    'parsing_review': 'document-structuring/parsing-review', 'chunk': 'document-structuring/chunks', 'chunk_review': 'document-structuring/chunk-review', 'accept': 'document-structuring/acceptance',
+    'structure': 'semantic-clustering', 'summaries': 'summary-generation',
     'generate': 'claim-generation', 'classify': 'claim-classification', 'claim_review': 'claim-review',
     'graph': 'provenance-graph', 'index': 'indexing', 'retrieval': 'retrieval-evaluation', 'publish': 'publication'}
 STAGE_NAMES = {path: stage for stage, path in STAGE_PATHS.items()}
@@ -209,31 +209,30 @@ class Workflow:
         self.source_root = (self.pipeline_path.parent / pipeline['root']).resolve()
         self.manifest_path = self.source_root / pipeline['manifest_file']
         self.directory = self.root / 'artifacts' / run_id
-        legacy = self.root / 'artifacts/workflow' / run_id
-        if (self.directory / 'state.json').exists() and (legacy / 'state.json').exists():
-            raise ValueError('ambiguous run ID exists in both current and legacy locations')
-        if (legacy / 'state.json').exists():
-            self.directory = legacy
         if self.directory.is_symlink() or not self.directory.resolve().is_relative_to(self.root):
             raise ValueError('run directory must stay inside the repository and cannot be a symlink')
         self.path = self.directory / 'state.json'
         self.state = read(self.path) if self.path.exists() else {
             'schema_version': 1, 'run_id': run_id, 'created_at': now(), 'status': 'new',
-            'layout_version': 3, 'execution_mode': mode or 'automated',
-            'workflow_config': read(self.config_path),
+            'layout_version': 4, 'execution_mode': mode or 'automated',
+            'workflow_config': read(self.config_path), 'pipeline_config': pipeline,
+            'review_policies': read(self.root / 'config/review-policy.json') if (self.root / 'config/review-policy.json').exists() else {},
+            'claim_settings': read(self.root / self.config['claims']) if self.config.get('claims') else {},
             'identity': input_identity(root, self.config_path), 'stages': {}, 'history': [],
             'paid_stages_started': 0, 'review_sessions_started': 0, 'elapsed_seconds': 0}
+        if self.path.exists() and self.state.get('layout_version') != 4:
+            raise ValueError('obsolete workflow layout; start a fresh run with reusable ingested artifacts')
         self.mode = self.state.get('execution_mode', 'automated')
         if mode and mode != self.mode:
             raise ValueError('run execution mode differs; use a distinct manual/automated run ID')
         self.native_input_dir = None
 
     def stage_path(self, stage):
-        return self.directory / (STAGE_PATHS[stage] if self.state.get('layout_version', 1) >= 2 else stage)
+        return self.directory / STAGE_PATHS[stage]
 
     def bundle_directory(self, stage, directory=None):
         directory = Path(directory) if directory is not None else self.output(stage)
-        return directory if self.state.get('layout_version', 1) >= 3 else directory / 'build'
+        return directory
 
     def restore_execution_logs(self, stage):
         entry = self.state['stages'][stage]
@@ -256,7 +255,7 @@ class Workflow:
         entry.pop('pending_logs')
 
     def execute_stage(self, stage, command, out):
-        if self.state.get('layout_version', 1) < 3 or stage not in BUNDLE_STAGES:
+        if stage not in BUNDLE_STAGES:
             return execute(command, out, self.remaining())
         # Builders require an absent output directory. Persist logs separately
         # until they finish, including failures; hard-kill recovery uses this pointer.
@@ -275,6 +274,9 @@ class Workflow:
     def stage_fingerprints(self, stage, directory):
         saved = fingerprints(directory)
         # The audit has its own checkpoint; adding it must not mutate parsing's identity.
+        if stage == 'chunk':
+            saved = {key: value for key, value in saved.items() if key not in {
+                'acceptance.json', 'parsing-review.json', 'chunking-review.json'}}
         if self.mode == 'manual' and stage == 'parse':
             saved = {key: value for key, value in saved.items() if not key.startswith('automatic-review/')}
         return saved
@@ -296,13 +298,88 @@ class Workflow:
     def output(self, stage):
         return Path(self.state['stages'][stage]['directory'])
 
+    def changed_stages(self):
+        previous, current = self.state['identity'], input_identity(self.root, self.config_path)
+        changed = {path for path in previous.keys() | current.keys() if previous.get(path) != current.get(path)}
+        stages = set()
+        pipeline = str(self.pipeline_path.resolve())
+        for path in changed:
+            name = Path(path).name
+            if path == pipeline:
+                before = self.state.get('pipeline_config', {})
+                after = read(self.pipeline_path)
+                for key in before.keys() | after.keys():
+                    if before.get(key) != after.get(key):
+                        stages.add('parse' if key in {'parsing', 'structuring'} else
+                                   'chunk' if key == 'chunking' else 'chunk_review' if key == 'evaluation' else 'ingest')
+            elif name == 'review-policy.json':
+                before = self.state.get('review_policies', {}).get('policies', {})
+                after = read(path).get('policies', {})
+                stages.update({'parsing': 'parsing_review', 'chunking': 'chunk_review',
+                               'claim_generation_and_classification': 'claim_review'}[key]
+                              for key in before.keys() | after.keys() if before.get(key) != after.get(key))
+            elif path == str(self.config_path):
+                before, after = self.state.get('workflow_config', {}), read(self.config_path)
+                for key in before.keys() | after.keys():
+                    if before.get(key) == after.get(key):
+                        continue
+                    if key == 'reviewers':
+                        stages.update(k for k in REVIEWS if before.get(key, {}).get(k) != after.get(key, {}).get(k))
+                    else:
+                        stages.add({'summaries': 'summaries', 'claims': 'structure', 'structural': 'structure',
+                                    'taxonomy': 'classify', 'retrieval': 'index', 'retrieval_cases': 'retrieval',
+                                    'retrieval_acceptance': 'retrieval', 'sample_per_document': 'parsing_review',
+                                    'parsing_review_required_pages': 'parsing_review'}.get(key, 'ingest'))
+            elif name == 'claim-generation-and-classification.json':
+                before = self.state.get('claim_settings', {})
+                after = read(path)
+                if {**before.get('steps', {}), 'topic_classification': None} == {**after.get('steps', {}), 'topic_classification': None} and before.get('structural_build_config') == after.get('structural_build_config'):
+                    stages.add('classify')
+                else:
+                    stages.add('structure')
+            elif '/data/' in path or name in {'ingestion.py', 'corpus.py'}:
+                stages.add('ingest')
+            elif name in {'parsing.py', 'parse.py', 'parsers.py', 'structure_providers.py', 'provider_exports.py',
+                          'pdf_source.py', 'pdf_tables.py', 'pdf_structure.py'}:
+                stages.add('parse')
+            elif name in {'chunking.py', 'chunk.py', 'document_structure.py', 'structural_chunks.py', 'structural_links.py'}:
+                stages.add('chunk')
+            elif 'parsing_review' in name or 'parsing-review' in name or name.startswith('parsing-expanded') or path == str((self.root / self.config.get('parsing_review_required_pages', '__absent__')).resolve()):
+                stages.add('parsing_review')
+            elif 'chunking_review' in name or name == 'auto_review_chunking.py':
+                stages.add('chunk_review')
+            elif name in {'document_structuring.py', 'accept_structure.py'}:
+                stages.add('accept')
+            elif 'summar' in name:
+                stages.add('summaries')
+            elif name == 'topics-v1.json':
+                stages.add('classify')
+            elif path == str((self.root / self.config['retrieval_cases']).resolve()):
+                stages.add('retrieval')
+            elif '/retrieval/' in path or '/storage/' in path or name.startswith('retrieval'):
+                stages.add('index')
+            elif 'claim' in name or 'compilation' in name or name in {'generation_context.py', 'openai_tools.py'}:
+                stages.add('structure')
+            elif name in {'embeddings.py', 'semantic_clusters.py', 'semantic-clustering.json', 'build_semantic_clusters.py'}:
+                stages.add('structure')
+            elif '/apps/' in path or name == 'render_knowledge_graph.py':
+                stages.add('graph')
+            else:
+                # Controller/dependency/contract changes restart structuring,
+                # preserving verified source bytes unless acquisition changed.
+                stages.add('parse')
+        if self.state.get('reviewer'):
+            resolved = resolve_reviewers(self.root, self.config)
+            stages.update(k for k in REVIEWS if resolved[k] != self.state['reviewer'].get(k))
+        return stages
+
     def stale(self):
         issues = []
         if input_identity(self.root, self.config_path) != self.state['identity']:
-            issues.append('inputs/configuration/code changed: invalidate from ingest with a repair note')
+            issues.append('inputs/configuration/code changed: repair from ' + ', '.join(sorted(self.changed_stages())) + ' with a repair note')
         if self.state.get('reviewer'):
             if resolve_reviewers(self.root, self.config) != self.state['reviewer']:
-                issues.append('reviewer settings changed: invalidate from ingest or use a new run')
+                issues.append('reviewer settings changed: repair the affected review stage')
         for name, entry in self.state['stages'].items():
             if entry['status'] == 'complete' and self.stage_fingerprints(name, Path(entry['directory'])) != entry['fingerprints']:
                 issues.append('saved artifacts changed: ' + name)
@@ -311,8 +388,9 @@ class Workflow:
     def repair(self, stage, note):
         if not note or len(note.strip()) < 12:
             raise ValueError('repair requires a concrete defect/correction note')
-        if input_identity(self.root, self.config_path) != self.state['identity'] and stage != 'ingest':
-            raise ValueError('code/config/input changes conservatively require --repair-from ingest')
+        required = self.changed_stages()
+        if not required <= descendants(stage):
+            raise ValueError('repair must include changed stages: ' + ', '.join(sorted(required)))
         if stage in REVIEWS and stage in self.state['stages']:
             entry = self.state['stages'][stage]
             report_path, review_path = Path(entry['directory']) / 'report.json', Path(entry['directory']) / 'review.json'
@@ -366,16 +444,28 @@ class Workflow:
                           'archived_directory': str(archived), 'started_at': entry['started_at'], 'reason': note})
                 self.state['history'].append({'stage': name, **entry, 'invalidated_at': now(), 'repair_note': note})
                 self.state['stages'].pop(name, None)
+        self.config = read(self.config_path)
+        self.pipeline_path = self.root / self.config['pipeline']
+        pipeline = read(self.pipeline_path)
+        self.source_root = (self.pipeline_path.parent / pipeline['root']).resolve()
+        self.manifest_path = self.source_root / pipeline['manifest_file']
         self.state['identity'] = input_identity(self.root, self.config_path)
         self.state['workflow_config'] = read(self.config_path)
-        if stage == 'ingest' and self.state.get('reviewer'):
+        self.state['pipeline_config'] = read(self.pipeline_path)
+        self.state['review_policies'] = read(self.root / 'config/review-policy.json') if (self.root / 'config/review-policy.json').exists() else {}
+        self.state['claim_settings'] = read(self.root / self.config['claims']) if self.config.get('claims') else {}
+        if stage in {'ingest', 'parse', 'parsing_review', 'chunk', 'chunk_review', 'claim_review'} and self.state.get('reviewer'):
             self.state['history'].append({'reviewer': self.state.pop('reviewer'), 'repair_note': note})
         self.state['status'] = 'repaired'
         self.save()
 
     def prerequisite_sources(self):
         from knowledge_foundry.corpus import readiness
-        result = readiness(self.pipeline_path)
+        inventory = None
+        if self.state['stages'].get('ingest', {}).get('status') == 'complete':
+            from knowledge_foundry.ingestion import load_ingested
+            inventory = load_ingested(self.output('ingest'))
+        result = readiness(self.pipeline_path, inventory=inventory)
         self.state['corpus_readiness'] = result
         if not result['ready']:
             raise ValueError('corpus not ready: ' + '; '.join(result['problems']))
@@ -387,10 +477,10 @@ class Workflow:
         bundle = self.bundle_directory(name, out)
         args = {}
         if name == 'ingest':
-            args[name] = ['ingest.py', '--config', path('pipeline'), '--output', str(out / 'report.json')]
+            args[name] = ['ingest.py', '--config', path('pipeline'), '--output-dir', str(out)]
         if name == 'parse':
             args[name] = ['parse.py', '--config', path('pipeline'), '--output-dir', str(bundle),
-                          '--run-id', self.state['run_id']]
+                          '--run-id', self.state['run_id'], '--ingested-dir', str(self.output('ingest'))]
             if self.native_input_dir:
                 args[name] += ['--native-input-dir', str(self.native_input_dir)]
         if name == 'parsing_evaluation':
@@ -398,9 +488,13 @@ class Workflow:
                           '--source-root', str(self.source_root), '--output', str(out / 'report.json')]
         if name == 'chunk':
             args[name] = ['chunk.py', '--config', path('pipeline'), '--input-dir', dep('parse'), '--output-dir', str(bundle)]
+        if name == 'accept':
+            args[name] = ['accept_structure.py', '--input-dir', dep('chunk'),
+                          '--parsing-review', str(self.output('parsing_review') / 'report.json'),
+                          '--chunk-review', str(self.output('chunk_review') / 'report.json')]
         if name == 'structure':
-            args[name] = ['build_structural_chunks_and_semantic_clusters.py', '--chunked-dir', dep('chunk'),
-                          '--parsed-dir', dep('parse'), '--config', path('structural'),
+            args[name] = ['build_semantic_clusters.py', '--chunked-dir', dep('chunk'),
+                          '--config', path('structural'),
                           '--output-dir', str(bundle), '--cache-dir', str(self.root / 'artifacts/embeddings-and-token-counts')]
         if name in {'generate', 'summaries'}:
             args[name] = [('generate_claims.py' if name == 'generate' else 'generate_summaries.py'),
@@ -531,7 +625,7 @@ class Workflow:
         configuration = resolve_reviewers(self.root, self.config)
         prior = self.state.get('reviewer')
         if prior and prior != configuration:
-            raise ValueError('reviewer configuration changed; start a new run or invalidate from ingest')
+            raise ValueError('reviewer configuration changed; repair the affected review checkpoint')
         self.state['reviewer'] = configuration
         resolved = configuration[name]
         self.render_review_pages(out)
@@ -733,6 +827,11 @@ class Workflow:
         if name in {'structure', 'summaries', 'generate', 'classify'}:
             report = read(self.bundle_directory(name, out) / 'report.json')
             return 'pass' if report['status'] == 'complete' and not report.get('errors') else 'failed'
+        if name == 'accept':
+            from knowledge_foundry.document_structuring import load_validated_structure
+            value = load_validated_structure(self.bundle_directory('chunk'))
+            write(out / 'report.json', value['acceptance'])
+            return 'pass'
         if name == 'index':
             report = read(out / 'stdout.log')
             coverage = report['vector_coverage']
@@ -810,8 +909,7 @@ class Workflow:
             if publish:
                 self.publication_ready()
             for name in ((only_stage,) if only_stage else ('publish',) if publish else STAGES[:-1]):
-                folded_audit = self.state.get('layout_version', 1) >= 2
-                if name == 'parsing_evaluation' and not only_stage and folded_audit and stop_after != name:
+                if name == 'parsing_evaluation' and not only_stage and stop_after != name:
                     continue  # The review tool supplies this checkpoint from its embedded audit.
                 entry = self.state['stages'].get(name)
                 if entry and entry.get('pending_logs'):
@@ -823,7 +921,7 @@ class Workflow:
                     continue
                 if self.remaining() <= 0.01:
                     raise ValueError('wall-time budget exhausted')
-                prerequisites = ('parse',) if name == 'parsing_review' and folded_audit else DEPS[name]
+                prerequisites = ('parse',) if name == 'parsing_review' else DEPS[name]
                 if any(self.state['stages'].get(d, {}).get('status') != 'complete' for d in prerequisites):
                     raise ValueError('missing prerequisite for ' + name)
                 if entry and entry['status'] == 'failed':
@@ -853,7 +951,7 @@ class Workflow:
                         raise ValueError('untracked output directory exists; preserve it and use a fresh run')
                     if out.is_symlink() or not out.resolve().is_relative_to(self.directory.resolve()):
                         raise ValueError('stage output must stay inside this run')
-                    if self.state.get('layout_version', 1) < 3 or name not in BUNDLE_STAGES:
+                    if name not in BUNDLE_STAGES:
                         out.mkdir(parents=True, exist_ok=True)
                     entry = {'status': 'ready', 'directory': str(out), 'attempt': attempt, 'executions': 0, 'started_at': now(),
                              'upstream': {d: {'directory': self.state['stages'][d]['directory'],
@@ -875,7 +973,7 @@ class Workflow:
                     if name in REVIEWS:
                         rc = execute(self.review_command(name, out), out, self.remaining())
                         status = self.validate_stage(name, out, rc)
-                        if name == 'parsing_review' and folded_audit:
+                        if name == 'parsing_review':
                             self.record_parsing_audit(out, rc)
                         if status == 'pending' and launch_review:
                             entry['status'] = 'pending'
@@ -883,7 +981,7 @@ class Workflow:
                             self.independent_review(name, out)
                             rc = execute(self.review_command(name, out), out, self.remaining())
                             status = self.validate_stage(name, out, rc)
-                            if name == 'parsing_review' and folded_audit:
+                            if name == 'parsing_review':
                                 self.record_parsing_audit(out, rc)
                     else:
                         if self.finalized_checkpoint(name, out):
@@ -903,7 +1001,7 @@ class Workflow:
                         write(out / 'repair-task.json', {'stage': name, 'status': status, 'report': str(out / 'report.json'),
                             'instruction': 'Inspect originals and findings. Pending: complete inspection or resolve prerequisite. '
                             'Failed: correct implementation/configuration defect, preserve findings, invalidate from affected builder '
-                            '(ingest for code/config changes), rebuild and request fresh independent review. Never lower gates, '
+                            '(parsing for provider changes; chunking for boundary changes), rebuild and request fresh independent review. Never lower gates, '
                             'alter originals or mark uninspected samples passed. Escalate ambiguity/inaccessible evidence/non-convergence.'})
                         self.save()
                         raise ValueError(name + ' gate ' + status + '; see repair-task.json')

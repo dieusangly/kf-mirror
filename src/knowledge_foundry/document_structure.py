@@ -12,8 +12,8 @@ VERSION = 1
 METADATA_FIELDS = ('element_id', 'parent_element_id', 'level', 'heading_path',
                    'evidence_role', 'docling_ref', 'docling_parent_ref',
                    'docling_group_depth')
-MARKER = re.compile(r'^\s*(?:([-–—•▪*])|([\w]+)[.)°])\s+')
-NUMBERED = re.compile(r'^\s*\d+[.)]\s+')
+MARKER = re.compile(r'^\s*(?:([-–—•▪*])|\(?([\w]+)[.)°])\s+')
+NUMBERED = re.compile(r'^\s*\(?\d+[.)]\s+')
 CASE_HEADING = re.compile(r'^\s*(?:cas|case)\s+n[°o]\s*\d+\b', re.I)
 BOX_HEADING = re.compile(r'^\s*(?:encadré|box)\s+n[°o]\s*\d+\b', re.I)
 
@@ -128,7 +128,8 @@ def assemble_document_hierarchy(bundle, snapshot=None):
                 numbered, introductions = None, []
                 boxed = None
         next_element = following.get(eid)
-        local_intro = (kind in {'paragraph', 'list_item', 'heading'} and
+        local_intro = (not re.fullmatch(r'\s*(?:Whereas|Considérant(?: ce qui suit)?)\s*:', element['text'], re.I) and
+                       kind in {'paragraph', 'list_item', 'heading'} and
                        element['text'].rstrip().endswith(':') and next_element is not None and
                        next_element['document_id'] == document and next_element['kind'] == 'list_item')
         parent, basis, role = None, 'root', 'content'
@@ -202,13 +203,17 @@ def assemble_document_hierarchy(bundle, snapshot=None):
                 if numbered:
                     parent, basis = numbered, 'numbered_paragraph_scope'
                 if family and introductions:
-                    intro_id, expected_family = introductions[-1]
+                    intro_id, expected_family, child_box = introductions[-1]
                     intro = elements[intro_id]
                     a, b = intro['location'], element['location']
                     # Hanging list labels can be left of a short textual lead.
                     # Compare against its numbered parent when available.
                     floor = elements[numbered]['location'].get('bbox') if numbered else a.get('bbox')
-                    if (family == expected_family and b.get('article_id') == a.get('article_id') and
+                    while introductions and b.get('bbox') and introductions[-1][2] and b['bbox'][0] < introductions[-1][2][0] - 2:
+                        introductions.pop()
+                    if introductions:
+                        intro_id, expected_family, child_box = introductions[-1]
+                    if (introductions and family == expected_family and b.get('article_id') == a.get('article_id') and
                             (not floor or not b.get('bbox') or b['bbox'][0] >= floor[0] - 2)):
                         parent, basis = intro_id, 'local_list_flow'
                     else:
@@ -219,7 +224,7 @@ def assemble_document_hierarchy(bundle, snapshot=None):
                 role = 'numbered_paragraph' if numbered == eid else 'list_introduction'
                 # A sibling textual lead (bank / insurance) belongs to the
                 # numbered rule, not to the preceding lead's entire list.
-                introductions = [(eid, _family(next_element))]
+                introductions.append((eid, _family(next_element), next_element['location'].get('bbox')))
             if native_parent and elements[native_parent]['kind'] not in {'heading', 'footnote'} and not boxed:
                 parent, basis = native_parent, 'parser_parent'
         result.append({'element_id': eid, 'parent_element_id': parent,

@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from knowledge_foundry.claim_context import (
-    execution_settings, load_preparation, saved_settings, validate_settings,
+    execution_settings, load_preparation, validate_settings,
 )
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, FixtureProvider, _provider, generate_claims,
@@ -105,42 +105,6 @@ class ClaimConfigurationTests(unittest.TestCase):
             self.assertNotEqual(review_policy_digest(chunking, 'chunking'),
                                 review_policy_digest(read_review_policy(path, 'chunking'), 'chunking'))
 
-    def test_legacy_frozen_configuration_remains_readable_without_rewriting_files(self):
-        from knowledge_foundry.claim_context import cluster_namespace
-        config = fixture_settings(); steps = config['steps']
-        old_embedding = copy.deepcopy(steps['embeddings'])
-        old_embedding.update(usd_per_million_input_tokens=.02, rate_card_version='legacy',
-                             documentation_url='https://developers.openai.com/api/docs/models/text-embedding-3-small')
-        old = {'pipeline_version': config['pipeline_version'],
-               **{key: steps['claim_generation'][key] for key in ('provider', 'model', 'reasoning_effort', 'retries')},
-               'generation_version': steps['claim_generation']['version'],
-               'classification_version': steps['topic_classification']['version'],
-               'preparation': cluster_namespace(config), 'embeddings': old_embedding,
-               'clustering': {k: v for k, v in steps['semantic_clusters'].items() if k != 'version'},
-               'generation_budget': steps['claim_generation']['budget'],
-               'pricing': {'rate_card_version': 'legacy', 'models': {
-                   model: {k: v for k, v in card.items() if k not in {'verified_on', 'documentation_url'}}
-                   for model, card in config['pricing']['providers']['fixture']['models'].items()
-                   if 'short_context_limit_tokens' in card}}}
-        adapted = saved_settings(old)
-        validate_settings(adapted)
-        self.assertEqual(execution_settings(adapted), execution_settings(config))
-        self.assertIn('preparation', old)
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name); chunked = root / 'chunked'; chunked.mkdir()
-            bundle = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
-            bundle['claims'], bundle['topics'] = [], []
-            bundle['builds'][0].update(output_claim_ids=[], output_topic_ids=[])
-            (chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
-            path = root / 'settings.json'; path.write_text(json.dumps(config))
-            context = prepare_fixture(chunked, path)
-            manifest_path = context / 'build-manifest.json'
-            manifest = json.loads(manifest_path.read_text()); manifest['config'] = old
-            manifest_path.write_text(json.dumps(manifest))
-            before = {p.name: p.read_bytes() for p in context.iterdir()}
-            prepared = load_preparation(context, verify_requests=False)
-            self.assertEqual(len(prepared['clusters']), 1)
-            self.assertEqual(before, {p.name: p.read_bytes() for p in context.iterdir()})
 
     def test_embedding_cache_survives_shared_pricing_snapshot_change(self):
         from knowledge_foundry.structural_chunks import stable_hash

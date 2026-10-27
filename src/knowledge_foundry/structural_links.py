@@ -1,14 +1,11 @@
-"""Assemble original chunks using document-local structural evidence."""
+"""Conservative document-local links; detection never changes chunk membership."""
 
 from collections import defaultdict
 import hashlib
 import json
 import re
 
-from knowledge_foundry.evidence import claim_evidence_references, evidence_key
-
-VERSION = "structural-chunks-v1"
-
+from knowledge_foundry.evidence import evidence_key
 
 def stable_hash(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
@@ -46,7 +43,7 @@ def footnote_links(chunks, elements):
     return result
 
 
-def assemble_structural_chunks(bundle):
+def detect_links(bundle):
     """Return deterministic derived records and auditable accepted link reasons."""
     chunks = sorted(bundle['chunks'], key=lambda c: (c['document_id'], c['sequence'], c['id']))
     elements = {e['id']: e for e in bundle['elements']}
@@ -55,14 +52,7 @@ def assemble_structural_chunks(bundle):
         for ref in chunk['evidence']:
             if 'span' in ref:
                 owners[ref['element_id']].add(index)
-    parents = list(range(len(chunks)))
     links = {}
-
-    def root(i):
-        while parents[i] != i:
-            parents[i] = parents[parents[i]]
-            i = parents[i]
-        return i
 
     def link(a, b, reason, strength, element_ids):
         if a == b or chunks[a]['document_id'] != chunks[b]['document_id']:
@@ -71,7 +61,6 @@ def assemble_structural_chunks(bundle):
         key = (a, b, reason, tuple(element_ids))
         links[key] = {'original_chunk_ids': [chunks[a]['id'], chunks[b]['id']],
                       'element_ids': element_ids, 'reason': reason, 'strength': strength}
-        parents[root(b)] = root(a)
 
     def link_elements(a, b, reason, strength='heuristic'):
         for i in sorted(owners[a]):
@@ -146,28 +135,4 @@ def assemble_structural_chunks(bundle):
             link_elements(previous['id'], current['id'], 'adjacent_table_continuation')
     for passage, note in footnote_links(chunks, elements):
         link_elements(passage['element_id'], note['element_id'], 'same_page_unique_note_marker')
-    groups = defaultdict(list)
-    for i, chunk in enumerate(chunks):
-        groups[root(i)].append(chunk)
-    records = []
-    for group in groups.values():
-        refs = {}
-        for chunk in group:
-            for ref in claim_evidence_references(chunk, elements):
-                key = evidence_key(ref)
-                refs.setdefault(key, {'reference': ref, 'original_chunk_ids': []})
-                refs[key]['original_chunk_ids'].append(chunk['id'])
-        refs = sorted(refs.values(), key=lambda r: (elements[r['reference']['element_id']]['ordinal'],
-                      r['reference'].get('span', {}).get('start', -1), evidence_key(r['reference'])))
-        # Spanless context is retained in provenance, but is not promoted to evidence.
-        parts = []
-        for item in refs:
-            ref = item['reference']
-            text = elements[ref['element_id']]['text']
-            span = ref.get('span')
-            parts.append(text[span['start']:span['end']] if span else text)
-        ids = [c['id'] for c in group]
-        records.append({'id': 'structural:' + stable_hash([VERSION, ids, refs]),
-                        'document_id': group[0]['document_id'], 'original_chunk_ids': ids,
-                        'text': '\n\n'.join(parts), 'evidence_memberships': refs})
-    return sorted(records, key=lambda r: r['id']), [links[k] for k in sorted(links)]
+    return [links[k] for k in sorted(links)]

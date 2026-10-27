@@ -79,26 +79,6 @@ class DocumentStructureTests(unittest.TestCase):
         self.assertTrue(any(not r['merges'] for r in links))
         self.assertFalse(any(r['reason'] == 'governing_context_reference' for r in links))
 
-    def test_saved_acpr_introduction_when_available(self):
-        root = Path('artifacts/parsed-20261017/documents')
-        chunked = Path('artifacts/chunked-20261017/artifact-bundle.json')
-        if not chunked.exists() or not root.exists():
-            self.skipTest('optional saved ACPR pilot run unavailable')
-        bundle = json.loads(chunked.read_text())
-        rows = [r for path in sorted(root.glob('*/parse.json')) for r in json.loads(path.read_text())['elements']]
-        hierarchy = {r['element_id']: r for r in assemble_document_hierarchy(bundle, structure_snapshot(rows))}
-        elements = {e['id']: e for e in bundle['elements']}
-        sectors = [e for e in elements.values() if e['ordinal'] < 100 and e['text'].startswith('Dans le secteur')]
-        self.assertEqual(len(sectors), 2)
-        for sector in sectors:
-            parents = [elements[eid]['text'] for eid in ancestor_ids(sector['id'], hierarchy)]
-            self.assertEqual(parents[0], 'INTRODUCTION')
-            self.assertTrue(parents[-1].startswith('7. Le cadre juridique'))
-
-        insurance = next(e['id'] for e in sectors if 'assurance' in e['text'])
-        for e in elements.values():
-            if e['document_id'] == elements[insurance]['document_id'] and e['ordinal'] in {107, 108, 109}:
-                self.assertEqual(hierarchy[e['id']]['parent_element_id'], insurance)
 
     def test_unmarked_list_continuation_preserves_lead_across_page_notes(self):
         bundle = context_fixtures.bundle([

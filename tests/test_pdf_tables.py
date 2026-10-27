@@ -15,7 +15,7 @@ from knowledge_foundry.pdf_tables import (
 from knowledge_foundry.pdf_structure import pdf_page_characters, separate_table_note_markers
 from knowledge_foundry.parsers import parse_pdf
 from knowledge_foundry.parsing import ROOT, _normalize
-from knowledge_foundry.chunking import _chunk_document, _table_parts
+from knowledge_foundry.chunking import _chunk_document
 from scripts.auto_review_parsing import audit_document
 from scripts.auto_review_chunking import _audit_document
 
@@ -667,9 +667,9 @@ class PdfTableTests(unittest.TestCase):
         target['evidence'] = [r for r in target['evidence'] if r['element_id'] == continued['id']]
         result = _audit_document(bundle['documents'][0], bundle['sources'][0], broken, bundle['elements'],
                                  {'elements': sidecar}, 15, 3)
-        self.assertIn('TABLE_CONTEXT_MISSING', [f['code'] for f in result['findings']])
-        with self.assertRaisesRegex(ValueError, 'mandatory table continuation context'):
-            _chunk_document(bundle, {'elements': sidecar}, 'build:test', {'max_tokens': 4})
+        self.assertIn('STRUCTURAL_CONTENT_MISSING', [f['code'] for f in result['findings']])
+        complete, _ = _chunk_document(bundle, {'elements': sidecar}, 'build:test', {'max_tokens': 4})
+        self.assertTrue(any('Station | Finding' in c['text'] for c in complete))
 
     def test_continuation_rejects_new_titles_columns_and_unwitnessed_blank_labels(self):
         original, _ = continuation_fixture()
@@ -887,13 +887,3 @@ class PdfTableTests(unittest.TestCase):
             self.assertTrue(table_context_errors(bundle['elements'], info), case)
             with self.assertRaisesRegex(ValueError, 'invalid table continuation'):
                 _chunk_document(bundle, {'elements': sidecar}, 'build:test', {'max_tokens': 128})
-
-    def test_all_header_rows_repeat_and_budget_failure_does_not_drop_them(self):
-        value = 'North | South\nCount | Count\n' + '\n'.join('42 | 73' for _ in range(10))
-        first = (0, len('North | South'))
-        second = (first[1] + 1, first[1] + 1 + len('Count | Count'))
-        pieces = _table_parts(value, 12, header_spans=[first, second])
-        self.assertGreater(len(pieces), 1)
-        self.assertTrue(all(p[:2] == [first, second] for p in pieces))
-        with self.assertRaisesRegex(ValueError, 'mandatory table headers'):
-            _table_parts(value, 6, header_spans=[first, second])

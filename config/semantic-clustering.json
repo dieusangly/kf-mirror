@@ -1,7 +1,7 @@
 {
   "steps": {
     "structural_chunks": {
-      "version": "structural-chunks-v3"
+      "version": "structural-chunks-v4"
     },
     "embeddings": {
       "provider": "openai",

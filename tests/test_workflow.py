@@ -27,8 +27,8 @@ def test_manual_steps_use_latest_paths_and_block_missing_pending_gates(manual, c
     assert not commands[0]
     for stage in ('ingest', 'parse', 'parsing_evaluation'):
         manual.run(limits(), only_stage=stage)
-    assert manual.output('parse') == manual.directory / 'parsing'
-    assert manual.output('parsing_evaluation') == manual.directory / 'parsing/automatic-review'
+    assert manual.output('parse') == manual.directory / 'document-structuring/parsing'
+    assert manual.output('parsing_evaluation') == manual.directory / 'document-structuring/parsing/automatic-review'
     assert not manual.stale()
     with pytest.raises(ValueError, match='gate pending'):
         manual.run(limits(allow_paid=False), only_stage='parsing_review')
@@ -61,6 +61,7 @@ def test_manual_parsing_review_records_embedded_audit_without_separate_process(m
 
 
 def test_manual_parse_repair_passes_native_input_to_builder(manual, tmp_path):
+    manual.state['stages']['ingest'] = {'directory': str(manual.stage_path('ingest'))}
     prior = tmp_path / 'archived-parsing'
     manual.native_input_dir = prior
     command = manual.command('parse', manual.stage_path('parse'))
@@ -139,7 +140,7 @@ def test_manual_archive_groups_findings_invalidates_downstream_and_preserves_cos
 def test_manual_ingest_repair_archives_unregistered_review_without_changing_budgets(manual, commands):
     for stage in ('ingest', 'parse'):
         manual.run(limits(), only_stage=stage)
-    review = manual.directory / 'parsing-review'
+    review = manual.directory / 'document-structuring/parsing-review'
     w.write(review / 'review.json', {'reviews': [{'status': 'pending', 'notes': 'Retain original findings'}]})
     w.write(review / 'report.json', {'automatic_gate': 'fail'})
     expected = w.fingerprints(review)
@@ -163,7 +164,7 @@ def test_manual_unregistered_review_symlink_is_rejected_before_archival(manual, 
     for stage in ('ingest', 'parse'):
         manual.run(limits(), only_stage=stage)
     outside = tmp_path / 'external-review'; outside.mkdir()
-    (manual.directory / 'parsing-review').symlink_to(outside, target_is_directory=True)
+    (manual.directory / 'document-structuring/parsing-review').symlink_to(outside, target_is_directory=True)
     if dangling:
         outside.rmdir()
     with pytest.raises(ValueError, match='stage directory escapes'):
@@ -192,8 +193,8 @@ def test_manual_interrupted_stage_archives_partial_output_before_restart(manual,
 
 def test_manual_untracked_outputs_and_failed_reviews_are_not_overwritten(manual, commands):
     manual.run(limits(), only_stage='ingest')
-    untracked = manual.directory / 'parsing'
-    untracked.mkdir()
+    untracked = manual.directory / 'document-structuring/parsing'
+    untracked.mkdir(parents=True)
     (untracked / 'evidence.txt').write_text('not managed by this run')
     with pytest.raises(ValueError, match='untracked output'):
         manual.run(limits(), only_stage='parse')
@@ -202,23 +203,6 @@ def test_manual_untracked_outputs_and_failed_reviews_are_not_overwritten(manual,
         manual.run(limits(), only_stage='publish')
 
 
-def test_current_and_legacy_run_discovery_and_mode_isolation(controller):
-    controller.save()
-    assert controller.directory == controller.root / 'artifacts/fixture-run'
-    with pytest.raises(ValueError, match='execution mode differs'):
-        w.Workflow('fixture-run', root=controller.root, mode='manual')
-    legacy = controller.root / 'artifacts/workflow/fixture-run'
-    legacy.parent.mkdir()
-    controller.directory.rename(legacy)
-    state = w.read(legacy / 'state.json')
-    state.pop('layout_version')
-    state.pop('execution_mode')
-    w.write(legacy / 'state.json', state)
-    restored = w.Workflow('fixture-run', root=controller.root)
-    assert restored.directory == legacy and restored.stage_path('parse') == legacy / 'parse'
-    w.write(controller.directory / 'state.json', state)
-    with pytest.raises(ValueError, match='ambiguous run ID'):
-        w.Workflow('fixture-run', root=controller.root)
 
 
 def test_step_cli_initializes_only_requested_stage_and_records_report(controller, commands, monkeypatch, capsys):
@@ -243,8 +227,8 @@ def test_real_manual_ingestion_parsing_and_audit_are_saved_offline(manual, monke
     for stage in ('ingest', 'parse', 'parsing_evaluation'):
         manual.run(limits(allow_paid=False), only_stage=stage)
     assert w.read(manual.directory / 'ingestion/report.json')['outcomes'][0]['status'] == 'ingested'
-    assert w.read(manual.directory / 'parsing/report.json')['outcomes'][0]['status'] == 'parsed'
-    assert w.read(manual.directory / 'parsing/automatic-review/report.json')['gate']['status'] == 'pass'
+    assert w.read(manual.directory / 'document-structuring/parsing/report.json')['outcomes'][0]['status'] == 'parsed'
+    assert w.read(manual.directory / 'document-structuring/parsing/automatic-review/report.json')['gate']['status'] == 'pass'
     assert not manual.stale()
 
 
@@ -390,6 +374,8 @@ def controller(tmp_path):
 @pytest.fixture
 def commands(monkeypatch, controller):
     calls = []
+    monkeypatch.setattr('knowledge_foundry.document_structuring.load_validated_structure',
+                        lambda *_a, **_kw: {'acceptance': {'status': 'accepted'}})
     def execute(command, directory, timeout, **kwargs):
         relative = directory.relative_to(controller.directory)
         if relative.name.startswith('attempt-'):
@@ -410,7 +396,10 @@ def commands(monkeypatch, controller):
                 report['automatic_audit'] = {'gate': {'status': 'pass'}}
             w.write(directory / 'report.json', report)
             return 0  # Deliberately 0 even when pending/failed: gate fields must win.
-        if stage in {'parse', 'ingest'}:
+        if stage == 'ingest':
+            from knowledge_foundry.ingestion import ingest
+            ingest(controller.pipeline_path, directory)
+        elif stage == 'parse':
             w.write((bundle if stage == 'parse' else directory) / 'report.json',
                     {'outcomes': [{'status': 'parsed' if stage == 'parse' else 'ingested'}]})
         elif stage == 'parsing_evaluation':
@@ -462,22 +451,8 @@ def test_end_to_end_order_reuse_and_publication_is_explicit(controller, commands
     assert not any(stage == 'publish' for stage, _ in calls)
 
 
-def test_legacy_layout_keeps_its_existing_audit_stage(controller, commands, monkeypatch):
-    controller.state.pop('layout_version')
-    monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
-    controller.run(limits(), stop_after='parsing_review')
-    assert any(stage == 'parsing_evaluation' for stage, _ in commands[0])
-    assert controller.state['stages']['parsing_evaluation']['status'] == 'complete'
-    assert controller.state['stages']['parsing_review']['status'] == 'complete'
 
 
-def test_existing_v2_runs_keep_nested_build_paths(controller, commands):
-    controller.state['layout_version'] = 2
-    controller.run(limits(), stop_after='parse')
-    restored = w.Workflow('fixture-run', root=controller.root)
-    assert restored.bundle_directory('parse') == restored.output('parse') / 'build'
-    assert (restored.bundle_directory('parse') / 'report.json').exists()
-    assert restored.state['layout_version'] == 2
 
 
 @pytest.mark.parametrize('review_stage', ['parsing_review', 'chunk_review'])
@@ -540,8 +515,8 @@ def test_stale_inputs_and_artifacts_are_rejected(controller, commands, monkeypat
     controller.run(limits(), stop_after='ingest')
     (controller.root / 'cases.json').write_text('[]')
     assert any('inputs/configuration' in issue for issue in controller.stale())
-    with pytest.raises(ValueError, match='require --repair-from ingest'):
-        controller.repair('parse', 'Updated fixture case identity deliberately')
+    controller.repair('retrieval', 'Updated fixture case identity deliberately')
+    assert controller.state['stages']['ingest']['status'] == 'complete'
 
 
 def test_interruption_resume_preserves_attempt_and_restarts_frozen_builder(controller, commands, monkeypatch):
@@ -1026,8 +1001,8 @@ def test_parsing_review_locations_outside_config_are_explicitly_hash_bound(contr
     assert command[command.index('--required-pages') + 1] == str(selection)
     w.write(selection, [{'source_id': 'src:fixture', 'page': 2}])
     assert any('inputs/configuration/code changed' in issue for issue in controller.stale())
-    with pytest.raises(ValueError, match='conservatively require --repair-from ingest'):
-        controller.repair('parsing_review', 'Changing selection requires affected outputs to invalidate')
+    controller.repair('parsing_review', 'Changing selection invalidates the review and downstream only')
+    assert 'parse' in controller.state['stages']
 
 
 def test_viewer_assets_remain_hash_bound_outside_scripts(controller):
@@ -1038,3 +1013,20 @@ def test_viewer_assets_remain_hash_bound_outside_scripts(controller):
     assert str(asset) in controller.state['identity']
     asset.write_text('// changed fixture asset')
     assert any('inputs/configuration/code changed' in issue for issue in controller.stale())
+
+@pytest.mark.parametrize('changed_key,stage', [('structuring', 'parse'), ('chunking', 'chunk')])
+def test_structuring_config_repairs_preserve_ingestion(controller, commands, monkeypatch, changed_key, stage):
+    monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
+    controller.run(limits(), stop_after='chunk')
+    ingestion = copy.deepcopy(controller.state['stages']['ingest'])
+    inventory = (controller.output('ingest') / 'report.json').read_bytes()
+    config = w.read(controller.pipeline_path)
+    config[changed_key] = {'provider': 'internal', 'options': {'ocr': {'mode': 'force'}}} if stage == 'parse' else {'max_tokens': 512}
+    w.write(controller.pipeline_path, config)
+    assert controller.changed_stages() == {stage}
+    controller.repair(stage, 'Correct the provider or structural packing settings')
+    assert controller.state['stages']['ingest'] == ingestion
+    assert (controller.output('ingest') / 'report.json').read_bytes() == inventory
+    if stage == 'chunk':
+        assert controller.state['stages']['parse']['status'] == 'complete'
+        assert controller.state['stages']['parsing_review']['status'] == 'complete'

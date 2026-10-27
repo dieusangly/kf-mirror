@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from claim_fixtures import fixture_settings
-from knowledge_foundry.claim_context import prepare_claim_context
+from claim_fixtures import prepare_claim_context
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, FixtureProvider, _build_id, _candidate_manifest, classify_claims, generate_claims,
 )

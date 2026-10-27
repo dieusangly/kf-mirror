@@ -15,9 +15,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from knowledge_foundry.chunking import (  # noqa: E402
-    TOKEN, clean, token_count, _table_headers, prose_assemblies, opening_span, render_passages,
+    TOKEN, clean, token_count, render_passages,
 )
-from knowledge_foundry.pdf_tables import context_for_spans, table_context_errors  # noqa: E402
 from knowledge_foundry.review import (  # noqa: E402
     apply_reviews as _apply_reviews,
     read_review_policy, review_policy_digest,
@@ -79,19 +78,6 @@ def _tokens(text):
     return TOKEN.findall(text)
 
 
-def _location_key(element):
-    location = element["location"]
-    if location["format"] == "pdf" and "bbox" in location:
-        return ("pdf", location["page"], tuple(location["bbox"]))
-    return (element["locator_key"],)
-
-
-def _table_header_span(element):
-    """Return the first serialized table row, which may repeat as context."""
-    end = element["text"].find("\n")
-    return (0, len(element["text"]) if end < 0 else end)
-
-
 def _normalized(text):
     text = unicodedata.normalize("NFKD", text).casefold()
     text = "".join(char for char in text if not unicodedata.combining(char))
@@ -145,202 +131,58 @@ def _sample(chunks, elements, sidecar, source, maximum, count, body_chunks):
 
 
 def _audit_document(doc, source, chunks, elements, sidecar, maximum, sample_count):
-    info = {item["element_id"]: item for item in sidecar["elements"]}
-    ids = {element["id"]: element for element in elements}
+    """Audit complete structural units without imposing a hard token ceiling."""
+    from knowledge_foundry.document_structuring import audit_evidence
+    info = {row['element_id']: row for row in sidecar['elements']}
+    ids = {e['id']: e for e in elements}
+    if set(info) != set(ids):
+        return {'source_id': source['id'], 'document_id': doc['id'], 'metrics': {},
+                'findings': [{'code': 'SIDECAR_MISMATCH', 'severity': 'error', 'count': 1, 'examples': []}],
+                'review_sample': []}
+    audit = audit_evidence(elements, chunks, info)
     findings = {}
-    metrics = {"chunks": len(chunks), "authoritative_elements": 0,
-               "covered_elements": 0, "exact_duplicates_removed": 0,
-               "list_items_split_while_fitting": 0, "oversize_list_items_split": 0,
-               "tables_split": 0, "short_chunks": 0, "near_limit_chunks": 0,
-               "min_tokens": None, "median_tokens": None, "max_tokens": None}
-    if len(info) != len(elements) or set(info) != set(ids):
-        _finding(findings, "SIDECAR_MISMATCH", "error", {"document_id": doc["id"]})
-        return {"source_id": doc["source_id"], "document_id": doc["id"],
-                "metrics": metrics, "findings": list(findings.values()), "review_sample": []}
-    if [chunk["sequence"] for chunk in chunks] != list(range(len(chunks))):
-        _finding(findings, "CHUNK_SEQUENCE", "error", {"document_id": doc["id"]})
-    context_errors = table_context_errors(elements, info)
-    invalid_context_tables = {e['table_id'] for e in context_errors}
-    for error in context_errors:
-        _finding(findings, 'INVALID_TABLE_CONTEXT', 'error', error)
-    body_refs = defaultdict(list)
+    for item in audit['findings']:
+        _finding(findings, item['code'], item['severity'], item)
+    if [c['sequence'] for c in chunks] != list(range(len(chunks))):
+        _finding(findings, 'CHUNK_SEQUENCE', 'error', {'document_id': doc['id']})
     body_chunks = defaultdict(set)
-    body_order = []
-    repeated_table_headers = set()
-    working, assemblies, reading_rank = prose_assemblies(elements, info)
-    assembly_sizes = {member['id']: token_count(e['text']) for e in working
-                      for _, _, member in assemblies[e['id']]}
-    openings, positions = {}, {}
-    for element in working:
-        if element['kind'] == 'table':
-            continue  # Tables use their physical column-header rules.
-        opening = opening_span(element['text'], maximum)
-        if not opening:
-            continue
-        refs = set()
-        for left, right, member in assemblies[element['id']]:
-            positions[member['id']] = (element['id'], left)
-            a, b = max(left, opening[0]), min(right, opening[1])
-            if a < b:
-                refs.add((member['id'], a-left, b-left))
-        openings[element['id']] = (opening[1], refs, token_count(element['text']) > maximum)
-    def header_spans(element):
-        spans = _table_headers(element, elements, info)
-        return set(spans) if spans is not None else {_table_header_span(element)}
-    sizes = []
+    order = {'body': [], 'notes': []}
     for chunk in chunks:
-        size = token_count(chunk["text"])
-        sizes.append(size)
-        if size > maximum:
-            _finding(findings, "TOKEN_LIMIT", "error", {"chunk_id": chunk["id"], "tokens": size})
-        if size < max(16, maximum // 8):
-            metrics["short_chunks"] += 1
-        if size >= maximum * .9:
-            metrics["near_limit_chunks"] += 1
         rendered = []
-        paths = set()
-        table_ids = set()
-        non_table_ids = set()
-        body_seen = False
-        table_sources = [ids[ref['element_id']] for ref in chunk['evidence']
-                         if ref['element_id'] in ids and ids[ref['element_id']]['kind'] == 'table'
-                         and 'span' in ref]
-        table_body = max(table_sources, key=lambda e: e['ordinal']) if table_sources else None
-        def signature(ref):
-            span = ref.get('span', {})
-            return ref['element_id'], span.get('start'), span.get('end')
-        required_context = set()
         for ref in chunk['evidence']:
-            if ref['element_id'] not in positions or 'span' not in ref:
+            e = ids.get(ref['element_id'])
+            if e is None:
+                _finding(findings, 'EVIDENCE_MISSING', 'error', {'chunk_id': chunk['id']})
                 continue
-            root, offset = positions[ref['element_id']]
-            end, context_refs, mandatory = openings[root]
-            if offset + ref['span']['start'] >= end:
-                present = {signature(r) for r in chunk['evidence']}
-                covered = all(any(r['element_id'] == cid and 'span' in r and
-                                  r['span']['start'] <= a and r['span']['end'] >= b
-                                  for r in chunk['evidence']) for cid, a, b in context_refs)
-                if mandatory and not covered:
-                    _finding(findings, 'PASSAGE_CONTEXT_MISSING', 'error', {'chunk_id': chunk['id']})
-                required_context.update(context_refs & present)
-        if table_body and table_body['id'] not in invalid_context_tables:
-            body_spans = [(ref['span']['start'], ref['span']['end']) for ref in chunk['evidence']
-                          if ref['element_id'] == table_body['id'] and 'span' in ref]
-            required_context.update(signature(ref) for ref in context_for_spans(info[table_body['id']], body_spans))
-            if not required_context <= {signature(ref) for ref in chunk['evidence']}:
-                _finding(findings, 'TABLE_CONTEXT_MISSING', 'error', {'chunk_id': chunk['id']})
-        for ref in chunk["evidence"]:
-            element = ids.get(ref["element_id"])
-            if element is None:
-                _finding(findings, "EVIDENCE_MISSING", "error", {"chunk_id": chunk["id"], "element_id": ref["element_id"]})
-                continue
-            detail = info[element["id"]]
-            if detail.get("evidence_role") != "authoritative":
-                _finding(findings, "NON_AUTHORITATIVE_EVIDENCE", "error",
-                         {"chunk_id": chunk["id"], "element_id": element["id"], "role": detail.get("evidence_role")})
-            span = ref.get("span")
-            if span is None:
-                if element["kind"] != "heading" and (body_seen or not body_refs[element["id"]]):
-                    _finding(findings, "UNSPANNED_BODY", "error", {"chunk_id": chunk["id"], "element_id": element["id"]})
-                text = element["text"]
-            else:
-                start, end = span["start"], span["end"]
-                if not 0 <= start < end <= len(element["text"]):
-                    _finding(findings, "EVIDENCE_SPAN", "error", {"chunk_id": chunk["id"], "element_id": element["id"]})
+            span = ref.get('span')
+            if span:
+                if not 0 <= span['start'] < span['end'] <= len(e['text']):
+                    _finding(findings, 'EVIDENCE_SPAN', 'error', {'chunk_id': chunk['id']})
                     continue
-                text = element["text"][start:end]
-                if signature(ref) in required_context:
-                    if body_seen:
-                        _finding(findings, 'TABLE_CONTEXT_ORDER', 'error', {'chunk_id': chunk['id']})
-                    rendered.append(clean(text, table=element['kind'] == 'table'))
-                    if element['kind'] == 'table' and not body_refs[element['id']]:
-                        # A header-only source fragment is first emitted with
-                        # its physical body, instead of as a stranded chunk.
-                        body_refs[element['id']].append((start, end, chunk['id']))
-                        body_chunks[element['id']].add(chunk['id'])
-                        body_order.append((reading_rank[element['id']], start))
-                    continue  # Cited inherited context is not another table's body.
-                body_refs[element["id"]].append((start, end, chunk["id"]))
-                body_chunks[element["id"]].add(chunk["id"])
-                header_context = (element["kind"] == "table" and
-                                  (start, end) in header_spans(element) and
-                                  (element['id'], start, end) in repeated_table_headers)
-                if not header_context:
-                    body_order.append((reading_rank[element['id']], start))
-                if element["kind"] == "table" and (start, end) in header_spans(element):
-                    repeated_table_headers.add((element['id'], start, end))
-                body_seen = True
-                if element["kind"] != "heading":
-                    paths.add(tuple(detail.get("heading_path") or []))
-                if element["kind"] == "table":
-                    table_ids.add(element["id"])
-                elif element["kind"] != "heading":
-                    non_table_ids.add(element["id"])
-            rendered.append(clean(text, table=element["kind"] == "table"))
-        if chunk["text"] != render_passages(rendered, chunk['evidence'], ids, info):
-            _finding(findings, "CHUNK_TEXT_MISMATCH", "error", {"chunk_id": chunk["id"]})
-        if len(paths) > 1:
-            _finding(findings, "CROSS_SECTION", "error", {"chunk_id": chunk["id"]})
-        if table_ids and (len(table_ids) > 1 or non_table_ids):
-            _finding(findings, "TABLE_MIXED_WITH_PROSE", "error", {"chunk_id": chunk["id"]})
-    if body_order != sorted(body_order):
-        _finding(findings, "READING_ORDER", "error", {"document_id": doc["id"]})
-    if sizes:
-        ordered = sorted(sizes)
-        metrics["min_tokens"] = ordered[0]
-        metrics["median_tokens"] = (ordered[(len(ordered)-1)//2] + ordered[len(ordered)//2]) / 2
-        metrics["max_tokens"] = ordered[-1]
-    seen = set()
-    for element in elements:
-        role = info[element["id"]].get("evidence_role")
-        if role != "authoritative" or not clean(element["text"]):
-            if body_refs[element["id"]]:
-                _finding(findings, "NON_AUTHORITATIVE_BODY", "error", {"element_id": element["id"]})
-            continue
-        metrics["authoritative_elements"] += 1
-        is_table = element["kind"] == "table"
-        source_text = clean(element["text"], table=is_table)
-        key = (_location_key(element), element["kind"], source_text)
-        duplicate = key in seen
-        seen.add(key)
-        refs = body_refs[element["id"]]
-        if duplicate:
-            metrics["exact_duplicates_removed"] += 1
-            if refs:
-                _finding(findings, "DUPLICATE_NOT_REMOVED", "error", {"element_id": element["id"]})
-            continue
-        if not refs:
-            _finding(findings, "AUTHORITATIVE_TEXT_MISSING", "error", {"element_id": element["id"]})
-            continue
-        metrics["covered_elements"] += 1
-        coverage_refs = refs
-        if is_table:
-            headers = header_spans(element)
-            headers_seen = set()
-            coverage_refs = []
-            for ref in refs:
-                if ref[:2] in headers:
-                    if ref[:2] in headers_seen:
-                        continue
-                    headers_seen.add(ref[:2])
-                coverage_refs.append(ref)
-        actual = [token for start, end, _ in coverage_refs
-                  for token in _tokens(clean(element["text"][start:end], table=is_table))]
-        expected = _tokens(source_text)
-        if actual != expected:
-            _finding(findings, "TEXT_COVERAGE", "error", {"element_id": element["id"],
-                                                           "expected_tokens": len(expected), "actual_tokens": len(actual)})
-        if element["kind"] == "list_item" and len(body_chunks[element["id"]]) > 1:
-            if assembly_sizes[element['id']] <= maximum:
-                metrics["list_items_split_while_fitting"] += 1
-                _finding(findings, "FITTING_LIST_ITEM_SPLIT", "error", {"element_id": element["id"]})
+                if info[e['id']].get('evidence_role') != 'authoritative':
+                    _finding(findings, 'NON_AUTHORITATIVE_BODY', 'error', {'chunk_id': chunk['id']})
+                body_chunks[e['id']].add(chunk['id'])
+                order['notes' if e['kind'] == 'footnote' else 'body'].append((e['ordinal'], span['start']))
+                text = e['text'][span['start']:span['end']]
             else:
-                metrics["oversize_list_items_split"] += 1
-        if is_table and len(body_chunks[element["id"]]) > 1:
-            metrics["tables_split"] += 1
-    return {"source_id": doc["source_id"], "document_id": doc["id"],
-            "metrics": metrics, "findings": list(findings.values()),
-            "review_sample": _sample(chunks, ids, info, source, maximum, sample_count, body_chunks)}
+                text = e['text']
+            rendered.append(clean(text, table=e['kind'] == 'table'))
+        if not chunk['chunker_version'].startswith('provider-') and chunk['text'] != render_passages(rendered, chunk['evidence'], ids, info):
+            _finding(findings, 'CHUNK_TEXT_MISMATCH', 'error', {'chunk_id': chunk['id']})
+    if any(rows != sorted(rows) for rows in order.values()):
+        _finding(findings, 'READING_ORDER', 'error', {'document_id': doc['id']})
+    sizes = sorted(token_count(c['text']) for c in chunks)
+    metrics = {'chunks': len(chunks), 'authoritative_elements': audit['authoritative_elements'],
+               'covered_elements': audit['covered_elements'], 'exact_duplicates_removed': 0,
+               'list_items_split_while_fitting': 0, 'oversize_list_items_split': 0, 'tables_split': 0,
+               'short_chunks': sum(n < max(16, maximum // 8) for n in sizes),
+               'near_limit_chunks': sum(n >= maximum * .9 for n in sizes),
+               'oversized_structural_units': sum(n > maximum for n in sizes),
+               'min_tokens': sizes[0] if sizes else None, 'max_tokens': sizes[-1] if sizes else None,
+               'median_tokens': sizes[len(sizes)//2] if sizes else None}
+    return {'source_id': source['id'], 'document_id': doc['id'], 'metrics': metrics,
+            'findings': list(findings.values()),
+            'review_sample': _sample(chunks, ids, info, source, maximum, sample_count, body_chunks)}
 
 
 def _audit_figures(links, parsed_dir, sidecars, documents, elements):
@@ -524,6 +366,14 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
         for item in reference_findings:
             findings[item["code"]] = item
     samples = [sample for document in documents for sample in document["review_sample"]]
+    structural_path = chunked_dir / 'structural-chunks.jsonl'
+    if structural_path.exists():
+        final_chunks = [json.loads(line) for line in structural_path.read_text().splitlines()]
+        for sample in samples:
+            sample['structural_chunks'] = [{**record, 'context_elements': [elements[eid]
+                for eid in record.get('context_element_ids', [])]} for record in final_chunks
+                if sample['chunk_id'] in record['original_chunk_ids']]
+
     review = json.loads(Path(review_path).read_text(encoding="utf-8")) if review_path else None
     policy_hash = review_policy_digest(policy, 'chunking')
     if review is not None and review.get('review_policy_sha256', policy_hash) != policy_hash:
@@ -560,12 +410,15 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
               "short_chunks": sum(item["metrics"]["short_chunks"] for item in documents),
               "near_limit_chunks": sum(item["metrics"]["near_limit_chunks"] for item in documents),
               "fitting_list_items_split": sum(item["metrics"]["list_items_split_while_fitting"] for item in documents)}
-    return {"evaluation_version": EVALUATION_VERSION, "build_id": bundle["builds"][0]["id"],
+    snapshot = json.loads((chunked_dir / "structuring-manifest.json").read_text()) if (chunked_dir / "structuring-manifest.json").exists() else {}
+    if review is not None and review.get("structuring_snapshot_sha256") != snapshot.get("snapshot_sha256"):
+        raise ValueError("stale structuring review snapshot")
+    return {"structuring_snapshot_sha256": snapshot.get("snapshot_sha256"), "evaluation_version": EVALUATION_VERSION, "build_id": bundle["builds"][0]["id"],
             "automatic_gate": automatic_gate, "review_gate": review_summary["status"],
             "gate": gate, "max_tokens": maximum, "corpus": corpus, "documents": documents,
             "figures": {key: figure_audit[key] for key in ("expected", "linked")},
             "references": references, "review_policy": policy, "review_policy_sha256": policy_hash, "review": review_summary, "reviewer": reviewer,
-            "review_template": {"build_id": bundle["builds"][0]["id"],
+            "review_template": {"structuring_snapshot_sha256": snapshot.get("snapshot_sha256"), "build_id": bundle["builds"][0]["id"],
                                 "review_policy_sha256": policy_hash,
                                 "reviewer": {"kind": None, "name": None, "model": None,
                                              "model_reasoning_effort": None, "launch_mode": None},

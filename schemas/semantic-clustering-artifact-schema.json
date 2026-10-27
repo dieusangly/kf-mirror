@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Frozen structural chunks and semantic clusters build manifest",
+  "title": "Frozen structural chunks with hierarchy and semantic clusters",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,10 +15,10 @@
   ],
   "properties": {
     "version": {
-      "const": 1
+      "const": 2
     },
     "stage": {
-      "const": "claim-context-preparation"
+      "const": "semantic-clustering"
     },
     "config": {
       "type": "object"
@@ -69,7 +69,8 @@
         "document_id",
         "original_chunk_ids",
         "text",
-        "evidence_memberships"
+        "evidence_memberships",
+        "context_element_ids"
       ],
       "properties": {
         "id": {
@@ -160,6 +161,14 @@
               }
             }
           }
+        },
+        "context_element_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -170,7 +179,8 @@
         "original_chunk_ids",
         "element_ids",
         "reason",
-        "strength"
+        "strength",
+        "merges"
       ],
       "properties": {
         "original_chunk_ids": {
@@ -201,7 +211,8 @@
             "nested_list_introduction",
             "adjacent_table_continuation",
             "adjacent_sentence_continuation",
-            "same_page_unique_note_marker"
+            "same_page_unique_note_marker",
+            "document_parent"
           ]
         },
         "strength": {
@@ -209,6 +220,9 @@
             "identity",
             "heuristic"
           ]
+        },
+        "merges": {
+          "type": "boolean"
         }
       }
     },
@@ -330,6 +344,143 @@
           "type": "number",
           "minimum": -1,
           "maximum": 1
+        }
+      }
+    },
+    "document_structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "elements"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "elements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "element_id"
+            ],
+            "properties": {
+              "element_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parent_element_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "level": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "heading_path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "evidence_role": {
+                "enum": [
+                  "authoritative",
+                  "structural",
+                  "auxiliary"
+                ]
+              },
+              "docling_ref": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "docling_parent_ref": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "docling_group_depth": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "hierarchy_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "element_id",
+        "parent_element_id",
+        "role",
+        "basis"
+      ],
+      "properties": {
+        "element_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_element_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "enum": [
+            "content",
+            "section",
+            "numbered_paragraph",
+            "list_introduction",
+            "detached",
+            "boxed_context"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "root",
+            "parser_parent",
+            "heading_level",
+            "heading_flow",
+            "numbered_paragraph_scope",
+            "local_list_flow",
+            "page_heading_geometry",
+            "boxed_caption",
+            "boxed_scope",
+            "local_list_continuation"
+          ]
         }
       }
     }

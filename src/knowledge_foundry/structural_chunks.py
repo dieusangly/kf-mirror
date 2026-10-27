@@ -2,11 +2,11 @@
 
 from collections import defaultdict
 
-from knowledge_foundry._structural_chunks_v1 import footnote_links, stable_hash
+from knowledge_foundry.structural_links import footnote_links, stable_hash
 from knowledge_foundry.document_structure import assemble_document_hierarchy, ancestor_ids
 from knowledge_foundry.evidence import claim_evidence_references, evidence_key
 
-VERSION = "structural-chunks-v3"
+VERSION = "structural-chunks-v4"
 MAX_ORIGINAL_CHUNKS = 4
 MAX_ASSEMBLED_CHARACTERS = 12000
 
@@ -18,7 +18,7 @@ def assemble_structural_chunks(bundle, structure=None):
     with hard component bounds. Section/list/footnote links remain inspectable
     relationships. Original chunks and their evidence are never rewritten.
     """
-    from knowledge_foundry._structural_chunks_v1 import assemble_structural_chunks as legacy_assemble
+    from knowledge_foundry.structural_links import detect_links
 
     chunks = sorted(bundle['chunks'], key=lambda c: (c['document_id'], c['sequence'], c['id']))
     elements = {e['id']: e for e in bundle['elements']}
@@ -40,7 +40,8 @@ def assemble_structural_chunks(bundle, structure=None):
     def can_merge(a, b):
         group = members[root(a)] | members[root(b)]
         ordered = sorted(group)
-        return (len(group) <= MAX_ORIGINAL_CHUNKS and
+        return (not any(chunks[i]["chunker_version"].startswith("provider-") for i in group) and
+                len(group) <= MAX_ORIGINAL_CHUNKS and
                 ordered == list(range(ordered[0], ordered[-1] + 1)) and
                 sum(len(chunks[i]['text']) for i in group) <= MAX_ASSEMBLED_CHARACTERS and
                 len({elements[r['element_id']]['kind'] == 'footnote'
@@ -48,7 +49,7 @@ def assemble_structural_chunks(bundle, structure=None):
 
     # Reuse the proven geometric continuation detectors, but not their union
     # result. In particular a note marker or repeated context cannot union groups.
-    _, detected = legacy_assemble(bundle)
+    detected = detect_links(bundle)
     links = []
     merge_reasons = {'shared_element_fragments', 'adjacent_sentence_continuation', 'adjacent_table_continuation'}
     for row in detected:
@@ -133,7 +134,7 @@ def assemble_structural_chunks(bundle, structure=None):
         identity = [VERSION, ids, refs, [[eid, elements[eid]['revision']] for eid in context_ids]]
         records.append({'id': 'structural:' + stable_hash(identity),
                         'document_id': group[0]['document_id'], 'original_chunk_ids': ids,
-                        'text': '\n\n'.join(parts), 'evidence_memberships': refs,
+                        'text': group[0]['text'] if len(group) == 1 and group[0]['chunker_version'].startswith('provider-') else '\n\n'.join(parts), 'evidence_memberships': refs,
                         'context_element_ids': context_ids})
     unique_links = {stable_hash(row): row for row in links}
     return sorted(records, key=lambda r: r['id']), sorted(unique_links.values(), key=lambda r: (

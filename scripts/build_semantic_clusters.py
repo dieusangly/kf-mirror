@@ -1,4 +1,4 @@
-"""Build structural chunks and semantic clusters, saving embeddings and provenance."""
+"""Cluster validated structural chunks, saving embeddings and provenance."""
 import argparse
 import json
 from pathlib import Path
@@ -13,16 +13,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--chunked-dir', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--config', type=Path, default=ROOT / 'config/structural-chunks-and-semantic-clusters.json',
+    parser.add_argument('--config', type=Path, default=ROOT / 'config/semantic-clustering.json',
                         help='build settings, with an explicit claim request-sizing configuration reference')
     parser.add_argument('--cache-dir', type=Path)
     parser.add_argument('--fixture', type=Path, help='offline embedding vectors keyed by exact-text hash')
-    parser.add_argument('--parsed-dir', type=Path, help='matching saved parsing run for legacy chunks without document-structure.json')
     args = parser.parse_args(argv)
     try:
         report = prepare_claim_context(args.chunked_dir, args.output_dir, args.config, args.cache_dir, args.fixture,
-                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True),
-                                       parsed_dir=args.parsed_dir)
+                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True))
     except Exception as exc:
         parser.exit(2, f'structural chunks and semantic clusters build failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2))

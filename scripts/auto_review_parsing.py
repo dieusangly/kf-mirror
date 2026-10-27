@@ -769,6 +769,43 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
             "findings": sorted(findings.values(), key=lambda item: (item["code"], item["severity"]))}
 
 
+def audit_provider_document(outcome, bundle, sidecar, folder, source_path):
+    """Generic checks plus optional deterministic native export replay.
+
+    Native extraction completeness is a source-review judgment. Generic checks
+    never pretend to run Docling-specific recovery on a different provider.
+    """
+    from knowledge_foundry.parsing import _normalize
+    metrics = {key: 0 for key in METRIC_KEYS}
+    metrics['heading_depth_distribution'] = {}
+    findings = []
+    def flag(code, message):
+        findings.append({'code': code, 'severity': 'error', 'count': 1, 'examples': [{'message': message}]})
+    elements = {e['id']: e for e in bundle['elements']}
+    details = {r['element_id']: r for r in sidecar['elements']}
+    if set(elements) != set(details) or len(details) != len(sidecar['elements']):
+        flag('SIDECAR_MISMATCH', 'provider structure metadata differs from elements')
+    for eid, row in details.items():
+        parent = row.get('parent_element_id')
+        if parent and (parent not in elements or elements[parent]['ordinal'] >= elements[eid]['ordinal']):
+            flag('MALFORMED_PARENT', eid)
+    dialect = sidecar.get('export_dialect')
+    if dialect:
+        from knowledge_foundry.provider_exports import adapt_export
+        native = json.loads((folder / 'provider.json').read_text())
+        replay = adapt_export(dialect, native, {'source': bundle['sources'][0], 'artifact_file': str(source_path)})
+        expected, _ = _normalize(bundle['sources'][0], bundle['documents'][0], replay.elements)
+        if expected['elements'] != bundle['elements']:
+            flag('PROVIDER_REPLAY_MISMATCH', 'native export does not reproduce normalized elements')
+    requirements = list(sidecar.get('warnings', []))
+    if not dialect:
+        requirements.append({'code': 'provider_source_review_required',
+                             'message': 'No provider-native completeness audit is registered; inspect the source.'})
+    return {'source': outcome['manifest_id'], 'metrics': metrics, 'findings': findings,
+            'review_requirements': requirements, 'artifact_valid': False,
+            'limitation': 'Location/normalization checks do not establish provider extraction recall.'}
+
+
 def select_outcomes(input_dir, additional_input_dirs=()):
     """Use the newest run outcome whose files still match its recorded element count."""
     reports = [json.loads(path.read_text(encoding="utf-8"))
@@ -817,8 +854,11 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
             sidecar = json.loads((folder / "parse.json").read_text(encoding="utf-8"))
             corpus[outcome["manifest_id"]] = (bundle["elements"], sidecar["elements"])
             formats[outcome['manifest_id']] = bundle['sources'][0]['format']
-            document = audit_document(outcome, bundle["elements"], sidecar["elements"], folder,
-                                      source_path=Path(source_root) / outcome["local_path"])
+            source_path = Path(sidecar.get('ingested_artifact_file') or Path(source_root) / outcome['local_path'])
+            if sidecar.get('provider', 'internal') == 'internal':
+                document = audit_document(outcome, bundle['elements'], sidecar['elements'], folder, source_path=source_path)
+            else:
+                document = audit_provider_document(outcome, bundle, sidecar, folder, source_path)
             try:
                 validate_bundle(bundle)
                 document["artifact_valid"] = True
@@ -839,6 +879,8 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
         folder = Path(outcome["output"])
         invalid = []
         format_name = formats[outcome['manifest_id']]
+        parse_data = json.loads((folder / 'parse.json').read_text())
+        original_path = Path(parse_data.get('ingested_artifact_file') or Path(source_root) / outcome['local_path'])
         if format_name == 'pdf' and (folder / "docling.json").is_file():
             pages = json.loads((folder / "docling.json").read_text(encoding="utf-8"))["pages"]
             for element in elements:
@@ -852,18 +894,35 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
                     if not (0 <= left <= right <= page["size"]["width"] + 1 and
                             0 <= top <= bottom <= page["size"]["height"] + 1):
                         invalid.append(element["id"])
+        elif format_name == 'pdf' and parse_data.get('provider', 'internal') != 'internal':
+            import pypdfium2 as pdfium
+            sidecar = json.loads((folder / 'parse.json').read_text())
+            source_path = Path(sidecar.get('ingested_artifact_file') or Path(source_root) / outcome['local_path'])
+            with pdfium.PdfDocument(str(source_path)) as original:
+                for element in elements:
+                    loc = element['location']
+                    if not 1 <= loc['page'] <= len(original):
+                        invalid.append(element['id'])
+                    elif loc.get('bbox'):
+                        left, top, right, bottom = loc['bbox']
+                        page = original[loc['page'] - 1]
+                        if not (0 <= left <= right <= page.get_width() + 1 and 0 <= top <= bottom <= page.get_height() + 1):
+                            invalid.append(element['id'])
         elif format_name == 'html':
-            document = html.parse(str(Path(source_root) / outcome["local_path"])).getroot()
+            document = html.parse(str(original_path)).getroot()
             for element in elements:
                 selected = document.cssselect(element["location"]["selector"])
                 if len(selected) != 1:
                     invalid.append(element["id"])
+        elif format_name == 'markdown' and parse_data.get('provider', 'internal') != 'internal':
+            lines = original_path.read_text().splitlines()
+            invalid = [e['id'] for e in elements if not 1 <= e['location']['line_start'] <= e['location']['line_end'] <= len(lines)]
         elif format_name in {'markdown', 'docx'}:
             # Replay these deterministic native locators against the saved file;
             # Markdown line ranges and DOCX blocks/cells are not CSS selectors.
             settings = json.loads((folder / 'parse.json').read_text())['settings']
             parser = parse_markdown if format_name == 'markdown' else parse_docx
-            items, _, _ = parser(Path(source_root) / outcome['local_path'], {}, settings)
+            items, _, _ = parser(original_path, {}, settings)
             by_locator = {item['locator_key']: item for item in items}
             for element in elements:
                 original = by_locator.get(element['locator_key'])

@@ -1,0 +1,26 @@
+[
+  {
+    "source_id": "src:eu-reg-2024-1624-en",
+    "element_id": "el:2a5f03ecb8c4754a0a76a3d96947566743f5f3b791517a6bcf10aad202e178e4",
+    "forbidden_ancestor_id": "el:693542da2eb4aca1221663a5418450aa53c3c4b543640cd06483e939030242bd",
+    "page": 35,
+    "text": "(i) a crypto-asset service provider;",
+    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF pp34-35 Article 2(1)(6): (e) a collective investment undertaking, in particular governs only its (i)/(ii) investment-fund subitems. The chunk wrongly places sibling (i) a crypto-asset service provider under that lead-in. The original p35 shows (f),(g),(h),(i),(j) as siblings. Suggested correction: close (e) after its roman subitems and use the financial institution definition as the parent; do not infer scope from the repeated marker i."
+  },
+  {
+    "source_id": "src:eu-reg-2024-1624-en",
+    "element_id": "el:69d31cd31543012fc14db42f8758b50168a4db61d836a7e744f6f613f0a54659",
+    "forbidden_ancestor_id": "el:a2f70be1011204f08efe2e03c194ab41a6d1ef4dd7759511b0239c32faad9050",
+    "page": 39,
+    "text": "(39) 'management body in its supervisory function' means the management body acting in its role of overseeing and monitoring management decision-making;",
+    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF p39 Article 2(1): definition (36) person known to be a close associate has only subpoints (a),(b); definition (39) management body in its supervisory function is independent. Chunk prepends the (36) lead-in to (39), creating an unsupported definition relationship. Both source elements are present and located correctly. Suggested correction: close a definition scope at the next peer numbered definition."
+  },
+  {
+    "source_id": "src:eu-reg-2023-1113-en",
+    "element_id": "el:0b95b92656400a2f76174abdbc64d7189fd5ca56dd3d6ef9918e275b86ad464b",
+    "forbidden_ancestor_id": "el:f8c815a51af257fa1f5840b8ac43f1f6e450c57a0ad3dc29c19789c3b2dfef2b",
+    "page": 15,
+    "text": "(15) 'crypto-asset service provider' means a crypto-asset service provider as defined in Article 3(1), point (15), of Regulation (EU) 2023/1114, where performing one or more crypto-asset services as defined in Article 3(1), point (16), of that Regulation;",
+    "reason": "data/TFR23EN-eu-reg-2023-1113-en.pdf: PDF pp14-15 Article 3: point (9) transfer of funds governs only subpoints (a)-(d); point (15) crypto-asset service provider is an independent definition. Chunk places (15) under the stale (9) including: introduction. Suggested correction: close point (9) after (d) and start each peer definition independently; the source/parsed text contains both definitions."
+  }
+]
