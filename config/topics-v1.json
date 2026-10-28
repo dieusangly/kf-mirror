@@ -1,55 +1,110 @@
 {
-  "taxonomy_version": "aml-cft-pilot-v5",
+  "taxonomy_version": "aml-cft-pilot-v6",
   "topics": [
     {
-      "id": "topic:beneficial-ownership",
-      "title": "Bénéficiaires effectifs",
-      "scope": "Définition, détermination, identification et vérification des bénéficiaires effectifs ; détention, contrôle, seuils et recours en dernier ressort, avec leurs conditions. Exclut le simple bénéficiaire d'un paiement, les champs d'un formulaire DS ou COSI et les faits de propriété d'un cas sans lien explicite avec la détermination d'un bénéficiaire effectif."
+      "id": "topic:aml-cft-foundations",
+      "title": "Notions de BC-FT et infractions sous-jacentes",
+      "scope": "Définitions et éléments constitutifs du blanchiment de capitaux, du financement du terrorisme et du financement de la prolifération ; liens avec les infractions sous-jacentes et distinctions entre ces notions. Exclut les mécanismes concrets de schémas illicites, les niveaux de risque, les obligations opérationnelles et les compétences ou sanctions des autorités."
     },
     {
-      "id": "topic:ongoing-vigilance",
-      "title": "Vigilance constante",
-      "scope": "Suivi des relations d'affaires et des opérations dans la durée : actualisation des dossiers, surveillance, paramétrage, détection et analyse des alertes, indicateurs typologiques et cohérence des flux. Exclut les simples faits narratifs d'un cas, l'identification initiale, les obligations propres à l'examen renforcé et les obligations de déclaration DS ou COSI. Inclut la réévaluation du profil du client et l'adaptation de sa vigilance après une plainte ou une DS : le contexte déclaratif ne change pas cet objet. Les bonnes pratiques de vérification et surveillance d'un cas sans diligence renforcée explicitement désignée relèvent ici. Exclut l'attribution des rôles et responsabilités aux personnes chargées de détecter."
+      "id": "topic:regulatory-scope",
+      "title": "Assujettissement et champ d’application",
+      "scope": "Personnes, professions et activités assujetties à la LCB-FT, exemptions d'assujettissement, champ territorial et application des règles aux activités transfrontalières. Inclut les définitions qui déterminent le périmètre des entités ou activités couvertes. Exclut les exemptions ou conditions propres à une diligence, déclaration ou autre obligation : elles suivent cette obligation. Le statut explicatif d'un document et les dates d'application relèvent du statut des sources."
+    },
+    {
+      "id": "topic:risk-assessment",
+      "title": "Évaluation et classification des risques",
+      "scope": "Approche par les risques et méthodes d'évaluation nationale, sectorielle, institutionnelle ou individuelle ; menaces, vulnérabilités, facteurs et niveaux de risque liés aux clients, produits, canaux, pays et opérations ; risques inhérents et résiduels, effet des mesures d'atténuation sur leur cotation. Inclut les caractéristiques générales de schémas exprimées comme facteurs de risque. Exclut la description du fonctionnement d'un schéma sans proposition sur sa vulnérabilité ou son risque, les critères concrets de surveillance et les diligences opérationnelles spécifiques. La méthode d'évaluation des risques relève ici ; la finalité ou les limites éditoriales d'un rapport relèvent du statut des sources."
+    },
+    {
+      "id": "topic:typologies-threats",
+      "title": "Menaces et schémas de BC-FT",
+      "scope": "Mécanismes, circuits et modes opératoires généralisables de BC-FT : fraude, corruption, trafics, sociétés écrans, collecte de fonds terroristes et financement de la prolifération. Inclut les caractéristiques d'un schéma expliquées par un cas lorsque l'assertion dépasse les seuls faits de ce cas. Exclut les faits narratifs isolés, les définitions constitutives d'infractions, les évaluations de vulnérabilité ou de niveau de risque, les critères concrets d'alerte et les règles de prévention ou de déclaration. Un secteur ou une infraction mentionné ne suffit pas à justifier ce thème."
     },
     {
       "id": "topic:customer-due-diligence",
       "title": "Identification et connaissance du client",
-      "scope": "Identification et vérification du client et de ses représentants, connaissance initiale, entrée en relation, distinction relation d'affaires/client occasionnel et diligences simplifiées ou exemptions. Exclut la détermination du bénéficiaire effectif, l'actualisation dans la durée et les mesures renforcées spécifiques. Inclut la détermination de l'entité qui est le client selon le service fourni : notamment société de gestion ou placement collectif. La détermination de ce client précède l'identification de ses bénéficiaires effectifs."
+      "scope": "Identification et vérification du client et de ses représentants, connaissance initiale, objet et nature de la relation, politique d'acceptation, entrée en relation, distinction relation d'affaires/client occasionnel, diligences simplifiées et exemptions de diligence. Inclut la détermination de l'entité qui est le client selon le service fourni, notamment société de gestion ou placement collectif, et les conséquences de l'impossibilité d'accomplir les diligences, hors décision de DS. Exclut la détermination du bénéficiaire effectif, l'actualisation dans la durée, les mesures renforcées spécifiques et les informations devant accompagner un transfert."
     },
     {
-      "id": "topic:risk-assessment",
-      "title": "Évaluation des risques",
-      "scope": "Approche par les risques, classification, facteurs et niveaux de risque liés aux clients, produits, canaux, pays et opérations. Exclut les indicateurs concrets de surveillance, les diligences renforcées à mettre en œuvre et les obligations propres aux DS, COSI ou sanctions. Inclut les caractéristiques générales de schémas de BC-FT exprimées comme facteurs de risque, sans critère concret de surveillance ni proposition sur la déclaration."
+      "id": "topic:beneficial-ownership",
+      "title": "Bénéficiaires effectifs et transparence de la propriété",
+      "scope": "Définition, détermination, identification et vérification des bénéficiaires effectifs : détention, contrôle, seuils, chaînes de propriété et recours en dernier ressort, avec leurs conditions. Inclut les constructions juridiques, registres, signalements de divergences et obligations de transparence des entités, fiduciaires et prête-noms. Exclut le simple bénéficiaire d'un paiement, les informations exigées dans une DS, COSI ou transmission de fonds et les faits de propriété d'un cas sans lien explicite avec la détermination d'un bénéficiaire effectif. Le contrôle d'une entité pour appliquer un gel relève du gel des avoirs."
+    },
+    {
+      "id": "topic:ongoing-vigilance",
+      "title": "Vigilance constante et détection des opérations atypiques",
+      "scope": "Suivi des relations d'affaires et opérations dans la durée : actualisation des dossiers, surveillance, paramétrage, détection et analyse des alertes, indicateurs concrets et cohérence des flux. Inclut la réévaluation du profil du client et l'adaptation de sa vigilance après une plainte ou une DS. Les bonnes pratiques de vérification et surveillance d'un cas sans diligence renforcée explicitement désignée relèvent ici. Exclut les faits narratifs isolés, l'identification initiale, les obligations propres à l'examen renforcé, aux PPE, à la correspondance, au filtrage des sanctions, à la traçabilité des transferts ou aux déclarations. L'attribution des missions de détection relève de la gouvernance."
     },
     {
       "id": "topic:enhanced-vigilance",
-      "title": "Vigilance renforcée",
-      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, PPE et pays tiers à haut risque ; documentation de ces examens. Exclut le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » dans les bonnes pratiques d'un cas ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique. La consignation et conservation des seuls résultats d'un examen renforcé relèvent ici ; les règles transversales de conservation des dossiers et opérations relèvent de l'organisation."
+      "title": "Examens renforcés et mesures complémentaires",
+      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, pays tiers à haut risque et contre-mesures correspondantes ; documentation de ces examens. Exclut les mesures propres aux PPE ou aux relations de correspondance, le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique. La consignation et conservation des seuls résultats d'un examen renforcé restent ici ; les règles transversales de conservation suivent leur propre thème."
+    },
+    {
+      "id": "topic:politically-exposed-persons",
+      "title": "Personnes politiquement exposées",
+      "scope": "Définition et identification du statut de PPE, fonctions concernées, membres de la famille et personnes étroitement associées ; mesures propres à ce statut : autorisation, origine du patrimoine et des fonds, suivi spécifique et mesures après la cessation des fonctions. Inclut les dispositions propres aux PPE bénéficiaires de contrats d'assurance. Exclut les règles générales d'identification, les évaluations générales de risque, les simples schémas de corruption et la décision ou les modalités d'une DS portant sur une PPE."
+    },
+    {
+      "id": "topic:correspondent-relationships",
+      "title": "Correspondance bancaire et relations entre prestataires",
+      "scope": "Définition et exigences propres aux relations de correspondance : correspondant et répondant, relations imbriquées, collecte d'informations, évaluation des contrôles du répondant, autorisation, responsabilités, acceptation et suivi spécifiques ; institutions écrans et relations correspondantes entre prestataires de cryptoactifs. Exclut les seules évaluations sectorielles de risque, la tierce introduction, l'externalisation et les exigences d'information attachées à un transfert individuel. Toute relation entre deux prestataires n'est pas une relation de correspondance."
     },
     {
       "id": "topic:suspicious-transaction-reporting",
-      "title": "Déclarations de soupçon",
-      "scope": "Obligation, déclencheurs, soupçon de fraude fiscale, décision, délais, contenu, transmission, recevabilité et confidentialité des DS ; déclarants, correspondants et accès ERMES, y compris authentification simple ou forte. Inclut les droits de communication et d'opposition de Tracfin : demandes et réponses, formats selon le type de document, notification, suspension et computation des délais, même sans mention explicite d'une DS. Inclut la conservation des pièces propres aux DS et l'articulation DS/dépôt de plainte : indépendance, absence de substitution ou d'obstacle. Les informations de bénéficiaire effectif exigées dans une DS et la décision d'envoyer une DS relèvent ici, même sous une rubrique d'examen renforcé. Exclut les COSI, la simple détection d'alertes, les récits sans règle opérationnelle, les signalements de prestataires défaillants à l'ACPR et la conservation transversale des dossiers et opérations. La réévaluation du profil du client et l'adaptation de sa vigilance restent en vigilance constante, même après une DS ou une plainte."
+      "title": "Déclarations de soupçon et relations avec la CRF",
+      "scope": "Obligation, déclencheurs, soupçon de fraude fiscale, décision, délais, contenu, transmission, recevabilité et confidentialité des déclarations de soupçon (DS) à Tracfin ou à une autre cellule de renseignement financier (CRF) ; déclarants, correspondants et accès ERMES, y compris authentification. Inclut les droits de communication et d'opposition de la CRF, demandes et réponses, formats, suspension, computation des délais et abstention d'exécuter liée au soupçon ; conservation des pièces propres aux DS et articulation DS/dépôt de plainte. Les informations de bénéficiaire effectif exigées dans une DS relèvent ici. Exclut les déclarations systématiques, la simple détection d'alertes, les récits sans règle opérationnelle, les signalements de prestataires défaillants au superviseur et la conservation transversale. La réévaluation du profil après une DS reste en vigilance constante ; la coopération entre autorités suit son propre thème."
     },
     {
       "id": "topic:systematic-reporting",
-      "title": "Communications systématiques — COSI",
-      "scope": "Périmètre, critères, seuils, responsabilités, contenu et transmission des COSI, ainsi que leur articulation avec les DS. Inclut les champs concernant donneurs d'ordre et bénéficiaires des transmissions de fonds. Exclut la détermination des bénéficiaires effectifs et les obligations de DS sans objet COSI."
+      "title": "Déclarations systématiques et fondées sur des seuils",
+      "scope": "Périmètre, critères, seuils, responsabilités, contenu et transmission des déclarations ou communications systématiques, sans condition de soupçon : COSI françaises et déclarations fondées sur des seuils concernant certains biens de haute valeur ; articulation avec les DS. Inclut les champs concernant donneurs d'ordre et bénéficiaires exigés dans ces déclarations. Les régimes restent distincts selon les sources : une déclaration fondée sur un seuil n'est pas nécessairement une COSI. Exclut la détermination des bénéficiaires effectifs, les seules obligations de DS, les informations accompagnant les transferts et les plafonds de paiement en espèces."
     },
     {
       "id": "topic:asset-freezing-sanctions",
-      "title": "Gel des avoirs et sanctions",
-      "scope": "Portée et mise en œuvre des mesures restrictives, gel des avoirs, interdictions de mise à disposition, contournement et information de la DG Trésor ; articulation de ces mesures avec la vigilance ou la DS. Exclut les facteurs géographiques généraux sans proposition propre aux sanctions."
+      "title": "Gel des avoirs et mesures restrictives",
+      "scope": "Portée et mise en œuvre des mesures restrictives : filtrage, personnes désignées, propriété et contrôle pour l'application des sanctions, gel des avoirs, interdictions de mise à disposition, dérogations, contournement et information de la DG Trésor ; articulation de ces mesures avec la vigilance ou la DS. Inclut les dispositifs spécifiquement destinés à appliquer ces mesures. Exclut les facteurs géographiques généraux sans proposition propre aux sanctions et les sanctions administratives ou pénales pour manquement, qui relèvent de la supervision et de la répression."
     },
     {
-      "id": "topic:organisation-delegation",
-      "title": "Organisation et délégation",
-      "scope": "Organisation du dispositif LCB-FT, contrôle interne, moyens, formation, tierce introduction, externalisation et partage des responsabilités. Inclut l'attribution des missions de détection, la responsabilité, les instructions et le contrôle des personnes ; distinguer ces rôles des indicateurs opérationnels à détecter. Inclut les obligations transversales d'archivage et de conservation : identité, dossiers de vigilance, opérations, durées, points de départ, procédures internes et accès de l'autorité de contrôle. Une règle transversale reste ici si elle inclut aussi des documents d'examen renforcé. Exclut les rôles et procédures propres aux DS ou COSI, le paramétrage de surveillance et la documentation d'une diligence particulière. La conservation propre aux DS relève des DS ; la consignation ou conservation des seuls résultats d'un examen renforcé relève de la vigilance renforcée."
+      "id": "topic:governance-internal-controls",
+      "title": "Gouvernance et contrôle interne",
+      "scope": "Organisation interne du dispositif LCB-FT : responsabilité des dirigeants, fonctions de conformité, trois lignes de défense, procédures, contrôle interne, moyens, formation, intégrité du personnel, signalement interne des manquements et protection des auteurs de signalement. Inclut l'attribution des missions de détection, les instructions et le contrôle des personnes. Exclut les rôles propres aux DS ou déclarations systématiques, les indicateurs et le paramétrage de surveillance, la tierce introduction, l'externalisation, les exigences de groupe, la conservation et les procédures spécifiques à une autre obligation."
+    },
+    {
+      "id": "topic:reliance-outsourcing",
+      "title": "Tierce introduction et externalisation",
+      "scope": "Recours aux diligences d'une autre entité, tierce introduction, externalisation et agents : conditions, tâches déléguées, allocation et maintien des responsabilités, accès aux informations et justificatifs, instructions et contrôle des prestataires. Distingue la reliance sur des diligences réalisées par un tiers de l'exécution de tâches externalisées. Exclut la répartition interne des fonctions, les seules exigences de groupe, les relations de correspondance et les signalements de prestataires défaillants au superviseur au titre de la réglementation des transferts."
+    },
+    {
+      "id": "topic:group-information-sharing",
+      "title": "Dispositif de groupe et partage d’informations",
+      "scope": "Politiques, procédures et gestion des risques à l'échelle du groupe ; succursales, filiales, groupes mixtes, obstacles liés au droit des pays tiers et mesures correspondantes. Inclut les conditions, finalités, destinataires et modalités du partage d'informations intragroupe ou dans des partenariats entre entités assujetties. Exclut les évaluations de risque sans objet de groupe, la tierce introduction, l'externalisation et la coopération entre autorités. Les droits sur les données et garanties générales de traitement suivent la protection des données ; la confidentialité propre aux DS reste rattachée aux DS."
+    },
+    {
+      "id": "topic:records-data-protection",
+      "title": "Conservation des documents et protection des données",
+      "scope": "Règles transversales d'archivage et de conservation : identité, dossiers de vigilance, opérations, durées, points de départ, accès aux pièces et effacement. Inclut les finalités et limites du traitement de données personnelles, droits des personnes, sécurité et garanties générales de confidentialité. Exclut la consignation ou conservation des seuls résultats d'un examen renforcé, les pièces propres aux DS et la transmission d'informations accompagnant un transfert. Les règles transversales restent ici même si elles incluent des pièces d'examen renforcé ou de transfert. Les conditions de partage entre entités et la coopération entre autorités suivent leurs thèmes ; les garanties de protection des données restent ici."
+    },
+    {
+      "id": "topic:transfer-traceability",
+      "title": "Traçabilité des transferts de fonds et de cryptoactifs",
+      "scope": "Informations accompagnant les transferts de fonds ou de cryptoactifs : payeur ou donneur d'ordre, bénéficiaire, vérification des informations requises, prestataires intermédiaires, transferts groupés, détection d'informations manquantes et décisions de suspension, rejet ou suivi. Inclut les exigences relatives aux adresses auto-hébergées attachées à un transfert et les mesures envers les prestataires répétitivement défaillants, y compris leur signalement au superviseur. Exclut la détermination des bénéficiaires effectifs, les COSI, les décisions de DS, les contrôles de gel, les règles transversales de conservation et les diligences générales sur les relations de correspondance."
+    },
+    {
+      "id": "topic:anonymous-instruments-cash",
+      "title": "Instruments anonymes et restrictions sur les espèces",
+      "scope": "Interdictions ou restrictions visant les comptes et instruments anonymes, les actions et instruments au porteur, et les paiements importants en espèces ; plafonds, exceptions et modalités propres à ces restrictions. Exclut les seules évaluations de risque liées à l'anonymat ou aux espèces, les critères d'alerte, les obligations d'identification du client, les COSI et les autres déclarations fondées sur des seuils."
+    },
+    {
+      "id": "topic:supervision-enforcement-cooperation",
+      "title": "Supervision, répression et coopération des autorités",
+      "scope": "Mandats et compétences des superviseurs, CRF, autorités judiciaires et services d'enquête ; supervision fondée sur les risques, inspections, autorisations, évaluations d'aptitude, mesures correctrices, répression et sanctions administratives ou pénales. Inclut la coordination, les échanges et la coopération entre autorités au niveau national ou transfrontalier. Exclut le contrôle interne des assujettis, le gel des avoirs, les obligations de déclaration ou de réponse à la CRF, les signalements de prestataires défaillants propres à la traçabilité des transferts et les garanties générales de protection des données. Une obligation opérationnelle contrôlée par un superviseur reste classée selon son objet."
     },
     {
       "id": "topic:guidance-status",
-      "title": "Statut et portée des sources",
-      "scope": "Nature contraignante ou explicative, champ sectoriel, version, date de référence et limites déclarées des sources. Une simple référence à un article ou une date dans une obligation opérationnelle ne suffit pas ; classer cette obligation selon son objet. Inclut l'objet déclaré d'une annexe ou d'un document, lorsqu'il s'agit d'une proposition sur la portée et la finalité de cette source, sans règle opérationnelle."
+      "title": "Statut, portée et temporalité des sources",
+      "scope": "Nature contraignante ou explicative, objet, portée documentaire, version, date de référence et limites déclarées des sources ; entrée en vigueur, dates d'application, dispositions transitoires et articulation temporelle des textes. Inclut la finalité d'une annexe, les choix éditoriaux et les limites de sélection d'un rapport. Exclut les règles d'assujettissement, la méthode substantielle d'évaluation des risques et les obligations opérationnelles : une simple référence à un article ou une date ne change pas leur objet. Ne pas inférer l'applicabilité actuelle d'une date de collecte."
     }
   ]
 }
