@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from knowledge_foundry.claim_context import (
-    execution_settings, load_preparation, validate_settings,
+    execution_settings, validate_settings,
 )
 from knowledge_foundry.claim_generation_and_classification import (
     ROOT, FixtureProvider, _provider, generate_claims,

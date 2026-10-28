@@ -500,7 +500,7 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(items[0]['details']['evidence_role'], 'authoritative')
         self.assertEqual(items[1]['details']['heading_path'], [heading.text])
 
-    def test_pdf_visual_caption_below_large_diagram_is_auxiliary(self):
+    def test_pdf_caption_outside_large_diagram_remains_citable(self):
         figure_box = {"l": 50, "t": 700, "r": 500, "b": 320,
                       "coord_origin": "BOTTOMLEFT"}
         label_box = {"l": 45, "t": 280, "r": 210, "b": 260,
@@ -531,10 +531,10 @@ class ParsingTests(unittest.TestCase):
                 status="success", document=document)
             items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
         self.assertEqual(warnings, [])
-        self.assertEqual(items[1]["details"]["evidence_role"], "auxiliary")
-        self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
+        self.assertEqual(items[1]["details"]["evidence_role"], "authoritative")
+        self.assertIsNone(items[1]["parent_key"])
 
-    def test_short_heading_below_diagram_is_visual_annotation(self):
+    def test_short_caption_heading_below_diagram_remains_citable(self):
         figure_box = {"l": 50, "t": 700, "r": 500, "b": 320,
                       "coord_origin": "BOTTOMLEFT"}
         label_box = {"l": 45, "t": 280, "r": 210, "b": 260,
@@ -565,7 +565,7 @@ class ParsingTests(unittest.TestCase):
             items, _, warnings = parse_pdf(Path("unused.pdf"), {}, {"ocr": {"mode": "off"}})
         self.assertEqual(warnings, [])
         self.assertEqual([item["kind"] for item in items], ["figure", "paragraph"])
-        self.assertEqual(items[1]["details"]["evidence_role"], "auxiliary")
+        self.assertEqual(items[1]["details"]["evidence_role"], "authoritative")
 
     def test_pdf_numbered_quotation_lead_and_lettered_alternative(self):
         def node(label, value, ref):
@@ -898,7 +898,7 @@ class ParsingTests(unittest.TestCase):
                          [source_text[:split].strip(), source_text[split:].strip()])
         self.assertEqual([item["location"]["page"] for item in items],
                          sorted(item["location"]["page"] for item in items))
-        self.assertEqual(items[1]["details"]["level"], 2)
+        self.assertEqual(items[1]["details"]["level"], 3)
         self.assertEqual(items[1]["parent_key"], items[0]["locator_key"])
         picture_key = next(item["locator_key"] for item in items if item["kind"] == "figure")
         picture_prose = next(item for item in items
@@ -959,7 +959,7 @@ class ParsingTests(unittest.TestCase):
             root = Path(directory)
             config = json.loads((ROOT / "config/pipeline.json").read_text(encoding="utf-8"))
             config.update(root=str(ROOT), manifest_ids=["L1"])
-            config["structuring"]["options"]["html"] = {"content_selector": "main", "source_overrides": {
+            config["structuring"]["profiles"]["docling"]["options"]["html"] = {"content_selector": "main", "source_overrides": {
                 "L1": {"content_selector": "article.js-article-content-to-copy", "article_id": "test-article"}}}
             path = root / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")

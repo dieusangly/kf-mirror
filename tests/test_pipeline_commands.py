@@ -67,7 +67,7 @@ def parsed_sources(tmp_path):
 @pytest.mark.parametrize('format_name', ['markdown', 'docx'])
 def test_parsing_evaluation_checks_native_locations(parsed_sources, format_name):
     root, _, _, parsed = parsed_sources
-    report = command('auto_review_parsing.py', '--input-dir', parsed, '--source-root', root)
+    report = command('deterministic_document_structuring_review.py', 'prepare', '--checkpoint', 'parsing', '--audit-only', '--parsed-dir', parsed, '--source-root', root)
     assert report['gate']['status'] == 'pass'
     bundle_path = next(p for p in parsed.glob('documents/*/artifact-bundle.json')
                        if json.loads(p.read_text())['sources'][0]['format'] == format_name)
@@ -75,7 +75,7 @@ def test_parsing_evaluation_checks_native_locations(parsed_sources, format_name)
     location = bundle['elements'][-1]['location']
     location.update({'line_end': 99999} if format_name == 'markdown' else {'block_index': 99999})
     write_json(bundle_path, bundle)
-    rejected = command('auto_review_parsing.py', '--input-dir', parsed, '--source-root', root, expected=1)
+    rejected = command('deterministic_document_structuring_review.py', 'prepare', '--checkpoint', 'parsing', '--audit-only', '--parsed-dir', parsed, '--source-root', root, expected=1)
     assert rejected['gate']['status'] == 'fail'
     assert rejected['corpus']['error_codes']['INVALID_LOCATION'] >= 1
 
@@ -90,16 +90,17 @@ def fixture_review(path):
 
 def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources, store, monkeypatch):
     root, manifest, pipeline_config, parsed = parsed_sources
-    assert command('auto_review_parsing.py', '--input-dir', parsed, '--source-root', root)['gate']['status'] == 'pass'
+    assert command('deterministic_document_structuring_review.py', 'prepare', '--checkpoint', 'parsing', '--audit-only', '--parsed-dir', parsed, '--source-root', root)['gate']['status'] == 'pass'
     chunked, context, generated, classified, summaries = [root / n for n in ['chunked', 'context', 'generated', 'classified', 'summaries']]
     command('chunk.py', '--config', pipeline_config, '--input-dir', parsed, '--output-dir', chunked)
-    chunk_args = ['--chunked-dir', chunked, '--parsed-dir', parsed, '--manifest', manifest]
-    command('auto_review_chunking.py', *chunk_args, '--initialize-review')
-    pending = json.loads((chunked / 'chunking-evaluation-report.json').read_text())
+    chunk_review_dir = root / 'chunk-review'
+    chunk_args = ['--checkpoint', 'chunking', '--chunked-dir', chunked, '--parsed-dir', parsed, '--manifest', manifest, '--chunk-review-dir', chunk_review_dir]
+    command('deterministic_document_structuring_review.py', 'prepare', *chunk_args)
+    pending = json.loads((chunk_review_dir / 'report.json').read_text())
     assert pending['automatic_gate'] == 'pass' and pending['gate'] == 'pending_review'
-    fixture_review(chunked / 'chunking-review.json')
-    command('auto_review_chunking.py', *chunk_args, '--review-file', chunked / 'chunking-review.json')
-    assert json.loads((chunked / 'chunking-evaluation-report.json').read_text())['gate'] == 'pass'
+    fixture_review(chunk_review_dir / 'review.json')
+    command('deterministic_document_structuring_review.py', 'finalize', *chunk_args)
+    assert json.loads((chunk_review_dir / 'report.json').read_text())['gate'] == 'pass'
 
     settings = fixture_settings()
     settings['steps']['embeddings'].update(dimensions=3, expected_dimensions=3)
@@ -226,25 +227,27 @@ def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources,
 
 def test_parsing_review_cli_preserves_pending_and_rejects_stale_inputs(parsed_sources):
     root, manifest, _, parsed = parsed_sources
-    review_path, report_path = root / 'review.json', root / 'review-report.json'
-    args = ['--input-dir', parsed, '--source-root', root, '--manifest', manifest, '--output', report_path]
-    command('auto_review_parsing.py', *args, '--initialize-review', review_path)
+    folder = root / 'parsing-review'
+    review_path, report_path = folder / 'review.json', folder / 'report.json'
+    args = ['--checkpoint', 'parsing', '--parsed-dir', parsed, '--source-root', root, '--manifest', manifest, '--parsing-review-dir', folder]
+    command('deterministic_document_structuring_review.py', 'prepare', *args)
     pending = json.loads(report_path.read_text())
     assert pending['automatic_gate'] == 'pass' and pending['gate'] == 'pending_review'
     original = review_path.read_bytes()
-    command('auto_review_parsing.py', *args, '--initialize-review', review_path, expected=2)
+    command('deterministic_document_structuring_review.py', 'prepare', *args)
     assert review_path.read_bytes() == original
-    command('auto_review_parsing.py', *args, '--review-file', review_path, expected=1)
+    command('deterministic_document_structuring_review.py', 'finalize', *args, expected=1)
     review = json.loads(original)
     review['reviewer'] = {'kind': 'agent', 'name': 'Fixture only', 'model': 'fixture'}
     for row in review['reviews']:
         row.update(status='pass', notes='Fixture judgment never real approval',
                    inspection={'original_inspected': True, 'layout_inspected': False})
     write_json(review_path, review)
-    command('auto_review_parsing.py', *args, '--review-file', review_path)
+    command('deterministic_document_structuring_review.py', 'finalize', *args)
     assert json.loads(report_path.read_text())['gate'] == 'pass'
     (root / 'equipment.md').write_text('changed acquisition path; frozen bytes remain valid')
-    command('auto_review_parsing.py', *args, '--review-file', review_path)
-    metadata = json.loads(next(parsed.glob('documents/*/parse.json')).read_text())
+    command('deterministic_document_structuring_review.py', 'finalize', *args)
+    metadata = next(json.loads(p.read_text()) for p in parsed.glob('documents/*/parse.json')
+                    if json.loads(p.read_text())['parser'] == 'python-docx')
     Path(metadata['ingested_artifact_file']).write_bytes(b'tampered ingested artifact')
-    command('auto_review_parsing.py', *args, '--review-file', review_path, expected=2)
+    command('deterministic_document_structuring_review.py', 'finalize', *args, expected=2)

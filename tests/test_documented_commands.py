@@ -26,10 +26,10 @@ def documented_commands():
 
 
 @lru_cache(maxsize=None)
-def cli_options(script):
+def cli_options(script, subcommand=None):
     assert (ROOT / script).is_file(), script
     # The artifact validator accepts positional bundles rather than --help.
-    args = [] if script == 'scripts/validate_artifact_examples.py' else ['--help']
+    args = [] if script == 'scripts/validate_artifact_examples.py' else ([subcommand] if subcommand else []) + ['--help']
     env = {**os.environ, 'OPENAI_API_KEY': ''}
     result = subprocess.run([sys.executable, '-I', script, *args], cwd=ROOT,
                             env=env, capture_output=True, text=True, timeout=30)
@@ -40,6 +40,7 @@ def cli_options(script):
 @pytest.mark.parametrize('document,script,args', list(documented_commands()),
                          ids=lambda value: str(value) if isinstance(value, Path) else None)
 def test_documented_cli_options_exist(document, script, args):
-    options = cli_options(script)
+    subcommand = args[0] if args and args[0] in {'prepare', 'finalize'} else None
+    options = cli_options(script, subcommand)
     flags = {arg.split('=', 1)[0] for arg in args if re.fullmatch(r'--[a-z][\w-]*(?:=.*)?', arg)}
     assert flags <= options, f'{document}: {script}: unsupported options {flags - options}'

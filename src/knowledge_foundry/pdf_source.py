@@ -18,7 +18,7 @@ from pathlib import Path
 from knowledge_foundry.pdf_structure import pdf_page_characters
 
 
-VERSION = 'pdf-source-v5'
+VERSION = 'pdf-source-v6'
 _ADAPTED_CACHE = OrderedDict()
 
 
@@ -87,6 +87,30 @@ def joined_lines(groups):
         identifier = re.search(r'\b[A-Z]{1,4}-$', value) and re.match(r'[A-Z]{1,4}\b', fragment)
         value += ('' if not value or identifier else '\n') + fragment
     return value
+
+
+def unspace_heading(value, glyphs):
+    """Recover typeset word gaps only from two clearly separated gap bands."""
+    tokens = value.split()
+    if len(tokens) < 6 or sum(len(t) == 1 for t in tokens) < len(tokens) * .9:
+        return None
+    physical = [sorted(line, key=lambda c: c['bbox'][0]) for line in lines(glyphs)]
+    if key(value) != key(''.join(c['text'] for c in sorted(glyphs, key=lambda c: c['index']))):
+        return None
+    gaps = sorted(b['bbox'][0] - a['bbox'][2] for line in physical for a, b in zip(line, line[1:]))
+    if len(gaps) < 5 or gaps[0] < 0:
+        return None
+    split = max(range(1, len(gaps)), key=lambda i: gaps[i] - gaps[i-1])
+    low, high = gaps[:split], gaps[split:]
+    if not low or not high or min(high) < max(low) * 1.6 or min(high) - max(low) < 1:
+        return None
+    threshold = (max(low) + min(high)) / 2
+    result = []
+    for line in physical:
+        line = sorted(line, key=lambda c: c['bbox'][0])
+        result.append(''.join((' ' if i and c['bbox'][0] - line[i-1]['bbox'][2] > threshold else '') + c['text']
+                              for i, c in enumerate(line)))
+    return '\n'.join(result)
 
 
 def provenance(page, box, value):
@@ -663,6 +687,131 @@ def adapt_native(native, path, ocr=None):
         parts = node.get('prov', [])
         if len(parts) == 1 and parts[0].get('bbox'):
             text_by_page[parts[0]['page_no']].append(node)
+    # Captions outside a picture are independent text, including explanatory
+    # legends and numbered body paragraphs mistakenly attached to a diagram.
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for node in nodes:
+            if node.get('label') != 'section_header':
+                continue
+            selected = inside(chars(page), bounds(node['prov'][0], height))
+            value = unspace_heading(node['text'], selected)
+            if value and value != node['text']:
+                before = copy.deepcopy(node)
+                node.update(text=value, orig=value)
+                node['prov'][0]['charspan'] = [0, len(value)]
+                record(node, before, 'source_heading_word_gaps', {'page': page,
+                       'glyph_indices': [c['index'] for c in selected]})
+        for node in nodes:
+            if node.get('label') != 'caption':
+                continue
+            owner = next((p for p in adapted.get('pictures', [])
+                          if p['self_ref'] == node.get('parent', {}).get('$ref') and len(p.get('prov', [])) == 1
+                          and p['prov'][0]['page_no'] == page), None)
+            if owner is None:
+                continue
+            box = bounds(node['prov'][0], height); pb = bounds(owner['prov'][0], height)
+            selected = inside(chars(page), box)
+            if (not (box[1] >= pb[3] - 1 or box[3] <= pb[1] + 1) or not selected or
+                    key(node['text']) != key(''.join(c['text'] for c in sorted(selected, key=lambda c: c['index'])))):
+                continue
+            before = copy.deepcopy(node)
+            node['parent'] = {'$ref': '#/body'}
+            if re.match(r'^\d{1,3}\.\s', node['text']):
+                node['label'] = 'text'
+            for field in ('children', 'captions'):
+                owner[field] = [r for r in owner.get(field, []) if r['$ref'] != node['self_ref']]
+            children = adapted['body']['children']
+            children[:] = [r for r in children if r['$ref'] != node['self_ref']]
+            at = next((i for i, r in enumerate(children) if r['$ref'] == owner['self_ref']), len(children))
+            children.insert(at + int(box[1] >= pb[3] - 1), {'$ref': node['self_ref']})
+            record(node, before, 'source_external_caption', {'page': page, 'picture_ref': owner['self_ref'],
+                   'glyph_indices': [c['index'] for c in selected]})
+    # Recover one-off case banners mislabeled as running furniture. Repeated
+    # labels remain furniture; a literal case boundary is not a page header.
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for node in nodes:
+            if (node.get('content_layer') != 'furniture' or
+                    not re.match(r'^(?:CAS|CASE)\s+(?:n[°o]\s*)?\d+\b', node['text'], re.I) or
+                    sum(key(n.get('text', '')) == key(node['text']) for n in adapted['texts']) != 1):
+                continue
+            selected = inside(chars(page), bounds(node['prov'][0], height))
+            if selected and key(node['text']) == key(''.join(c['text'] for c in sorted(selected, key=lambda c: c['index']))):
+                before = copy.deepcopy(node)
+                node.update(label='section_header', content_layer='body')
+                record(node, before, 'source_case_heading', {'page': page, 'glyph_indices': [c['index'] for c in selected]})
+
+    # Recover source-backed heading styles, including bold square-bullet
+    # headings. Ordinary numbered prose and statutory ordinal lists are excluded.
+    def signature(glyphs):
+        letters = [g for g in glyphs if g['text'].isalnum()]
+        return ((round(statistics.median(g['line_size'] for g in letters) * 2) / 2,
+                 Counter(tuple(g.get('color', [])) for g in letters).most_common(1)[0][0],
+                 statistics.median(g.get('font_weight', 0) for g in letters) >= 600)
+                if letters else None)
+
+    prototypes = set()
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for n in nodes:
+            if n.get('label') == 'section_header' and n.get('parent', {}).get('$ref') == '#/body':
+                g = inside(chars(page), bounds(n['prov'][0], height))
+                if key(n['text']) == key(''.join(c['text'] for c in sorted(g, key=lambda c: c['index']))):
+                    prototypes.add(signature(g))
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for node in list(nodes):
+            if (node.get('label') not in {'text', 'list_item'} or node.get('content_layer') == 'furniture' or
+                    node.get('parent', {}).get('$ref', '').startswith('#/pictures/') or
+                    node['text'].rstrip().endswith(('.', ';', ':', '!', '?', ',')) or
+                    re.match(r'^(?:\d+\s*[°)]|\(?[a-zivx]+[.)]\s)', node['text'])):
+                continue
+            selected = inside(chars(page), bounds(node['prov'][0], height))
+            sig = signature(selected)
+            if (not sig or key(node['text']) != key(''.join(c['text'] for c in sorted(selected, key=lambda c: c['index']))) or
+                    len(node['text'].split()) > 35):
+                continue
+            bold_square = node['text'].lstrip().startswith(('\uf071', '□', '■', '▪')) and sig[2]
+            vivid = len(sig[1]) >= 3 and max(sig[1][:3]) - min(sig[1][:3]) >= 20
+            colored_number = vivid and re.match(r'^\d+(?:\.\d+)+\.?\s+\S', node['text'])
+            if (sig in prototypes and (sig[2] or vivid)) or bold_square or colored_number:
+                before = copy.deepcopy(node)
+                node.update(label='section_header')
+                node.pop('enumerated', None); node.pop('marker', None)
+                record(node, before, 'source_heading_style', {'page': page, 'style': [sig[0], list(sig[1]), sig[2]],
+                       'glyph_indices': [c['index'] for c in selected]})
+
+    # Split merged bottom notes only at a literal numbered line aligned with
+    # the initial note marker. A number inside running prose is insufficient.
+    for page, nodes in text_by_page.items():
+        height = pages[str(page)]['size']['height']
+        for node in list(nodes):
+            if node.get('label') != 'footnote' or not re.match(r'^\d{1,3}\s', node['text']):
+                continue
+            box = bounds(node['prov'][0], height)
+            selected = inside(chars(page), box)
+            physical = lines(selected)
+            if box[1] < height * .5 or len(physical) < 2:
+                continue
+            starts = [i for i, g in enumerate(physical) if re.match(r'^\d{1,3}\s', text(g)) and
+                      abs(union(g)[0] - box[0]) <= 3]
+            if len(starts) < 2 or starts[0] != 0 or key(node['text']) != key(joined_lines(physical)):
+                continue
+            numbers = [int(re.match(r'^\d+', text(physical[i]))[0]) for i in starts]
+            if any(b != a + 1 for a, b in zip(numbers, numbers[1:])):
+                continue  # A wrapped date or quantity is not a new note marker.
+            before = copy.deepcopy(node)
+            fragments = [physical[a:z] for a, z in zip(starts, starts[1:] + [len(physical)])]
+            value = joined_lines(fragments[0]); node.update(text=value, orig=value,
+                prov=provenance(page, union(sum(fragments[0], [])), value))
+            added = [add_text(joined_lines(g), 'footnote', page, union(sum(g, [])), node['self_ref']) for g in fragments[1:]]
+            children = adapted['body']['children']
+            for n in added:
+                children.remove({'$ref': n['self_ref']})
+            at = next(i for i, r in enumerate(children) if r['$ref'] == node['self_ref'])
+            children[at + 1:at + 1] = [{'$ref': n['self_ref']} for n in added]
+            record(node, before, 'source_note_boundaries', {'page': page, 'fragments': added})
     # An isolated literal annex title is sometimes tagged as running furniture.
     # Require source glyphs and uniqueness, rather than accepting an OCR label.
     for page, nodes in text_by_page.items():
@@ -679,6 +828,33 @@ def adapt_native(native, path, ocr=None):
                 record(node, before, 'source_annex_heading', {'page': page, 'glyph_indices': [c['index'] for c in selected]})
     for page, nodes in text_by_page.items():
         height = pages[str(page)]['size']['height']
+        # A table's native caption can contain its preceding annex/title.
+        # Detach only literal text above the table, following a source annex
+        # label (or containing one), and restore its position before the grid.
+        annexes = [n for n in nodes if re.match(r'^ANNEX(?:E)?\s+(?:\d+|[IVXLCDM]+)\b', n['text'], re.I)]
+        for node in nodes:
+            if node.get('label') != 'caption':
+                continue
+            box = bounds(node['prov'][0], height)
+            owner = next((t for t in adapted.get('tables', [])
+                          if t['self_ref'] == node.get('parent', {}).get('$ref') and len(t.get('prov', [])) == 1
+                          and t['prov'][0]['page_no'] == page), None)
+            if owner is None or box[3] > bounds(owner['prov'][0], height)[1] + 1:
+                continue
+            selected = inside(chars(page), box)
+            if (not selected or key(node['text']) != key(''.join(c['text'] for c in sorted(selected, key=lambda c: c['index']))) or
+                    not any(a is node or bounds(a['prov'][0], height)[3] <= box[1] for a in annexes)):
+                continue
+            before = copy.deepcopy(node)
+            node.update(label='section_header', parent={'$ref': '#/body'}, content_layer='body')
+            for field in ('children', 'captions'):
+                owner[field] = [r for r in owner.get(field, []) if r['$ref'] != node['self_ref']]
+            children = adapted['body']['children']
+            children[:] = [r for r in children if r['$ref'] != node['self_ref']]
+            at = next((i for i, r in enumerate(children) if r['$ref'] == owner['self_ref']), len(children))
+            children.insert(at, {'$ref': node['self_ref']})
+            record(node, before, 'source_pre_table_heading', {'page': page, 'table_ref': owner['self_ref'],
+                   'glyph_indices': [c['index'] for c in selected]})
         ordered = sorted(nodes, key=lambda n: bounds(n['prov'][0], height)[1])
         for i, node in enumerate(ordered):
             marker = re.match(r'^\(\s*(\d{1,3})\s*\)\s+', node.get('text', ''))
@@ -757,7 +933,7 @@ def adapt_native(native, path, ocr=None):
                              0 <= bounds(n['prov'][0], height)[1] - box[3] <= 40 and
                              abs(bounds(n['prov'][0], height)[0] - box[0]) <= 25]
                 if (len(colors) == 1 and next(iter(colors)) not in {(), (0, 0, 0, 255), (255, 255, 255, 255)} and
-                        box[2] - box[0] > width * .4 and len(node['text'].split()) >= 5 and following and
+                        box[2] - box[0] > width * .25 and len(node['text'].split()) >= 4 and following and
                         (node['label'] == 'text' or all(c.get('font_weight', 0) >= 600 for c in selected if c['text'].isalnum())) and
                         not any(p.get('bbox') and bounds(p, height)[0] <= box[0] and
                                 bounds(p, height)[1] <= box[1] and bounds(p, height)[2] >= box[2] and

@@ -272,13 +272,16 @@ def _save_pdf_figure_assets(pdf_path, elements, sidecar, staged, warnings):
 
 
 def parse_collection(config_path, output_dir, selected_ids=None, on_progress=None, *, run_id=None,
-                     native_input_dir=None, ingested_dir=None):
+                     native_input_dir=None, ingested_dir=None, profile=None):
     """Document Structuring substep: consume reusable ingested artifacts only."""
-    from knowledge_foundry.structure_providers import resolve_provider, ProviderResult
+    from knowledge_foundry.structure_providers import resolve_provider, structuring_spec, ProviderResult
     config_path, output_dir = Path(config_path).resolve(), Path(output_dir).resolve()
     if native_input_dir and Path(native_input_dir).resolve() == output_dir:
         raise ValueError('native input and output directories must differ; preserve the prior evidence')
     config = json.loads(config_path.read_text())
+    effective_structuring = structuring_spec(config, profile)
+    selected_profile = profile if profile is not None else config.get('structuring', {}).get('profile')
+    config = {**config, 'structuring': effective_structuring}
     root = (config_path.parent / config['root']).resolve()
     artifact = load_ingested(ingested_dir or root / config.get('ingested_dir', 'artifacts/ingested'))
     name, options, provider = resolve_provider(config, native_input_dir)
@@ -300,6 +303,8 @@ def parse_collection(config_path, output_dir, selected_ids=None, on_progress=Non
               'ingested_artifact_id': artifact['artifact_id'], 'provider': name,
               'provider_version': provider.version,
               'config_sha256': _digest(json.dumps(settings, sort_keys=True)), 'settings': settings, 'outcomes': []}
+    if selected_profile is not None:
+        report['provider_profile'] = selected_profile
     output_dir.mkdir(parents=True, exist_ok=True)
     for index, mid in enumerate(selected, 1):
         outcome = outcomes[mid]
@@ -402,11 +407,13 @@ def main(argv=None):
     parser.add_argument("--run-id", help="retain the controlling workflow's run identity")
     parser.add_argument('--native-input-dir', type=Path,
                         help='rebuild PDF adapters from prior source-bound native JSON; originals are reverified')
+    parser.add_argument('--profile', help='select a named structuring profile from the pipeline configuration')
     args = parser.parse_args(argv)
     try:
         report = parse_collection(args.config, args.output_dir, args.source,
                                   on_progress=_print_progress, run_id=args.run_id,
-                                  native_input_dir=args.native_input_dir, ingested_dir=args.ingested_dir)
+                                  native_input_dir=args.native_input_dir, ingested_dir=args.ingested_dir,
+                                  profile=args.profile)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"parsing setup error: {exc}\n")
     report_path = Path(args.output_dir).resolve() / "report.json"

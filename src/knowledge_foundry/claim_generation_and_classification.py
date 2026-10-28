@@ -19,7 +19,8 @@ from knowledge_foundry.claim_context import (
     request_for_members,
 )
 from knowledge_foundry.evidence import claim_evidence_references
-from knowledge_foundry.generation_context import RequestCounter, footnote_links, generation_payload
+from knowledge_foundry.generation_context import RequestCounter, generation_payload
+from knowledge_foundry.structural_links import footnote_links
 from knowledge_foundry.openai_tools import DEFAULT_MODEL, OpenAIResponsesTool
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 

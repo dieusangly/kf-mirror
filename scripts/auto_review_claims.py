@@ -450,7 +450,7 @@ def main(argv=None):
     parser.add_argument('--initialize-review', nargs='?', type=Path, const=None, default=argparse.SUPPRESS, metavar='PATH')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
-    output = args.output or args.classified_dir / 'compilation-evaluation-report.json'
+    output = args.output or args.classified_dir / 'claim_review_report.json'
     seed = getattr(args, 'initialize_review', None)
     if hasattr(args, 'initialize_review') and seed is None:
         seed = args.classified_dir / 'compilation-review.json'

@@ -17,7 +17,7 @@ from knowledge_foundry.chunking import build_collection
 from knowledge_foundry.parsing import parse_collection
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
 from scripts.auto_review_claims import evaluate as evaluate_compilation
-from scripts.auto_review_parsing import evaluate as auto_review_parsing
+from knowledge_foundry.parsing_audit import evaluate as audit_parsing
 from scripts.validate_artifact_examples import check
 
 
@@ -211,7 +211,7 @@ class CompilationContextTests(unittest.TestCase):
             ingest(pipeline, root / 'artifacts/ingested')
             parsing = parse_collection(pipeline, parsed)
             self.assertEqual(parsing['outcomes'][0]['status'], 'parsed', parsing)
-            audit = auto_review_parsing(parsed, source_root=root)
+            audit = audit_parsing(parsed, source_root=root)
             self.assertEqual(audit['gate']['status'], 'pass', audit)
             self.assertEqual(audit['reference_status'], 'not_supplied')
             self.assertEqual(audit['totals']['passages_checked'], 0)
@@ -220,12 +220,12 @@ class CompilationContextTests(unittest.TestCase):
                 'source': 'observatory', 'text': 'Operators must calibrate the telescope annually.'}],
                 'structure': [], 'reading_order': []}
             reference.write_text(json.dumps(landmarks))
-            verified = auto_review_parsing(parsed, reference, source_root=root)
+            verified = audit_parsing(parsed, reference, source_root=root)
             self.assertEqual(verified['gate']['status'], 'pass', verified)
             self.assertEqual(verified['totals']['passages_checked'], 1)
             landmarks['passages'][0]['text'] = 'An absent maintenance requirement.'
             reference.write_text(json.dumps(landmarks))
-            missing = auto_review_parsing(parsed, reference, source_root=root)
+            missing = audit_parsing(parsed, reference, source_root=root)
             self.assertEqual(missing['gate']['status'], 'fail')
             self.assertEqual(missing['corpus']['error_codes']['MISSING_PASSAGE'], 1)
             build_collection(pipeline, parsed, chunked)

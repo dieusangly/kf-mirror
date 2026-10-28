@@ -37,8 +37,10 @@ def prepare(audit, outcomes, source_root, manifest_path, policy_path, count=12,
     files = {str(Path(manifest_path).resolve()): digest(manifest_path)}
     repository = Path(__file__).resolve().parents[2]
     for tool in [Path(__file__), Path(__file__).with_name('review.py'),
-                 repository / 'scripts/auto_review_parsing.py',
-                 Path(__file__).parent / 'prompts/agent_prompt_parsing_review']:
+                 Path(__file__).with_name('parsing_audit.py'),
+                 Path(__file__).with_name('document_structuring_review.py'),
+                 repository / 'scripts/deterministic_document_structuring_review.py',
+                 Path(__file__).parent / 'prompts/agent_prompt_document_structuring_review']:
         files[str(tool.resolve())] = digest(tool)
     samples, coverage, matched = [], [], set()
     audit_requirements = {document['source']: document.get('review_requirements', [])

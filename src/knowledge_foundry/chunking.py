@@ -14,7 +14,7 @@ from knowledge_foundry.pdf_tables import table_context_errors
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "1.0.0"
 PIPELINE_VERSION = "chunking-v1"
-CHUNKER_VERSION = "structural-v8"
+CHUNKER_VERSION = "structural-v9"
 TOKEN = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 SCHEMA = json.loads((ROOT / "schemas/artifact-schema-v1.0.0.json").read_text(encoding="utf-8"))
 
@@ -221,8 +221,16 @@ def _chunk_document(bundle, sidecar, build_id, settings):
         return eid
     sections = {eid: tuple(parent for parent in ancestor_ids(eid, hierarchy)
                            if elements[parent]['kind'] == 'heading') for eid in eligible}
+    positions = {eid: i for i, eid in enumerate(eligible)}
     def join(a, b):
         if a in parents and b in parents and sections[a] == sections[b]:
+            left, right = sorted((positions[a], positions[b]))
+            # A stale parser parent can reconnect an earlier rule after a
+            # different section. Do not pull its later items ahead of that
+            # intervening body; detached notes may still be crossed.
+            if any(elements[eid]['kind'] != 'footnote' and sections[eid] != sections[a]
+                   for eid in eligible[left:right+1]):
+                return
             parents[root(b)] = root(a)
 
     # Reuse source-proven sentence and framed-prose continuation detection.
@@ -260,7 +268,6 @@ def _chunk_document(bundle, sidecar, build_id, settings):
     provisional = {}
     for eid in eligible:
         provisional.setdefault(root(eid), []).append(eid)
-    positions = {eid: i for i, eid in enumerate(eligible)}
     for group in provisional.values():
         if len(group) > 1:
             left, right = min(positions[eid] for eid in group), max(positions[eid] for eid in group)

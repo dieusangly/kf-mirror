@@ -31,6 +31,11 @@ DEPS = {'ingest': (), 'parse': ('ingest',), 'parsing_evaluation': ('parse',),
         'retrieval': ('index',), 'publish': ('retrieval',)}
 PAID = {'structure', 'summaries', 'generate', 'classify', 'index', 'retrieval'}
 REVIEWS = {'parsing_review', 'chunk_review', 'claim_review'}
+REVIEW_PROMPTS = {
+    'parsing_review': 'agent_prompt_document_structuring_review',
+    'chunk_review': 'agent_prompt_document_structuring_review',
+    'claim_review': 'agent_prompt_claim_review',
+}
 RESUMABLE = {'generate', 'classify'}
 BUNDLE_STAGES = {'parse', 'chunk', 'structure', 'summaries', 'generate', 'classify'}
 STAGE_PATHS = {'ingest': 'ingestion', 'parse': 'document-structuring/parsing', 'parsing_evaluation': 'document-structuring/parsing/automatic-review',
@@ -344,9 +349,15 @@ class Workflow:
                 stages.add('parse')
             elif name in {'chunking.py', 'chunk.py', 'document_structure.py', 'structural_chunks.py', 'structural_links.py'}:
                 stages.add('chunk')
+            elif name == 'agent_prompt_document_structuring_review':
+                stages.update({'parsing_review', 'chunk_review'})
+            elif name == 'agent_prompt_claim_review':
+                stages.add('claim_review')
+            elif name in {'parsing_audit.py', 'document_structuring_review.py', 'deterministic_document_structuring_review.py'}:
+                stages.add('parsing_evaluation')
             elif 'parsing_review' in name or 'parsing-review' in name or name.startswith('parsing-expanded') or path == str((self.root / self.config.get('parsing_review_required_pages', '__absent__')).resolve()):
                 stages.add('parsing_review')
-            elif 'chunking_review' in name or name == 'auto_review_chunking.py':
+            elif 'chunking_review' in name or name == 'chunking_audit.py':
                 stages.add('chunk_review')
             elif name in {'document_structuring.py', 'accept_structure.py'}:
                 stages.add('accept')
@@ -484,7 +495,8 @@ class Workflow:
             if self.native_input_dir:
                 args[name] += ['--native-input-dir', str(self.native_input_dir)]
         if name == 'parsing_evaluation':
-            args[name] = ['auto_review_parsing.py', '--input-dir', dep('parse'),
+            args[name] = ['deterministic_document_structuring_review.py', 'prepare',
+                          '--checkpoint', 'parsing', '--audit-only', '--parsed-dir', dep('parse'),
                           '--source-root', str(self.source_root), '--output', str(out / 'report.json')]
         if name == 'chunk':
             args[name] = ['chunk.py', '--config', path('pipeline'), '--input-dir', dep('parse'), '--output-dir', str(bundle)]
@@ -538,18 +550,22 @@ class Workflow:
         args = ['--manifest', str(self.manifest_path), '--review-policy', str(self.root / 'config/review-policy.json'),
                 '--sample-per-document', str(self.config['sample_per_document']), '--output', str(out / 'report.json')]
         if name == 'parsing_review':
-            args += ['--input-dir', str(self.bundle_directory('parse')), '--source-root', str(self.source_root)]
+            args += ['--checkpoint', 'parsing', '--parsed-dir', str(self.bundle_directory('parse')),
+                     '--parsing-review-dir', str(out), '--source-root', str(self.source_root)]
             if self.config.get('parsing_review_required_pages'):
                 args += ['--required-pages', str(self.root / self.config['parsing_review_required_pages'])]
-            script = 'auto_review_parsing.py'
         elif name == 'chunk_review':
-            args += ['--chunked-dir', str(self.bundle_directory('chunk')), '--parsed-dir', str(self.bundle_directory('parse'))]
-            script = 'auto_review_chunking.py'
+            args += ['--checkpoint', 'chunking', '--chunked-dir', str(self.bundle_directory('chunk')),
+                     '--parsed-dir', str(self.bundle_directory('parse')), '--chunk-review-dir', str(out)]
         else:
             args += ['--candidates-dir', str(self.bundle_directory('generate')), '--classified-dir', str(self.bundle_directory('classify')),
                      '--source-root', str(self.source_root), '--taxonomy', str(self.root / self.config['taxonomy'])]
             script = 'auto_review_claims.py'
-        args += ['--review-file' if (out / 'review.json').exists() else '--initialize-review', str(out / 'review.json')]
+        if name in {'parsing_review', 'chunk_review'}:
+            script = 'deterministic_document_structuring_review.py'
+            args = ['finalize' if (out / 'review.json').exists() else 'prepare', *args]
+        else:
+            args += ['--review-file' if (out / 'review.json').exists() else '--initialize-review', str(out / 'review.json')]
         return [sys.executable, str(self.root / 'scripts' / script), *args]
 
     def render_review_pages(self, out):
@@ -636,11 +652,12 @@ class Workflow:
         write(session / 'before.json', original)
         id_field = 'chunk_id' if name == 'chunk_review' else 'sample_id'
         prior_inspections = self.prior_review_inspections(out, original, id_field, resolved)
-        prompt_file = self.root / 'src/knowledge_foundry/prompts' / (
-            {'parsing_review': 'agent_prompt_parsing_review', 'chunk_review': 'agent_prompt_chunking_review',
-             'claim_review': 'agent_prompt_claim_review'}[name])
+        prompt_file = self.root / 'src/knowledge_foundry/prompts' / REVIEW_PROMPTS[name]
         prompt = prompt_file.read_text() + '\n\nController binding (overrides example paths, continuation scope and write mechanism):\n' + json.dumps({
-            'run_id': self.state['run_id'], 'stage_paths': {k: str(self.bundle_directory(k)) if k in BUNDLE_STAGES else v['directory'] for k, v in self.state['stages'].items()},
+            'run_id': self.state['run_id'], 'review_checkpoint': name,
+            'RUN_ID': self.state['run_id'], 'MODEL': resolved['settings']['model'],
+            'MODEL_REASONING_EFFORT': resolved['settings']['model_reasoning_effort'],
+            'stage_paths': {k: str(self.bundle_directory(k)) if k in BUNDLE_STAGES else v['directory'] for k, v in self.state['stages'].items()},
             'evaluation_report': str(out / 'report.json'), 'review_file': str(out / 'review.json'),
             'manifest': str(self.manifest_path), 'source_root': str(self.source_root),
             'policy': str(self.root / 'config/review-policy.json'), 'taxonomy': str(self.root / self.config['taxonomy']),
@@ -648,10 +665,14 @@ class Workflow:
             'model_settings': resolved['settings'], 'launch_mode': self.mode + '_workflow',
             'verified_prior_inspections': prior_inspections}, indent=2) + (
             '\nYou are a fresh independent source reviewer in a read-only session. Initialization is already complete. '
-            'Inspect pending samples and any revised judgments against originals; use view_image on rendered PDF pages. '
+            'Inspect every to_review sample without a verified prior judgment, and any revised judgments, against originals; '
+            'use view_image on rendered PDF pages. Prioritization determines inspection order, not review scope. '
             'Exact unchanged judgments listed in verified_prior_inspections may carry forward without reinspection. '
-            'Other assessed judgments require source inspection in this session. Never claim earlier inspections as your own. Additional source pages may be '
-            'requested as pending with exact page numbers if layout is inaccessible. Do not execute evaluation commands '
+            'Other assessed judgments require source inspection in this session. Never claim earlier inspections as your own. '
+            'Leave a sample pending only when a concrete blocker prevents inspection; record the specific blocker and '
+            'attempted inspection in its notes, and continue inspecting all other samples. Request inaccessible additional '
+            'source pages with exact page numbers. Return only after every sample has a completed judgment or a documented '
+            'inspection blocker. Do not execute evaluation commands '
             'that write files: the controller runs final evaluation. Return the full updated review as review_json, '
             'and requested_pages for any inaccessible additional PDF pages, and inspected_sample_ids only for samples actually inspected against saved originals. Preserve every '
             'existing judgment/finding and its rationale; add evidence and notes on any revision. Set reviewer.kind=agent '
@@ -998,11 +1019,18 @@ class Workflow:
                     if status == 'pass':
                         entry['fingerprints'] = self.stage_fingerprints(name, out)
                     else:
-                        write(out / 'repair-task.json', {'stage': name, 'status': status, 'report': str(out / 'report.json'),
-                            'instruction': 'Inspect originals and findings. Pending: complete inspection or resolve prerequisite. '
-                            'Failed: correct implementation/configuration defect, preserve findings, invalidate from affected builder '
-                            '(parsing for provider changes; chunking for boundary changes), rebuild and request fresh independent review. Never lower gates, '
-                            'alter originals or mark uninspected samples passed. Escalate ambiguity/inaccessible evidence/non-convergence.'})
+                        task = {'stage': name, 'status': status, 'report': str(out / 'report.json'),
+                            'instruction': 'Follow repair_prompt when supplied. Pending inspection requires a separate review task; '
+                            'report missing or inaccessible evidence. For confirmed defects, diagnose, correct, run focused regression '
+                            'tests, report results and a rebuild handoff, then stop. Workflow invalidation, corpus rebuilding and '
+                            'source review are separate tasks; do not execute them or approve outputs here. Preserve originals, '
+                            'frozen artifacts, findings, judgments, sample selection, policy and thresholds. Tests do not grant '
+                            'real-corpus approval. Escalate ambiguity/inaccessible evidence/non-convergence.'}
+                        if name in {'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'accept'}:
+                            task['repair_prompt'] = str(self.root / 'src/knowledge_foundry/prompts/agent_prompt_document_structuring_repair')
+                        elif name in {'generate', 'classify', 'claim_review'}:
+                            task['repair_prompt'] = str(self.root / 'src/knowledge_foundry/prompts/agent_prompt_claim_repair')
+                        write(out / 'repair-task.json', task)
                         self.save()
                         raise ValueError(name + ' gate ' + status + '; see repair-task.json')
                     self.save()

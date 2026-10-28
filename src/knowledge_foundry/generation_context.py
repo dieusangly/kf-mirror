@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 
 from knowledge_foundry.embeddings import atomic_json
 from knowledge_foundry.openai_tools import response_payload
-from knowledge_foundry.structural_chunks import footnote_links, stable_hash
+from knowledge_foundry.structural_links import stable_hash
 
 COUNT_VERSION = "response-input-count-v2"
 

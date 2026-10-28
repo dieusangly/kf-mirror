@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from knowledge_foundry.structural_links import footnote_links, stable_hash
+from knowledge_foundry.structural_links import stable_hash
 from knowledge_foundry.document_structure import assemble_document_hierarchy, ancestor_ids
 from knowledge_foundry.evidence import claim_evidence_references, evidence_key
 

@@ -282,7 +282,7 @@ def order_single_column_pages(flow, pages):
     """
     by_page = defaultdict(list)
     blocked = set()
-    text_labels = {'text', 'section_header', 'title', 'list_item', 'caption', 'footnote',
+    text_labels = {'text', 'section_header', 'title', 'list_item', 'caption', 'footnote', 'table', 'document_index',
                    'page_header', 'page_footer', 'checkbox_selected', 'checkbox_unselected'}
     for index, (node, _) in enumerate(flow):
         parts = getattr(node, 'prov', []) or []
@@ -345,6 +345,43 @@ def order_single_column_pages(flow, pages):
         original = list(ordered)
         for target, (source, _, _) in zip(indices, geometric):
             ordered[target] = original[source]
+    # Preserve each column's native order, but require an upper panel to
+    # precede a lower block spanning that panel's column. Sorting globally by
+    # y would interleave ordinary two-column prose.
+    regions = defaultdict(list)
+    for index, (node, _) in enumerate(ordered):
+        parts = getattr(node, 'prov', []) or []
+        parent = getattr(getattr(node, 'parent', None), 'cref', '')
+        label = str(getattr(node, 'label', '')).lower()
+        if (len(parts) == 1 and parts[0].bbox is not None and parts[0].page_no in pages and
+                label in text_labels and not parent.startswith('#/pictures/')):
+            p = parts[0]
+            regions[p.page_no].append((index, p.bbox.to_top_left_origin(pages[p.page_no].size.height)))
+    for entries in regions.values():
+        headings = [(i, b) for i, b in entries if str(getattr(ordered[i][0], 'label', '')).lower()
+                    in {'section_header', 'title'}]
+        panels = [(a, b) for j, (_, a) in enumerate(headings) for _, b in headings[j+1:]
+                  if (a.r <= b.l or b.r <= a.l) and max(a.t, b.t) < min(a.b, b.b)]
+        if not any(c.t >= max(a.b, b.b) and c.l <= min(a.l, b.l) and c.r >= max(a.r, b.r)
+                   for a, b in panels for _, c in entries):
+            continue
+        predecessors = {i: set() for i, _ in entries}
+        for i, a in entries:
+            for j, b in entries:
+                if a.b <= b.t - 1 and max(a.l, b.l) < min(a.r, b.r):
+                    predecessors[j].add(i)
+        pending = set(predecessors)
+        sequence = []
+        while pending:
+            ready = [i for i in pending if not (predecessors[i] & pending)]
+            if not ready:
+                break
+            chosen = min(ready)
+            sequence.append(chosen); pending.remove(chosen)
+        if not pending:
+            original = list(ordered)
+            for (target, _), source in zip(entries, sequence):
+                ordered[target] = original[source]
     return ordered
 
 
@@ -438,8 +475,9 @@ def repair_footnotes(items, page_sizes):
             gap = box[1] - previous[3]
             line_height = box[3] - box[1]
             # Do not cross a column, figure, furniture, or a new numbered block.
-            if (block['kind'] != 'paragraph' or
-                    block['details'].get('evidence_role') != 'authoritative' or
+            url_continuation = bool(re.search(r'(?:https?://|www\.)\S*$', active['text']))
+            if (block['kind'] not in {'paragraph', 'footnote', 'list_item'} or
+                    (block['details'].get('evidence_role') != 'authoritative' and not url_continuation) or
                     re.match(r'^\d{1,3}[.)]?\s', block['text']) or
                     re.fullmatch(r'\d{1,3}', block['text'].strip()) or
                     abs(box[0] - previous[0]) > height * .02 or
@@ -447,7 +485,7 @@ def repair_footnotes(items, page_sizes):
                     line_height > height * .025):
                 active = None
                 continue
-            merge(active, block, '\n')
+            merge(active, block, '' if url_continuation else '\n')
             note_role(active)
     return [item for item in items if item['locator_key'] not in removed]
 

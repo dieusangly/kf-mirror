@@ -7,12 +7,12 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
 
+from knowledge_foundry.document_structuring_review import main
 from knowledge_foundry.chunking import ROOT, _chunk_document, build_collection, digest
-from scripts.auto_review_chunking import (
+from knowledge_foundry.chunking_audit import (
     _apply_reviews, _audit_document, _audit_figures, _audit_references,
-    _read_review_policy, _read_sample_per_document, _write_review_seed, evaluate, main,
+    _read_review_policy, _read_sample_per_document, evaluate,
 )
 
 
@@ -86,34 +86,6 @@ class ChunkEvaluationTests(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertTrue(all('Region | Annual results' in c['text'] and 'Area | Number' in c['text']
                             for c in chunks))
-
-    def test_write_review_uses_default_path_and_refuses_overwrite(self):
-        report = {
-            "automatic_gate": "pass", "review_gate": "pending", "gate": "pending_review",
-            "review_template": {"build_id": "build:test", "reviews": [
-                {"chunk_id": "chunk:test", "status": "pending", "severity": None,
-                 "notes": "source inspection pending"}
-            ]},
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            chunked = Path(directory) / "chunked"
-            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
-                self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review"]), 0)
-            review_path = chunked / "chunking-review.json"
-            self.assertEqual(json.loads(review_path.read_text(encoding="utf-8")), report["review_template"])
-            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
-                main(["--chunked-dir", str(chunked), "--initialize-review"])
-            self.assertEqual(error.exception.code, 2)
-            with self.assertRaises(FileExistsError):
-                _write_review_seed(review_path, report)
-            custom_path = chunked / "custom-review.json"
-            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
-                self.assertEqual(main(["--chunked-dir", str(chunked), "--initialize-review",
-                                       str(custom_path)]), 0)
-            self.assertEqual(json.loads(custom_path.read_text(encoding="utf-8")), report["review_template"])
-            with redirect_stdout(io.StringIO()), patch("scripts.auto_review_chunking.evaluate", return_value=report):
-                self.assertEqual(main(["--chunked-dir", str(chunked), "--review-file",
-                                       str(review_path)]), 1)
 
     def test_sample_size_is_read_from_pipeline_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -351,7 +323,8 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
         build_collection(config, self.parsed, self.chunked)
         self.initial = evaluate(self.chunked, self.parsed)
         self.review = copy.deepcopy(self.initial["review_template"])
-        self.review_path = self.root / "review.json"
+        self.review_path = self.root / "chunk-review/review.json"
+        self.review_path.parent.mkdir()
 
     def assess(self):
         for row in self.review["reviews"]:
@@ -401,8 +374,8 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
         output = self.root / "evaluation.json"
         before = self.review_path.read_bytes()
         with redirect_stdout(io.StringIO()):
-            code = main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
-                         "--sample-per-document", "1", "--review-file", str(self.review_path),
+            code = main(["finalize", "--checkpoint", "chunking", "--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                         "--sample-per-document", "1", "--chunk-review-dir", str(self.review_path.parent),
                          "--output", str(output)])
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(output.read_text())["additional_findings"], self.review["additional_findings"])
@@ -442,8 +415,10 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
         report = self.evaluate_review()
         self.assertEqual(report["reviewer"], unknown)
         self.assertEqual(report["review_gate"], "pending")
-        seed = self.root / "seed.json"
-        _write_review_seed(seed, self.initial)
+        seed = self.root / "seed-review/review.json"
+        with redirect_stdout(io.StringIO()):
+            main(["prepare", "--checkpoint", "chunking", "--chunked-dir", str(self.chunked),
+                  "--parsed-dir", str(self.parsed), "--chunk-review-dir", str(seed.parent)])
         self.assertEqual(json.loads(seed.read_text())["reviewer"], unknown)
 
     def test_session_attribution_reaches_report_and_legacy_scores_are_preserved(self):
@@ -476,8 +451,8 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
                 before = self.review_path.read_bytes()
                 output = self.root / "evaluation.json"
                 with redirect_stdout(io.StringIO()):
-                    code = main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
-                                 "--review-file", str(self.review_path), "--output", str(output)])
+                    code = main(["finalize", "--checkpoint", "chunking", "--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                                 "--chunk-review-dir", str(self.review_path.parent), "--output", str(output)])
                 self.assertEqual(code, 0)
                 self.assertEqual(json.loads(output.read_text())["reviewer"], reviewer)
                 self.assertEqual(self.review_path.read_bytes(), before)
@@ -507,8 +482,8 @@ class ChunkReviewerMetadataTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "reviewer"):
                     self.evaluate_review()
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
-            main(["--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
-                  "--review-file", str(self.review_path), "--output", str(self.root / "invalid.json")])
+            main(["finalize", "--checkpoint", "chunking", "--chunked-dir", str(self.chunked), "--parsed-dir", str(self.parsed),
+                  "--chunk-review-dir", str(self.review_path.parent), "--output", str(self.root / "invalid.json")])
         self.assertEqual(error.exception.code, 2)
 
 

@@ -17,8 +17,8 @@ from knowledge_foundry.pdf_tables import pdf_page_geometry, ruled_cells, link_ta
 NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
 PDF_DECIMAL_HEADING = re.compile(r"^\s*(\d+(?:\.\d+)*)(?:\.)?\s+")
 PDF_ROMAN_HEADING = re.compile(r"^\s*[IVX]+\.\s+", re.I)
-PDF_ANNEX_HEADING = re.compile(r"^\s*annex(?:e)?(?:\s+\d+\b|\s*$)", re.I)
-PDF_CASE_HEADING = re.compile(r"^\s*(?:cas|case)\s+n[°o]\s*\d+\b", re.I)
+PDF_ANNEX_HEADING = re.compile(r"^\s*annex(?:e)?(?:\s+(?:\d+|[IVXLCDM]+)\b|\s*$)", re.I)
+PDF_CASE_HEADING = re.compile(r"^\s*(?:cas|case)\s+(?:n[°o]\s*)?\d+\b", re.I)
 PDF_BOX_HEADING = re.compile(r"^\s*(?:encadré|box)\s+n[°o]\s*\d+\b", re.I)
 PDF_LEGAL_HEADING = re.compile(r"^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+[a-z]?|premier)$", re.I)
 PICTURE_CONNECTORS = {"a", "à", "au", "aux", "d", "de", "des", "du", "dans", "en",
@@ -419,23 +419,44 @@ def _pdf_heading_level(text, stack, toc_levels):
     legal = legal or re.match(r'^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+)\s+[-–:]\s+\S', text, re.I)
     if legal:
         return {'chapter': 1, 'chapitre': 1, 'section': 3, 'article': 5}[legal[1].lower()], 'legal'
-    match = PDF_DECIMAL_HEADING.match(text)
-    if match and (len(match.group(1).split(".")) > 1 or int(match.group(1)) < 20):
-        return len(match.group(1).split(".")), "numbered"
-    if PDF_ROMAN_HEADING.match(text) or PDF_ANNEX_HEADING.match(text):
+    if PDF_ANNEX_HEADING.match(text):
         return 1, "numbered"
+    if PDF_ROMAN_HEADING.match(text):
+        chapter = next((e for e in reversed(stack) if re.match(r'^(?:chapter|chapitre)\b', e[2], re.I)), None)
+        return (chapter[0] + 1 if chapter else 1), 'numbered'
     toc_entry = toc_levels.get(" ".join(text.casefold().split()))
     if toc_entry:
         _, parent_title = toc_entry
         parent = next((entry for entry in reversed(stack)
                        if parent_title and " ".join(entry[2].casefold().split()) ==
                        " ".join(parent_title.casefold().split())), None)
-        # A missing TOC parent in the body cannot be safely invented.
-        return (parent[0] + 1 if parent else 1), "toc"
-    anchor = next((entry for entry in reversed(stack) if entry[3] in {"numbered", "toc", "legal"}), None)
+        # Prefer a matched TOC parent, but let explicit numbering retain the
+        # active part when the TOC spells its parent differently.
+        if parent:
+            return parent[0] + 1, "toc"
+        if not PDF_DECIMAL_HEADING.match(text):
+            return 1, "toc"
     case = next((entry for entry in reversed(stack) if entry[3] == "case"), None)
     if PDF_CASE_HEADING.match(text):
-        return (anchor[0] if anchor else 1) + 1, "case"
+        if case:
+            return case[0], "case"
+        anchor = next((e for e in reversed(stack) if PDF_ANNEX_HEADING.match(e[2])), None)
+        return (anchor[0] + 1 if anchor else stack[-1][0] + 1 if stack else 1), "case"
+    match = PDF_DECIMAL_HEADING.match(text)
+    if match and (len(match.group(1).split(".")) > 1 or int(match.group(1)) < 20):
+        # Decimal numbering restarts inside parts, annexes and cases. A digit
+        # does not erase the governing scope established by those labels.
+        anchor = next((e for e in reversed(stack) if e[3] == 'case' or
+                       PDF_ROMAN_HEADING.match(e[2]) or PDF_ANNEX_HEADING.match(e[2]) or
+                       re.match(r'^(?:chapter|chapitre)\b', e[2], re.I) or
+                       re.match(r'^[A-Z]\.\s', e[2])), None)
+        return (anchor[0] if anchor else 0) + len(match[1].split('.')), 'decimal'
+    letter = re.match(r'^[A-Z]\.\s', text)
+    if letter:
+        anchor = next((e for e in reversed(stack) if PDF_ROMAN_HEADING.match(e[2]) or
+                       PDF_ANNEX_HEADING.match(e[2])), None)
+        return (anchor[0] if anchor else 0) + 1, 'letter'
+    anchor = next((entry for entry in reversed(stack) if entry[3] in {"numbered", "decimal", "letter", "toc", "legal"}), None)
     if PDF_BOX_HEADING.match(text):
         return (anchor[0] if anchor else 1) + 1, "box"
     if case:
@@ -863,6 +884,7 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
     excluded_picture_refs = set()
     character_cache = {}
     geometry_cache = {}
+    heading_styles = {}
 
     def page_geometry(page):
         if page not in geometry_cache:
@@ -874,8 +896,27 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
             return []
         page = provenance[0]['page_no'] if isinstance(provenance[0], dict) else provenance[0].page_no
         if page not in character_cache:
-            character_cache[page] = pdf_page_characters(path, page)
+            character_cache[page] = pdf_page_characters(path, page, styles=True)
         return character_cache[page]
+
+    def heading_style(ref, part, piece):
+        from knowledge_foundry.pdf_source import inside, bounds, key
+        from difflib import SequenceMatcher
+        import statistics
+        if ref not in heading_styles:
+            page = part['page_no'] if isinstance(part, dict) else part.page_no
+            node = native_by_ref.get(ref, {})
+            parts = node.get('prov', [])
+            glyphs = (inside(page_characters([part]), bounds(parts[0], doc.pages[page].size.height))
+                      if len(parts) == 1 and parts[0].get('bbox') else [])
+            literal = ''.join(c['text'] for c in sorted(glyphs, key=lambda c: c['index']))
+            letters = [c for c in glyphs if c['text'].isalnum()]
+            heading_styles[ref] = ((round(statistics.median(c['line_size'] for c in letters) * 2) / 2,
+                                    Counter(tuple(c.get('color', [])) for c in letters).most_common(1)[0][0],
+                                    statistics.median(c.get('font_weight', 0) for c in letters) >= 600)
+                                   if letters and SequenceMatcher(None, key(literal), key(piece), autojunk=False).ratio() >= .9
+                                   else None)
+        return heading_styles[ref]
 
     def add_block(kind, text, ref, parent_ref, provenance, stack, *, evidence_role="authoritative",
                   checkbox_state=None, picture_child=False, minimum_heading_level=1):
@@ -942,10 +983,9 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
             if kind == "paragraph" and local_role == "authoritative":
                 if cover_page and page == 1 and len(piece.split()) < 15:
                     local_role = "auxiliary"
-                elif len(piece.split()) <= 32 and not piece.rstrip().endswith((".", ";", ":", "?", "!")):
-                    annotation_figure = picture_annotation(page, location)
-                    if annotation_figure is not None:
-                        local_role = "auxiliary"
+                # Proximity to a picture does not make a literal caption or
+                # classification non-citable. Only proven picture descendants
+                # use the separate visual-transcript quality policy.
                 if (local_role == "authoritative" and len(piece.strip()) == 1 and
                         piece.strip().isalpha() and location.get("bbox")):
                     box = location["bbox"]
@@ -961,6 +1001,38 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
                         local_role = "structural"
             if kind == "heading":
                 heading_level, role = _pdf_heading_level(piece, stack, toc_levels)
+                style = heading_style(ref, part, piece)
+                if role in {'local', 'toc'} and stack and stack[-1][3] == 'legal':
+                    heading_level, role = stack[-1][0] + 1, 'legal_title'
+                elif style and role in {'local', 'toc'}:
+                    prior = [(entry, heading_styles.get(items_by_key[entry[1]]['details']['docling_ref']))
+                             for entry in stack if entry[1] in items_by_key]
+                    # Compare the active source hierarchy, rather than caching
+                    # an absolute level across unrelated chapters and annexes.
+                    peers = [entry for entry, s in prior if s == style and
+                             entry[3] in {'local', 'styled', 'toc'}]
+                    larger = [entry for entry, s in prior if s and s[0] > style[0] + .5]
+                    smaller = [entry for entry, s in prior if s and s[0] < style[0] - .5 and
+                               entry[3] in {'local', 'styled', 'toc', 'case'}]
+                    equal = [entry for entry, s in prior if s and abs(s[0] - style[0]) <= .5 and
+                             entry[3] in {'local', 'styled', 'toc'}]
+                    if peers:
+                        heading_level = peers[-1][0]
+                    elif smaller:
+                        heading_level = min(heading_level, min(entry[0] for entry in smaller))
+                    elif larger:
+                        heading_level = larger[-1][0] + 1
+                    elif equal:
+                        heading_level = equal[-1][0] + 1
+                    role = 'styled'
+                previous = items[-1] if items else None
+                if role in {'local', 'styled'} and previous and previous['kind'] == 'heading':
+                    pbox, box = previous['location'].get('bbox'), location.get('bbox')
+                    if (pbox and box and previous['location']['page'] == page and
+                            abs(box[0] + box[2] - pbox[0] - pbox[2]) <= 12 and 0 <= box[1] - pbox[3] <= 40 and
+                            (PDF_ANNEX_HEADING.match(previous['text']) or
+                             page == 1 and (piece[:1].islower() or piece.startswith('(')))):
+                        heading_level = previous['details']['level'] + 1
                 heading_level = max(heading_level, minimum_heading_level)
                 while stack and stack[-1][0] >= heading_level:
                     stack.pop()
@@ -989,6 +1061,7 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
             if annotation_figure is not None:
                 details["visual_annotation"] = True
             items.append(_item(kind, piece, key, location, parent_key=parent_key, details=details))
+            items_by_key[key] = items[-1]
             if kind == "heading":
                 stack.append((heading_level, key, piece, role))
         if first_key:
@@ -1027,7 +1100,16 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
         for child in picture.get("children", []):
             visit(child["$ref"])
         groups = _picture_text_groups(text_nodes, native.get('pages', {}))
-        for group, role in zip(groups, _picture_group_roles(groups)):
+        group_roles = _picture_group_roles(groups)
+        if any(role == 'flow' and group[0].get('label') in {'section_header', 'title'}
+               for group, role in zip(groups, group_roles)) and any(
+                   large_picture(p['page_no'], p['bbox']) for p in picture.get('prov', []) if p.get('bbox')):
+            # An image containing document panels resumes the persistent part
+            # or annex, rather than nesting beneath the last unrelated panel.
+            while local_stack and local_stack[-1][3] in {'local', 'styled'}:
+                local_stack.pop()
+            child_heading_level = local_stack[-1][0] + 1 if local_stack else 1
+        for group, role in zip(groups, group_roles):
             refs = [node["self_ref"] for node in group]
             value = " ".join(node.get("text", "").strip() for node in group)
             label = group[0].get("label", "text")
@@ -1123,6 +1205,7 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
                              "candidates": [candidate for candidate in potential_candidates
                                             if candidate["role"] == "flow"]})
 
+    items_by_key = {}
     flow_items = order_single_column_pages(list(doc.iterate_items(with_groups=False)), doc.pages)
 
     def heading_starts_body(item, following):
@@ -1199,15 +1282,24 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
         # A standalone article number followed by a centred native title
         # supplies both textual and geometric evidence for a heading pair.
         if (kind == 'paragraph' and PDF_LEGAL_HEADING.fullmatch(text.strip()) and
-                text.strip().lower().startswith('article ') and len(prov) == 1 and
+                len(prov) == 1 and
                 prov[0].bbox is not None and flow_index + 1 < len(flow_items)):
             following = flow_items[flow_index + 1][0]
             parts = getattr(following, 'prov', []) or []
-            if (str(getattr(following, 'label', '')).lower() == 'section_header' and
+            if (str(getattr(following, 'label', '')).lower() in {'section_header', 'text'} and
                     len(parts) == 1 and parts[0].page_no == prov[0].page_no and parts[0].bbox is not None):
                 height = doc.pages[prov[0].page_no].size.height
                 a, b = prov[0].bbox.to_top_left_origin(height), parts[0].bbox.to_top_left_origin(height)
                 if abs((a.l + a.r) - (b.l + b.r)) <= 12 and 0 <= b.t - a.b <= 30:
+                    kind = 'heading'
+        if kind == 'paragraph' and heading_stack and heading_stack[-1][3] == 'legal':
+            previous = items[-1] if items else None
+            if previous and previous['kind'] == 'heading' and len(prov) == 1 and prov[0].bbox is not None:
+                box = prov[0].bbox.to_top_left_origin(doc.pages[prov[0].page_no].size.height)
+                pbox = previous['location'].get('bbox')
+                if (pbox and previous['location']['page'] == prov[0].page_no and
+                        len(text.split()) <= 12 and abs(box.l + box.r - pbox[0] - pbox[2]) <= 12 and
+                        0 <= box.t - pbox[3] <= 30):
                     kind = 'heading'
         marker = getattr(item, "marker", None)
         if kind == "list_item":
@@ -1216,6 +1308,8 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
             kind = "paragraph"  # A numbered quotation lead is not a section.
         if kind == "heading" and text.rstrip().endswith("…"):
             kind = "paragraph"  # A sentence introducing examples is not a section.
+        if kind == 'heading' and re.match(r'^\d+\s*°\s', text):
+            kind = 'list_item'  # Statutory alternatives share their list lead.
         if (kind == 'heading' and text.rstrip().endswith(':') and
                 not PDF_DECIMAL_HEADING.match(text) and not PDF_ROMAN_HEADING.match(text) and
                 not PDF_ANNEX_HEADING.match(text)):
@@ -1234,7 +1328,7 @@ def parse_pdf(path, _source, options, converter=None, *, native_document=None):
                 box = bbox.to_top_left_origin(doc.pages[page].size.height)
                 if picture_annotation(page, {"bbox": [box.l, box.t, box.r, box.b]}):
                     kind = "paragraph"  # A short label below a large image annotates it.
-        if kind == "paragraph" and re.match(r"^[a-z]\.\s+", text, re.I):
+        if kind == "paragraph" and re.match(r"^[a-z]\.\s+", text):
             kind = "list_item"  # Alphabetic alternatives in a quoted rule.
         prov = getattr(item, "prov", []) or []
         ref = getattr(item, "self_ref", None)

@@ -16,8 +16,8 @@ from knowledge_foundry.pdf_structure import pdf_page_characters, separate_table_
 from knowledge_foundry.parsers import parse_pdf
 from knowledge_foundry.parsing import ROOT, _normalize
 from knowledge_foundry.chunking import _chunk_document
-from scripts.auto_review_parsing import audit_document
-from scripts.auto_review_chunking import _audit_document
+from knowledge_foundry.parsing_audit import audit_document
+from knowledge_foundry.chunking_audit import _audit_document
 
 
 def write_pdf(path, stream=None, resources=b'', font=b'Helvetica'):

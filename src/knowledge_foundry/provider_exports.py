@@ -5,12 +5,17 @@ MinerU content_list, and Mistral OCR pages. SDK/network integrations implement
 StructureProvider directly; this module never uploads documents.
 """
 from pathlib import Path
+from collections import Counter
 import tempfile
 
 from knowledge_foundry.structure_providers import ProviderResult
 
 
-KINDS = {'Title': 'heading', 'Header': 'heading', 'NarrativeText': 'paragraph', 'Text': 'paragraph',
+KINDS = {'Title': 'heading', 'Header': 'paragraph', 'NarrativeText': 'paragraph', 'Text': 'paragraph',
+         'UncategorizedText': 'paragraph', 'Address': 'paragraph', 'EmailAddress': 'paragraph',
+         'Formula': 'paragraph', 'CodeSnippet': 'paragraph', 'Footer': 'paragraph',
+         'Footnote': 'footnote',
+         'PageNumber': 'paragraph', 'PageBreak': 'paragraph',
          'ListItem': 'list_item', 'Table': 'table', 'Image': 'figure', 'FigureCaption': 'caption',
          'CompositeElement': 'paragraph', 'TableChunk': 'table',
          'text': 'paragraph', 'heading': 'heading', 'table': 'table', 'image': 'figure',
@@ -48,7 +53,8 @@ def adapt_export(name, response, artifact):
             del heading_texts[level-1:]
             heading_texts.append(text)
             details.update(level=level, heading_path=list(heading_texts))
-        if raw.get('type') in {'header', 'footer', 'page_number'}:
+        if raw.get('type') in {'header', 'footer', 'page_number', 'Header', 'Footer', 'PageNumber', 'PageBreak'}:
+            # Preserve page furniture without making it citable body evidence.
             details['evidence_role'] = 'structural'
         items.append({'kind': kind, 'text': text or '', 'locator_key': key, 'location': location,
                       'parent_key': parent or (heading_keys[-1] if heading_keys else None), 'details': details})
@@ -58,6 +64,8 @@ def adapt_export(name, response, artifact):
 
     if name == 'unstructured':
         rows = response if isinstance(response, list) else response['elements']
+        counts = Counter(str(row['element_id']) for row in rows if row.get('element_id'))
+        preceding = set()
         for index, row in enumerate(rows):
             meta = row.get('metadata', {})
             coords = meta.get('coordinates') or {}
@@ -65,10 +73,24 @@ def adapt_export(name, response, artifact):
             box = [min(p[0] for p in points), min(p[1] for p in points),
                    max(p[0] for p in points), max(p[1] for p in points)] if points else None
             scale = (coords['layout_width'], coords['layout_height']) if box else None
-            add(KINDS.get(row['type']), row.get('text', ''), meta['page_number'], row,
-                box=box, scale=scale, parent=meta.get('parent_id'),
+            native_key = str(row.get('element_id') or f'unstructured:{index}')
+            # Some releases emit identical IDs for repeated text at distinct
+            # locations. Disambiguate by native order; never discard a repeat.
+            locator = f'unstructured:{index}:{native_key}' if counts[native_key] > 1 else native_key
+            parent = str(meta['parent_id']) if meta.get('parent_id') else None
+            # Native layout parents may be omitted or follow their children.
+            # Keep that relationship in native metadata without inventing order.
+            if parent and (parent not in preceding or counts[parent] > 1):
+                warnings.append({'code': 'unstructured_unresolved_parent', 'page': meta['page_number'],
+                                 'element_id': row.get('element_id'), 'parent_id': parent})
+                parent = None
+            key = add(KINDS.get(row['type']), row.get('text', ''), meta['page_number'], row,
+                box=box, scale=scale, parent=parent,
                 level=meta.get('category_depth', 0) + 1 if row['type'] == 'Title' else None,
-                key=row.get('element_id') or f'unstructured:{index}')
+                key=locator)
+            if parent is None and meta.get('parent_id'):
+                items[-1]['parent_key'] = None
+            preceding.add(key)
     elif name == 'llamaparse':
         pages = response.get('items', {}).get('pages') or response.get('pages')
         if not pages:
@@ -134,14 +156,12 @@ def adapt_export(name, response, artifact):
                 path = Path(directory) / 'page.md'
                 path.write_text(markdown)
                 blocks, _, _ = parse_markdown(path, {}, {'tables': True})
-            mapped = {}
             for block in blocks:
                 if block['kind'] == 'table_cell':
                     # Cell structure is also retained on its table's raw metadata.
                     continue
                 key = add(block['kind'], block['text'], number, {'native_page_index': page['index'], 'block': block['details'], 'confidence_scores': page.get('confidence_scores')},
                           level=block['details'].get('level'))
-                mapped[block['locator_key']] = key
             # Images without pixel coordinates stay native metadata and require
             # source review rather than an invented PDF box.
     else:

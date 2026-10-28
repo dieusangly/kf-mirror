@@ -1,93 +1,118 @@
 # Structuring providers
 
-Select `structuring.provider` and `structuring.options` in `config/pipeline.json`.
-The internal provider uses Docling for PDF, lxml for HTML, markdown-it-py for
-Markdown and python-docx for DOCX. PDF/OCR settings live under
-`structuring.options.pdf` and `.ocr`; HTML settings under `.html`.
-Rendering, preprocessing and DPI are adapter concerns, never ingestion concerns.
-`structuring.source_overrides` can map a manifest ID to another `provider` and
-`options`, or to per-source `options` overrides. For example, an external PDF
-provider can use the internal provider for the two HTML articles.
+## Configuration
 
-Every adapter implements `StructureProvider` in
-`src/knowledge_foundry/structure_providers.py`:
+`config/pipeline.json` stores complete specs under `structuring.profiles`;
+`structuring.profile` defaults to `docling`. Override one parse with
+`scripts/parse.py --profile unstructured`. Each spec contains `provider`,
+`options` and optional `source_overrides` (manifest ID → provider/options).
+Legacy direct `structuring.provider` / `.options` configs remain supported.
+
+The internal provider uses Docling for PDF, lxml for HTML, markdown-it-py for
+Markdown and python-docx for DOCX. Settings live under the selected profile's
+`options.pdf`, `.ocr`, `.html`, `.markdown` and `.docx`. Rendering, preprocessing
+and DPI belong to providers; ingestion supplies verified originals.
+
+## Adapter contract
+
+Implement `StructureProvider` from
+[src/knowledge_foundry/structure_providers.py](../src/knowledge_foundry/structure_providers.py)
+and select `"provider": "my_package.my_adapter:Provider"`:
 
 ```python
 from knowledge_foundry.structure_providers import ProviderResult
 
 class Provider:
-    version = "my-adapter-v1"  # change when output-affecting logic changes
+    version = "my-adapter-v1"  # bump for output-affecting changes
 
     def structure(self, artifact, options):
-        original = artifact["artifact_file"]  # verified saved bytes
-        # Call an SDK/local engine here; normalize its response.
+        original = artifact["artifact_file"]  # verified local bytes
+        # Invoke the engine, then return located literal source text.
         return ProviderResult(elements=[{
             "locator_key": "page-1:block-1", "kind": "paragraph",
-            "text": "Literal source text", "parent_key": None,
-            "location": {"format": "pdf", "page": 1},
+            "text": "Literal source text",
+            "location": {"format": "pdf", "page": 1, "label": "p. 1"},
             "details": {"confidence": 0.98, "evidence_role": "authoritative"}
         }], native={"original_response": "..."})
 ```
 
-Configure `"provider": "my_package.my_adapter:Provider"`. Constructor takes no
-arguments; document-specific settings arrive in `options`. The artifact contains
-source/document identity, frozen manifest metadata and a local original path.
-Return a `ProviderResult`, not a changed source or Document model. Errors become
-per-document failures. Each adapter owns its SDK, credentials, retries and native
-replay compatibility; the core has no vendor SDK dependencies.
+The constructor takes no arguments; `artifact` supplies source/document identity,
+frozen metadata and original path. Adapters own SDKs, credentials, retries and
+replay compatibility; errors become per-document failures.
 
-Elements use `kind`, literal `text`, a unique stable `locator_key`, `location`,
-optional `parent_key`, and `details`. PDF pages are one-based; boxes are top-left
-PDF points. Keep table cells/HTML, row/column spans, lists, hierarchy, figures,
-confidence, layout and vendor identifiers in details/native output. Parents must
-precede children. Evidence roles are `authoritative`, `structural`, `auxiliary`.
-Only authoritative text becomes citable chunk evidence; figure crops remain
-hashed visual assets. Normalization adds canonical IDs and revisions without
-rewriting the supplied text.
-
-To supply ready chunks, set `ProviderResult.chunks` to a list of:
+- Elements need unique stable `locator_key`, `kind`, literal `text`, `location`;
+  optional `parent_key` references a preceding parent. Normalization adds IDs
+  and revisions without rewriting text.
+- PDF pages are one-based; boxes use top-left PDF points. Preserve table
+  cells/HTML/spans, lists, hierarchy, figures, confidence and vendor IDs in
+  `details`/native output.
+- Evidence roles are `authoritative`, `structural`, `auxiliary`. Only authoritative
+  text becomes citable evidence; figure crops remain hashed visual assets.
+- Optional `ProviderResult.chunks` preserves provider text/boundaries without
+  merging/rechunking. Entries use the format below; evidence `span` is optional
+  and half-open (`start`, `end`), defaulting to the whole element. A chunks-only
+  provider may instead supply `kind`, `location`, optional `details` per chunk;
+  normalization creates located evidence anchors.
 
 ```json
 {"text": "Literal source text", "evidence": [{"locator_key": "page-1:block-1"}]}
 ```
 
-Evidence can specify a half-open character `span` (`start`, `end`); omission
-means the whole element. A chunks-only provider can instead return each chunk with `kind`, `location`
-and optional `details`; normalization creates one evidence anchor per chunk.
-Supply located elements as evidence anchors when
-partitioning/chunking was already done by the provider. No internal rechunking
-or merging is performed for these chunks. Coverage audits reject missing source
-text and fragmented table/list elements. Human/agent source review is still
-required; confidence is not acceptance.
+Coverage/fragmentation audits and source/layout reviews still apply. Confidence
+and native replay consistency do not certify extraction completeness.
 
 ## Saved provider responses
 
-The `export` provider supports a source-bound response file for each manifest ID:
-`<response_dir>/<manifest_id>.json`. Example options:
+The `export` provider reads `<response_dir>/<manifest_id>.json`, bound to the
+original by `{"source_sha256": "<ingested hash>", "native": ...}`:
 
 ```json
 {"provider": "export", "options": {"response_dir": "/absolute/responses", "format": "unstructured"}}
 ```
 
-The file envelope is `{"source_sha256": "<ingested original hash>", "native": ...}`.
-Supported native dialects:
+| Format | Supported response |
+| --- | --- |
+| `unstructured` | Partition array, metadata, HTML and coordinates; CompositeElement/TableChunk boundaries retained. |
+| `llamaparse` | Expanded `items.pages` or legacy `pages` with `items`; nested lists, tables, captions, point boxes. |
+| `mineru` | Content-list array or `content_list`; zero-based `page_idx`, 0–1000 boxes, table HTML. MiddleJson needs another adapter. |
+| `mistral` | OCR `pages` with Markdown/separate tables; block/image/confidence metadata retained. |
+| `normalized` (default) | Envelope with `elements`, optional `chunks`, `native`, `warnings` matching `ProviderResult`. |
 
-- `unstructured`: Partition element array; metadata, table HTML and coordinates
-  survive. CompositeElement/TableChunk output is retained as provider chunks.
-- `llamaparse`: expanded `items.pages` (or legacy `pages` with `items`), including
-  nested lists, tables, image captions and point-based boxes.
-- `mineru`: content-list array (or `content_list`); zero-based `page_idx`, normalized
-  0–1000 boxes and table HTML. Newer MiddleJson contracts need a custom adapter.
-- `mistral`: OCR `pages` with Markdown and optional separated tables; native block,
-  image and confidence data remains available for review.
-- `normalized` (default): envelope has `elements`, optional `chunks`, `native`
-  and `warnings` already matching `ProviderResult`.
+These are offline integrations. Hosted calls need an SDK adapter; OCRia can use
+`normalized` or a custom factory, with no built-in vendor mapping. Unknown native
+element types fail explicitly.
 
-These are **offline response integrations**, not built-in hosted API clients.
-Use an SDK adapter for live Unstructured, LlamaParse/OCRia, MinerU or Mistral calls.
-OCRia can use the normalized bridge or its own `module:factory`; no unverified
-OCRia-specific response mapping is built in. Unknown native element types fail
-explicitly so an adapter can be updated without silently losing structure.
+## Local open-source Unstructured
+
+`knowledge_foundry.unstructured_provider:Provider` runs local `partition_pdf` on
+verified bytes, with telemetry disabled and no URL, credentials or hosted API.
+Both PDF engines are pinned in `requirements.txt`; [installation/run commands](aml-cft-pipeline.md)
+use `.venv`. First use may download open-source NLP/model weights; keep caches
+outside dated runs and record environment/model versions.
+
+The `unstructured` profile selects `hi_res`, YOLOX, French/English OCR and table
+inference. L1/L2 explicitly use the internal HTML reader/article selector.
+
+| Option | Values / constraints |
+| --- | --- |
+| `strategy` | `fast`, `hi_res`, `ocr_only`; `auto` and fallback fail explicitly. |
+| `languages` | OCR languages, currently `fra`, `eng`. |
+| `infer_table_structure` | Requires `hi_res`. |
+| `hi_res_model_name` | Defaults to `yolox`; requires `hi_res`. |
+| Environment `PDF_RENDER_DPI` | Rasterization resolution; 350 in the measured hi_res run. |
+
+`fast` reads embedded text without OCR, table inference or figure assets. Hi_res
+adds layout/table detection, not guaranteed fidelity. Empty pages warn and mark
+partial outcomes; they are not presumed blank. Native data stays in `provider.json`;
+boxes convert to PDF points, duplicate IDs receive stable order-based locators,
+and ambiguous/missing/forward parents warn rather than create invalid links.
+The shared pipeline saves figure crops from originals.
+
+The pinned SDK labels predicted footnotes `Footer`, potentially excluding real
+source evidence. Explicit `Footnote` is supported, but cannot be inferred from
+`Footer` alone. Table HTML may omit cells or disagree with plain text. See
+[benchmarks](benchmarks.md) for measured failures and acceptance status; retained
+`configuration.json`/`environment.txt` describe the historical pilot environment.
 
 Response references: [Unstructured](https://docs.unstructured.io/api-reference/partition/text-as-html),
 [LlamaParse](https://developers.llamaindex.ai/llamaparse/parse/guides/response-format/),

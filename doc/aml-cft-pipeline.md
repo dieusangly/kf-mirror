@@ -1,145 +1,232 @@
-# AML/CFT pipeline: pilot commands and validation
+# AML/CFT pipeline commands
 
-This is the command guide for the 13-document pilot, from ingestion through
-downstream processing. Extend it with graph, PostgreSQL and assistant commands
-as those stages are validated on the pilot.
+Run from the repository root. The pilot selects 13 originals in
+`data/manifest.json` (11 PDFs / 801 pages, two HTML articles).
+Results belong in [benchmarks](benchmarks.md); adapter details in [providers](providers.md).
 
-Exactly **13 saved/selected files**: 11 PDFs (801 pages), two HTML articles.
-`data/manifest.json` owns provenance, hashes, editions and relationships.
-IDs: A, T, L1, L2, P, BASEL20, NRA23, R24EN, R24FR, TFR23EN, KYC21, GEL26, PANN24.
-P is the 2018 PPE body paired with the separate 2024 PANN24 annex. R24EN/R24FR
-are language variants of the same work with distinct source IDs. KYC21 is dated
-December 2021; GEL26 is dated March 2026. Development anchors are regression
-inputs, not legal approval.
+## 1. Install and select inputs
 
-## Setup and artifact layout
+Requires Tesseract with French/English data; PDF engines download model weights
+on first use. Keep caches outside dated runs.
 
-Install dependencies with `python -m pip install -r requirements.txt`. Internal
-PDF parsing requires Tesseract with French/English data and Docling model weights.
+```sh
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip check
+```
 
-Use `artifacts/YYYYMMDD-provider-corpus-NN/`, for example
-`artifacts/20261027-docling-aml-cft-01/`. The date is the execution date in
-Europe/Paris; provider/corpus identify the comparison; NN distinguishes runs on
-the same day. A new provider or configuration gets a fresh run directory.
-Shared original bytes and immutable snapshots stay in `artifacts/ingested/`;
-reusable caches stay outside dated runs.
-
-The existing Docling result is `artifacts/20261027-docling-aml-cft-01/`.
-It was relocated without rerunning ingestion, parsing or chunking. `run.json`
-pins its shared ingestion snapshot and records preservation checks. Native
-Docling output, elements, chunks and figure images retain their exact bytes.
-Reviews remain pending; relocation does not grant acceptance.
-
-## 1. Ingestion
-
-Only acquire/ingest again for new source bytes or provenance:
+Ingest only for new source bytes/provenance; omit this for the retained snapshot:
 
 ```sh
 .venv/bin/python scripts/ingest.py --config config/pipeline.json --output-dir artifacts/ingested
 ```
 
-For the same originals, select the immutable snapshot recorded in the existing
-run's `run.json`; do not follow a changing `ingested/report.json` for a retained
-comparison.
-
-## 2. Document Structuring
-
-### Parse and structurally chunk
-
-Example using the current pilot snapshot and a fresh output:
+Use a fresh run ID per provider/configuration execution (Europe/Paris date).
+Pin the snapshot rather than the changing `artifacts/ingested/report.json`:
 
 ```sh
-RUN=artifacts/20261027-docling-aml-cft-02
+PROFILE=docling  # or unstructured (hi_res)
+RUN_ID=20261028-${PROFILE}-aml-cft-01
+RUN=artifacts/$RUN_ID
 SNAPSHOT=artifacts/ingested/snapshots/6d50d268e3fbdbaa4ecc5f1845d0b1e1352635fb02afda76b7257202b5bba965.json
-.venv/bin/python scripts/parse.py --config config/pipeline.json --ingested-dir "$SNAPSHOT" --run-id 20261027-docling-aml-cft-02 --output-dir "$RUN/document-structuring/parsing"
+mkdir -p "$RUN"
+# Reference is relative to RUN; retain this descriptor for pilot validation.
+.venv/bin/python - "$RUN" "$SNAPSHOT" <<'PYTHON'
+import json, os, sys
+from pathlib import Path
+run, snapshot = map(Path, sys.argv[1:])
+(run / 'run.json').write_text(json.dumps({'ingestion_snapshot': os.path.relpath(snapshot, run)}, indent=2) + '\n')
+PYTHON
+```
+
+## 2. Parse and chunk locally
+
+```sh
+HF_HOME="$PWD/artifacts/cache/$PROFILE/huggingface" PDF_RENDER_DPI=350 \
+  .venv/bin/python scripts/parse.py --config config/pipeline.json --profile "$PROFILE" --ingested-dir "$SNAPSHOT" --run-id "$RUN_ID" --output-dir "$RUN/document-structuring/parsing"
 .venv/bin/python scripts/chunk.py --config config/pipeline.json --input-dir "$RUN/document-structuring/parsing" --output-dir "$RUN/document-structuring/chunks"
 ```
 
-For pilot validation of a shared-store run, create `RUN/run.json` with
-`"ingestion_snapshot": "../ingested/snapshots/<snapshot-hash>.json"`.
-Self-contained runs with `RUN/ingestion/` also remain supported. For a new day,
-use a new date in RUN; unchanged source bytes reuse the same pinned snapshot.
+For compatible Docling adapter repairs, add `--native-input-dir <prior-parsing>`
+to reuse saved native output. OCR/DPI changes require fresh parsing. Rechunking
+needs only `chunk.py` and saved parsing; preserve prior outputs.
 
-### Review and repair
+## 3. Review and accept
 
-Initialize pending source reviews for a fresh run:
-
-```sh
-.venv/bin/python scripts/auto_review_parsing.py --input-dir "$RUN/document-structuring/parsing" --manifest data/manifest.json --source-root . --required-pages tests/fixtures/parsing-expanded-review-pages.json --initialize-review "$RUN/document-structuring/parsing-review/review.json" --output "$RUN/document-structuring/parsing-review/report.json"
-.venv/bin/python scripts/auto_review_chunking.py --chunked-dir "$RUN/document-structuring/chunks" --parsed-dir "$RUN/document-structuring/parsing" --initialize-review "$RUN/document-structuring/chunk-review/review.json" --output "$RUN/document-structuring/chunk-review/report.json"
-```
-
-Inspect selected originals/layout; record reviewer identity, judgments and notes.
-Reevaluate with `--review-file` replacing `--initialize-review`, retaining the
-same options and output path. With `--review-file`, pending reviews return exit 1
-even when automatic checks pass. Changed output requires a matching fresh review.
-
-Add `--native-input-dir <prior-parsing-directory>` to `parse.py` only for
-compatible Docling adapter repair. Changed OCR/DPI settings require a new
-provider invocation. Another provider reads the same original bytes and writes
-its own native/normalized output. Rechunking reads saved parsing and needs only
-`chunk.py` with a fresh output directory.
-
-### Accept validated structural chunks
-
-Both reviews must pass for the exact output before acceptance:
+Use the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_review)
+in a Codex session with `RUN_ID`, `MODEL` and `MODEL_REASONING_EFFORT` set to the
+saved run and actual session settings. Codex orchestrates **prepare → inspect →
+finalize**; the script performs deterministic checks and scoring without model calls.
 
 ```sh
-.venv/bin/python scripts/accept_structure.py --input-dir "$RUN/document-structuring/chunks" --parsing-review "$RUN/document-structuring/parsing-review/report.json" --chunk-review "$RUN/document-structuring/chunk-review/report.json"
+.venv/bin/python scripts/deterministic_document_structuring_review.py prepare --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
 ```
 
-## 3. Semantic clustering
+Prepare runs extraction/chunk audits and reuses `parsing-review/` and
+`chunk-review/`. It preserves current judgments and refreshes stale empty pending
+templates. Stale files containing actual findings require a fresh review directory;
+use `--parsing-review-dir` / `--chunk-review-dir` and retain those paths for finalize.
 
-Requires `OPENAI_API_KEY` and makes paid calls, as do the generation steps below.
+Follow the review prompt's completion rule for every `to_review`
+sample in both packages, including original sources and rendered layout. Save
+judgments, source-located notes and actual reviewer identity in each `review.json`.
+Run finalize only after every sample has a completed judgment or a documented
+inspection blocker. Automatic passes never substitute for source inspection.
+
+```sh
+.venv/bin/python scripts/deterministic_document_structuring_review.py finalize --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
+```
+
+Finalize reruns checks and scores both reviews. It writes acceptance for the exact
+frozen output only when both gates pass; pending/failing results return exit 1,
+and invalidate any prior acceptance. Invalid inputs return exit 2. It never
+reparses or rechunks. For defects, use the
+[repair prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_repair)
+for diagnosis, implementation corrections, focused regression tests and a results
+report. Rebuilding from the recommended checkpoint is a separate task, followed
+by a separate source/layout review task. Corpus acceptance is not part of repair
+completion.
+
+The combined report is `document-structuring/document_structuring_review_report.json`;
+checkpoint folders retain their own `report.json`. The standalone claim evaluator
+defaults to `claim_review_report.json` in its classified directory. Both commands
+accept `--output` to select another report path.
+
+## 4. Generate semantic clusters, claims and recursive summaries (paid)
+
+Requires accepted structure and `OPENAI_API_KEY`; these commands make paid calls.
+Claims/topics and summaries are independent branches:
 
 ```sh
 .venv/bin/python scripts/build_semantic_clusters.py --chunked-dir "$RUN/document-structuring/chunks" --output-dir "$RUN/semantic-clustering"
-```
-
-## 4. Claims, topics and summaries
-
-Claims and topic classification form one branch; summaries independently consume
-the same semantic clusters.
-
-```sh
 .venv/bin/python scripts/generate_claims.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/claim-generation"
 .venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification"
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation"
 ```
 
-## Workflow controller
+For claim defects, the
+[claim repair prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_repair)
+ends after diagnosis, corrections, focused regressions and reporting. Rebuilding
+from its recommended checkpoint and reviewing the rebuilt claims are separate
+tasks; passing corpus review is not part of repair completion.
 
-The controller wraps these same commands: `workflow.py step --run-id <id> --stage
-<checkpoint>` for manual execution, or `workflow.py run` with explicit budgets.
-Use `--help` for checkpoint names. Repairs from `parse` preserve ingestion;
-repairs from `chunk` also preserve parsing. Publication is separate.
-The relocated run was built with individual commands and has no controller
-`state.json`; continue it with the commands above, or start a fresh managed run.
+## 5. Review generated claims
 
-## Recheck the retained run
-
-These commands need no API key and do not rerun parsing:
+For newly generated/classified artifacts, initialize the source-review package:
 
 ```sh
-RUN=artifacts/20261027-docling-aml-cft-01
-.venv/bin/python scripts/auto_review_parsing.py --input-dir "$RUN/document-structuring/parsing" --source-root . --output "$RUN/document-structuring/parsing-review/automatic-audit.json"
-.venv/bin/python scripts/auto_review_chunking.py --chunked-dir "$RUN/document-structuring/chunks" --parsed-dir "$RUN/document-structuring/parsing" --manifest data/manifest.json --output "$RUN/document-structuring/chunk-review/automatic-audit.json"
-.venv/bin/python scripts/validate_pilot.py --run-dir "$RUN" --output "$RUN/validation.json"
+.venv/bin/python scripts/auto_review_claims.py --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --initialize-review "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
 ```
 
-The parsing audit checks native extraction, structure, locations and source
-fidelity. The chunk audit checks coverage, boundaries, references and figures.
-Automatic passes do not inspect/approve the selected source pages visually.
-Combined audit/review reports are in each review directory's `report.json`;
-`review.json` contains the pending human/agent judgments.
+Complete the separate [claim review task](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
+against the saved sources, then evaluate its judgments:
 
-## Tests
+```sh
+.venv/bin/python scripts/auto_review_claims.py --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --review-file "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
+```
+
+Continue only when both automatic and source-review gates pass. Retain earlier
+findings; initialization refuses to overwrite an existing review file.
+
+## 6. Build the knowledge provenance graph
+
+Include generated candidates, semantic clusters and recursive summaries:
+
+```sh
+.venv/bin/python scripts/render_knowledge_graph.py --bundle "$RUN/claim-classification/artifact-bundle.json" --claim-generation-dir "$RUN/claim-generation" --summary-dir "$RUN/summary-generation" --output "$RUN/claim-classification/graph.html"
+```
+
+Open the standalone HTML file in a browser. Add `--force` to replace an existing
+viewer. Keeping this standalone graph under `claim-classification` also lets the
+assistant resolve it to the matching classified artifact.
+
+## 7. Rebuild the PostgreSQL search projection
+
+Set `KF_DATABASE_URL` for an existing PostgreSQL database with pgvector available;
+see [.envrc.example](../.envrc.example). Migrations create the repository tables
+and vector extension. The database role needs the corresponding permissions.
+
+Reimporting saved artifacts creates an immutable search snapshot, reusing an
+identical existing snapshot when possible. Previous snapshots and conversation
+history are retained. `--embed-missing` may make paid embedding calls for records
+without compatible saved vectors; omit it for import without new embedding calls.
+
+```sh
+CORPUS=aml-cft-expanded-pilot
+export KF_RETRIEVAL_CONFIG=config/retrieval-multilingual.json
+.venv/bin/python scripts/index_artifacts.py migrate
+mkdir -p "$RUN/indexing"
+.venv/bin/python scripts/index_artifacts.py import --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" --preparation-dir "$RUN/semantic-clustering" --claims-dir "$RUN/claim-classification" --summaries-dir "$RUN/summary-generation" --embed-missing > "$RUN/indexing/import.json"
+INDEX_SNAPSHOT_ID=$(.venv/bin/python -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot_id"])' "$RUN/indexing/import.json")
+```
+
+Check retrieval against the ready, unpublished snapshot and inspect the report
+before publication. Vector/combined search can make paid query-embedding calls:
+
+```sh
+.venv/bin/python scripts/evaluate_retrieval.py --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" --snapshot-id "$INDEX_SNAPSHOT_ID" --unpublished --cases tests/fixtures/retrieval-expanded-development.json --methods keyword vector combined --modes passage claim summary --no-rerank --check-excerpts --output "$RUN/indexing/retrieval-report.json"
+```
+
+Publication explicitly selects the snapshot available to the assistant; it does
+not approve every claim or summary:
+
+```sh
+.venv/bin/python scripts/index_artifacts.py publish --corpus "$CORPUS" --snapshot-id "$INDEX_SNAPSHOT_ID"
+.venv/bin/python scripts/index_artifacts.py list --corpus "$CORPUS"
+```
+
+## 8. Run the document assistant
+
+Register the selected run in the corpus configuration so the assistant can show
+its matching provenance graph. This preserves other configured corpora/runs:
+
+```sh
+.venv/bin/python - "$RUN_ID" "$RUN" <<'PYTHON'
+import json, sys
+from pathlib import Path
+run_id, run = sys.argv[1], Path(sys.argv[2])
+path = Path('config/retrieval-corpora.json')
+catalog = json.loads(path.read_text())
+catalog['aml-cft-expanded-pilot']['runs'][run_id] = {
+    'artifact_path': str(run / 'document-structuring/chunks/artifact-bundle.json'),
+    'preparation_dir': str(run / 'semantic-clustering'),
+    'claims_dir': str(run / 'claim-classification'),
+    'summaries_dir': str(run / 'summary-generation'),
+    'graph_path': str(run / 'claim-classification/graph.html'),
+}
+path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n')
+PYTHON
+.venv/bin/python -m streamlit run apps/chat/app.py
+```
+
+Open `http://localhost:8501`, select the corpus and published snapshot, and use
+**Open provenance graph** to inspect lineage. The app inherits `KF_DATABASE_URL`
+and `KF_RETRIEVAL_CONFIG`; it uses `config/retrieval-corpora.json` by default.
+`OPENAI_API_KEY` enables generated answers and vector/combined search, which may
+incur charges. Without it, the app uses keyword search and exact source excerpts.
+
+## Validate or compare saved runs
+
+Set `RUN` to a retained directory to validate or compare saved output without parsing.
+Use `prepare` above for automatic checks and source-review preparation; it does not
+grant acceptance:
+
+```sh
+.venv/bin/python scripts/validate_pilot.py --run-dir "$RUN" --output "$RUN/validation.json"
+.venv/bin/python scripts/compare_structuring.py --baseline "$RUN" --candidate artifacts/20261027-unstructured-aml-cft-01 --output "$RUN/comparison-unstructured.json"
+```
+
+## Controller and tests
+
+For managed runs, use `scripts/workflow.py step --run-id <id> --stage <checkpoint>`
+or `scripts/workflow.py run` with explicit budgets; see `--help`. Controller rebuilds
+from `parse` preserve ingestion; from `chunk` also preserve parsing. Publication is
+separate. The relocated Docling run has no controller `state.json`: use individual
+commands above or start a fresh managed run.
 
 ```sh
 PYTHONPATH=src:.:tests .venv/bin/python -m pytest tests -q
 .venv/bin/python scripts/validate_artifact_examples.py
 ```
 
-Set `KF_TEST_DATABASE_URL` for PostgreSQL/pgvector tests and `KF_TEST_OCR=1` for
-the raster OCR test. Hosted provider exports have contract tests, not a completed
-comparison on all 13 originals.
+Optional tests: `KF_TEST_DATABASE_URL` enables PostgreSQL/pgvector;
+`KF_TEST_OCR=1` enables raster OCR.

@@ -13,7 +13,7 @@ from knowledge_foundry.ingestion import ingest, load_ingested
 from knowledge_foundry.parsing import parse_collection
 from knowledge_foundry.chunking import build_collection, _chunk_document, token_count
 from knowledge_foundry.document_structuring import (
-    accept_structure, audit_structure, load_validated_structure, validate_frozen,
+    accept_structure, audit_structure, audit_evidence, load_validated_structure, validate_frozen,
 )
 from knowledge_foundry.structure_providers import ProviderResult
 from knowledge_foundry.claim_context import prepare_claim_context
@@ -24,6 +24,50 @@ def write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     return path
+
+
+def test_coverage_uses_same_spatial_duplicate_identity_as_chunking():
+    from knowledge_foundry.chunking import _reference
+    first = {'id': 'el:first', 'document_id': 'doc:first', 'kind': 'paragraph', 'text': 'Repeated rule.',
+             'revision': 'revision', 'locator_key': 'native-first',
+             'location': {'format': 'pdf', 'page': 1, 'bbox': [10, 10, 30, 30], 'label': 'native-first'}}
+    duplicate = {**first, 'id': 'el:duplicate', 'locator_key': 'native-second',
+                 'location': {**first['location'], 'label': 'native-second'}}
+    chunks = [{'id': 'chunk:test', 'evidence': [_reference(first, 'src:test', (0, len(first['text'])))]}]
+    info = {e['id']: {'evidence_role': 'authoritative'} for e in (first, duplicate)}
+    assert audit_evidence([first, duplicate], chunks, info)['gate'] == 'pass'
+    for changed in ({'document_id': 'doc:other'},
+                    {'location': {**duplicate['location'], 'page': 2}},
+                    {'location': {**duplicate['location'], 'bbox': [11, 10, 31, 30]}}):
+        result = audit_evidence([first, {**duplicate, **changed}], chunks, info)
+        assert result['gate'] == 'fail'
+        assert result['findings'][0]['code'] == 'STRUCTURAL_CONTENT_MISSING'
+
+
+def test_stale_parser_parent_cannot_reorder_body_across_a_section_boundary():
+    # A provider's page footer temporarily owns body paragraphs, then its
+    # parent links return to an earlier numbered rule. Preserve native order
+    # even though both ends of that stale rule share the same heading.
+    rows = [('heading', 'Controls', None, 'authoritative'),
+            ('list_item', '3. An earlier numbered rule', 0, 'authoritative'),
+            ('paragraph', 'Earlier explanation.', 0, 'authoritative'),
+            ('paragraph', '53', None, 'structural'),
+            ('paragraph', 'Intervening topic.', 3, 'authoritative'),
+            ('list_item', '- Later independent item.', 0, 'authoritative')]
+    elements, details = [], []
+    for ordinal, (kind, text, parent, role) in enumerate(rows):
+        eid = f'el:{ordinal}'
+        elements.append({'id': eid, 'document_id': 'doc:test', 'kind': kind, 'text': text,
+                         'ordinal': ordinal, 'revision': 'revision', 'locator_key': eid,
+                         'location': {'format': 'pdf', 'page': 1, 'bbox': [10, 20*ordinal, 100, 20*ordinal+10]}})
+        details.append({'element_id': eid, 'parent_element_id': f'el:{parent}' if parent is not None else None,
+                        'evidence_role': role, 'heading_path': ['Controls'], **({'level': 1} if kind == 'heading' else {})})
+    bundle = {'documents': [{'id': 'doc:test', 'source_id': 'src:test'}], 'elements': elements}
+    chunks, _ = _chunk_document(bundle, {'elements': details}, 'build:test', {'max_tokens': 256})
+    body = [int(ref['element_id'].split(':')[1]) for chunk in chunks
+            for ref in chunk['evidence'] if 'span' in ref]
+    assert body == [0, 1, 2, 4, 5]
+    assert audit_evidence(elements, chunks, {r['element_id']: r for r in details})['gate'] == 'pass'
 
 
 @pytest.fixture
@@ -172,8 +216,8 @@ def test_acceptance_is_required_and_test_acceptance_cannot_use_live_models(colle
 
 
 def test_source_reviews_accept_exact_snapshot_and_reject_stale_or_pending_reports(collection):
-    from scripts.auto_review_parsing import evaluate as audit_parsing
-    from scripts.auto_review_chunking import evaluate as review_chunks
+    from knowledge_foundry.parsing_audit import evaluate as audit_parsing
+    from knowledge_foundry.chunking_audit import evaluate as review_chunks
     from knowledge_foundry.parsing_review import prepare, seed
     root, config, _ = collection
     parsed, chunks = root / 'parsed', root / 'chunks'

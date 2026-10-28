@@ -3,15 +3,13 @@
 import hashlib
 import io
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-from auto_review_parsing import audit_document, select_outcomes  # noqa: E402
+from knowledge_foundry.parsing_audit import audit_document, select_outcomes  # noqa: E402
 
 
 class ParsingAuditTests(unittest.TestCase):
@@ -539,6 +537,40 @@ class ParsingAuditTests(unittest.TestCase):
             self.assertEqual(split["metrics"]["multi_page_duplicated"], 0)
             self.assertFalse(any(item["code"] == "MULTI_PROVENANCE_CHARSPAN_MISMATCH"
                                  for item in split["findings"]))
+
+    def test_joined_note_checks_every_declared_native_fragment_on_its_page(self):
+        source = '112 A substantive note begins here. The body continues on another page.'
+        cut = source.index('The body')
+        continuation = 'A substantive continuation completes the first page note.'
+        native = {'texts': [
+            {'self_ref': '#/texts/0', 'label': 'text', 'text': source,
+             'prov': [{'page_no': 1, 'charspan': [0, cut]},
+                      {'page_no': 2, 'charspan': [cut, len(source)]}]},
+            {'self_ref': '#/texts/1', 'label': 'footnote', 'text': continuation,
+             'prov': [{'page_no': 1, 'charspan': [0, len(continuation)]}]}],
+            'pictures': [], 'tables': []}
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            (folder / 'docling.json').write_text(json.dumps(native))
+            (folder / 'parse.json').write_text('{"warnings": []}')
+            elements = [
+                {'id': 'note', 'kind': 'footnote', 'ordinal': 0,
+                 'text': source[:cut] + '\n' + continuation, 'location': {'page': 1}},
+                {'id': 'body', 'kind': 'paragraph', 'ordinal': 1,
+                 'text': source[cut:], 'location': {'page': 2}}]
+            sidecar = [
+                {'element_id': 'note', 'docling_ref': '#/texts/0',
+                 'docling_refs': ['#/texts/0', '#/texts/1'], 'layout_repair': 'bottom_note_run'},
+                {'element_id': 'body', 'docling_ref': '#/texts/0'}]
+            outcome = {'manifest_id': 'fixture', 'status': 'parsed', 'warnings': []}
+            valid = audit_document(outcome, elements, sidecar, folder)
+            self.assertNotIn('MULTI_PROVENANCE_CHARSPAN_MISMATCH', [f['code'] for f in valid['findings']])
+            elements[0]['text'] += ' Invented extra words.'
+            changed = audit_document(outcome, elements, sidecar, folder)
+            self.assertIn('MULTI_PROVENANCE_CHARSPAN_MISMATCH', [f['code'] for f in changed['findings']])
+            elements[0]['text'] = source[:cut]
+            missing = audit_document(outcome, elements, sidecar, folder)
+            self.assertIn('MULTI_PROVENANCE_CHARSPAN_MISMATCH', [f['code'] for f in missing['findings']])
 
     def test_missing_picture_text_and_table_redundancy_are_distinct(self):
         with tempfile.TemporaryDirectory() as name:

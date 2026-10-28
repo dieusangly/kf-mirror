@@ -2,7 +2,7 @@
 import copy
 import json
 import unittest
-from knowledge_foundry.chunking import ROOT, _chunk_document, clean, digest, settings_from_config, token_count
+from knowledge_foundry.chunking import ROOT, _chunk_document, digest
 
 
 class ChunkingTests(unittest.TestCase):

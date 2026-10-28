@@ -29,7 +29,7 @@ class StructureProvider(Protocol):
 
 
 class InternalProvider:
-    version = 'format-adapters-v12'
+    version = 'format-adapters-v13'
 
     def __init__(self, config, native_input_dir=None):
         from knowledge_foundry.parsing import _configuration
@@ -111,7 +111,7 @@ class ExportProvider:
     Exports use the provider result contract, so no guessed vendor field mappings
     or remote calls occur here. A provider can return elements, chunks, or both.
     """
-    version = 'provider-export-v1'
+    version = 'provider-export-v3'
 
     def structure(self, artifact, options):
         folder = Path(options['response_dir']).resolve()
@@ -133,10 +133,37 @@ class ExportProvider:
                               'response_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
 
 
-def resolve_provider(config, native_input_dir=None):
+def structuring_spec(config, profile=None):
+    """Select a named configuration without importing an unused provider.
+
+    Direct provider/options configurations remain valid for saved runs and
+    third-party adapters. A named profile is a complete, independent spec.
+    """
     spec = config.get('structuring', {'provider': 'internal', 'options': {}})
+    if not isinstance(spec, dict):
+        raise ValueError('structuring must be an object')
+    if 'profiles' in spec or 'profile' in spec:
+        if set(spec) != {'profile', 'profiles'}:
+            raise ValueError('named structuring profiles require only profile and profiles')
+        profiles = spec['profiles']
+        selected = spec['profile'] if profile is None else profile
+        if (not isinstance(profiles, dict) or not profiles or
+                any(not isinstance(k, str) or not k or not isinstance(v, dict)
+                    for k, v in profiles.items())):
+            raise ValueError('structuring profiles must map nonempty names to provider specs')
+        if not isinstance(selected, str) or selected not in profiles:
+            raise ValueError('unknown structuring profile: ' + str(selected))
+        spec = profiles[selected]
+    elif profile is not None:
+        raise ValueError('named structuring profiles are not configured')
     if not isinstance(spec, dict) or set(spec) - {'provider', 'options', 'source_overrides'}:
         raise ValueError('structuring requires provider, options and optional source_overrides')
+    return spec
+
+
+def resolve_provider(config, native_input_dir=None):
+    spec = structuring_spec(config)
+    config = {**config, 'structuring': spec}
     name, options = spec.get('provider', 'internal'), spec.get('options', {})
     overrides = spec.get('source_overrides', {})
     if not isinstance(overrides, dict) or any(not isinstance(v, dict) or set(v) - {'provider', 'options'} for v in overrides.values()):

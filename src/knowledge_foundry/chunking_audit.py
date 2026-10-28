@@ -1,28 +1,25 @@
 """Evaluate saved chunks against parsed evidence and prepare source-linked review samples."""
 
-import argparse
 from collections import defaultdict
 import hashlib
 import json
 from pathlib import Path
-import sys
 import unicodedata
 
 from jsonschema import ValidationError
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
 
-from knowledge_foundry.chunking import (  # noqa: E402
+from knowledge_foundry.chunking import (
     TOKEN, clean, token_count, render_passages,
 )
-from knowledge_foundry.review import (  # noqa: E402
+from knowledge_foundry.review import (
     apply_reviews as _apply_reviews,
     read_review_policy, review_policy_digest,
     select_samples, validate_reviewer_settings,
 )
-from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
+from scripts.validate_artifact_examples import check as validate_bundle
+
+ROOT = Path(__file__).resolve().parents[2]
 
 EVALUATION_VERSION = "chunk-eval-v2"
 EXAMPLE_LIMIT = 5
@@ -376,6 +373,10 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
 
     review = json.loads(Path(review_path).read_text(encoding="utf-8")) if review_path else None
     policy_hash = review_policy_digest(policy, 'chunking')
+    instructions_hash = hashlib.sha256(
+        (Path(__file__).parent / 'prompts/agent_prompt_document_structuring_review').read_bytes()).hexdigest()
+    if review is not None and review.get('review_instructions_sha256') != instructions_hash:
+        raise ValueError('stale structuring review instructions')
     if review is not None and review.get('review_policy_sha256', policy_hash) != policy_hash:
         raise ValueError('stale review policy snapshot')
     review_summary, review_findings = _apply_reviews(review, bundle["builds"][0]["id"], samples, policy)
@@ -413,12 +414,14 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
     snapshot = json.loads((chunked_dir / "structuring-manifest.json").read_text()) if (chunked_dir / "structuring-manifest.json").exists() else {}
     if review is not None and review.get("structuring_snapshot_sha256") != snapshot.get("snapshot_sha256"):
         raise ValueError("stale structuring review snapshot")
-    return {"structuring_snapshot_sha256": snapshot.get("snapshot_sha256"), "evaluation_version": EVALUATION_VERSION, "build_id": bundle["builds"][0]["id"],
+    return {"structuring_snapshot_sha256": snapshot.get("snapshot_sha256"), "review_instructions_sha256": instructions_hash,
+            "evaluation_version": EVALUATION_VERSION, "build_id": bundle["builds"][0]["id"],
             "automatic_gate": automatic_gate, "review_gate": review_summary["status"],
             "gate": gate, "max_tokens": maximum, "corpus": corpus, "documents": documents,
             "figures": {key: figure_audit[key] for key in ("expected", "linked")},
             "references": references, "review_policy": policy, "review_policy_sha256": policy_hash, "review": review_summary, "reviewer": reviewer,
             "review_template": {"structuring_snapshot_sha256": snapshot.get("snapshot_sha256"), "build_id": bundle["builds"][0]["id"],
+                                "review_instructions_sha256": instructions_hash,
                                 "review_policy_sha256": policy_hash,
                                 "reviewer": {"kind": None, "name": None, "model": None,
                                              "model_reasoning_effort": None, "launch_mode": None},
@@ -427,59 +430,3 @@ def evaluate(chunked_dir, parsed_dir, sample_count=None, reference_path=None, re
                                              "severity": None, "notes": "source inspection pending"}
                                             for item in samples]},
             "additional_findings": additional, "findings": list(findings.values())}
-
-
-def _write_review_seed(path, report):
-    """Create the pending review file for one newly evaluated chunk build."""
-    path = Path(path)
-    if path.exists():
-        raise FileExistsError(f"review file already exists: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report["review_template"], ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--chunked-dir", type=Path, default=ROOT / "artifacts/chunked")
-    parser.add_argument("--parsed-dir", type=Path, default=ROOT / "artifacts/parsed")
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--sample-per-document", type=int,
-                        help="override evaluation.chunking.sample_per_document in config/pipeline.json")
-    parser.add_argument("--reference-fixture", type=Path)
-    parser.add_argument("--review-file", type=Path)
-    parser.add_argument("--initialize-review", nargs="?", type=Path, metavar="PATH", const=None,
-                        default=argparse.SUPPRESS,
-                        help="create a pending review file; default: <chunked-dir>/chunking-review.json")
-    parser.add_argument("--review-policy", type=Path, default=DEFAULT_REVIEW_POLICY)
-    parser.add_argument("--manifest", type=Path, default=ROOT / "data/manifest.json")
-    args = parser.parse_args(argv)
-    output = args.output or args.chunked_dir / "chunking-evaluation-report.json"
-    write_review = getattr(args, "initialize_review", None)
-    if hasattr(args, "initialize_review") and write_review is None:
-        write_review = args.chunked_dir / "chunking-review.json"
-    if write_review and args.review_file:
-        parser.error("--initialize-review cannot be used with --review-file")
-    if write_review and write_review.exists():
-        parser.error(f"review file already exists: {write_review}")
-    if write_review and write_review.resolve() == output.resolve():
-        parser.error("--initialize-review path must differ from --output")
-    try:
-        sample_count = (_read_sample_per_document() if args.sample_per_document is None
-                        else args.sample_per_document)
-        report = evaluate(args.chunked_dir, args.parsed_dir, sample_count,
-                          args.reference_fixture, args.review_file, args.manifest, args.review_policy)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        if write_review:
-            _write_review_seed(write_review, report)
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        parser.exit(2, f"chunk evaluation failed: {exc}\n")
-    print(json.dumps({"automatic_gate": report["automatic_gate"],
-                      "review_gate": report["review_gate"], "gate": report["gate"],
-                      "report": str(output)}, ensure_ascii=False))
-    return 1 if report["gate"] == "fail" or args.review_file and report["gate"] != "pass" else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

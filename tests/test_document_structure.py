@@ -1,7 +1,6 @@
 """Hierarchy regressions independent of optional saved pilot artifacts."""
 import copy
 import json
-from pathlib import Path
 import unittest
 
 from knowledge_foundry.document_structure import (
@@ -10,8 +9,6 @@ from knowledge_foundry.document_structure import (
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
 from knowledge_foundry.claim_generation_and_classification import _candidate_input
 import claim_fixtures as context_fixtures
-
-
 from claim_fixtures import introduction_bundle
 
 

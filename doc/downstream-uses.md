@@ -1,35 +1,31 @@
 # Downstream uses
 
-Accepted structural chunks feed semantic clustering, then independent claim and
-summary branches. **Claims** express individual propositions linked to exact
-source evidence; classification assigns curated topics or null. **Summaries**
-compress related chunks or earlier summaries, retaining transitive provenance.
-
-Claim generation/classification, recursive summaries, retrieval, the provenance
-graph, PostgreSQL/pgvector storage and the document assistant remain implemented.
-They have not been rerun end to end on the current 13-document structuring pilot,
-whose source/layout reviews are still pending. Training uses below are prospective.
+Accepted structural chunks feed semantic clustering, then independent branches:
+**claims** express propositions with exact evidence and curated topic/null labels;
+**summaries** compress chunks or earlier summaries with transitive provenance.
 
 | Use | Claims | Summaries |
 | --- | --- | --- |
-| Knowledge provenance graph | Inspect propositions, topics and supporting evidence. | Navigate synthesis levels back to source chunks. |
-| Retrieval and assistant | Retrieve precise propositions, then fetch evidence and governing context. | Locate relevant regions for broad questions, then descend to evidence. |
-| Comparison and reasoning | Compare propositions while preserving conditions, exceptions and source editions. | Map themes and identify areas to investigate; compression may hide disagreements. |
-| Training data | Reviewed source/context → claim and claim/context → topic/null examples. | Reviewed structural text → summary and earlier summaries → higher summary examples. |
-| Reasoning-model training | Curate questions, evidence combinations, checked conclusions and verifiable intermediate steps. | Supply context maps or synthesis tasks; check conclusions against underlying evidence. |
+| Provenance graph | Inspect propositions, topics and evidence. | Trace synthesis levels to source chunks. |
+| Retrieval/assistant | Retrieve propositions with evidence and governing context. | Find broad regions, then descend to evidence. |
+| Comparison/reasoning | Preserve conditions, exceptions and editions. | Map themes; compression may hide disagreements. |
+| Training (prospective) | Reviewed context → claim; claim/context → topic/null. | Reviewed text → summary; summaries → higher summaries. |
+| Reasoning training (prospective) | Curate questions, evidence, checked conclusions and verifiable steps. | Supply context maps; verify against underlying evidence. |
 
-The graph records artifact/evidence provenance; domain entity/relation extraction
-would require additional implementation and validation. Answer citations resolve
-to original evidence. Shared topics or semantic similarity do not establish
-agreement or legal applicability. Summaries are not primary evidence for claims.
+Claims/classification, recursive summaries, retrieval, provenance graph,
+PostgreSQL/pgvector and the assistant are implemented, but have not been rerun
+end to end on this unaccepted 13-document pilot.
 
-Before training, review individual targets: a run-level pass does not approve
-every claim, and summaries currently have no independent fidelity gate. Retain
-source versions and usage rights. Split datasets by source/document family before
-deriving overlapping chunks or summary ancestors to prevent evaluation leakage.
-`reasoning_effort` does not create verified reasoning traces.
+- Citations resolve to original evidence; summaries are not primary claim evidence.
+  Shared topics/similarity do not establish agreement or legal applicability.
+- The graph tracks artifact/evidence provenance; domain entity/relation extraction
+  needs additional implementation and validation.
+- Training requires target-level review, source versions/rights and document-family
+  splits before deriving overlapping chunks or summary ancestors. Run acceptance
+  does not approve every claim; summaries have no independent fidelity gate.
+  `reasoning_effort` does not create verified reasoning traces.
 
-See the [pipeline](README.md), [retrieval implementation](../src/knowledge_foundry/retrieval/),
-[graph renderer](../scripts/render_knowledge_graph.py),
-[PostgreSQL storage](../src/knowledge_foundry/storage/postgres.py) and
-[assistant](../apps/chat/app.py).
+Implementation: [retrieval](../src/knowledge_foundry/retrieval/),
+[graph](../scripts/render_knowledge_graph.py),
+[storage](../src/knowledge_foundry/storage/postgres.py),
+[assistant](../apps/chat/app.py). See [pipeline commands](aml-cft-pipeline.md).

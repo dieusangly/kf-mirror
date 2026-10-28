@@ -1,11 +1,9 @@
 """Audit normalized parsing artifacts and source-checked landmarks."""
 
-import argparse
 from collections import Counter, defaultdict
 import hashlib
 import json
 import re
-import sys
 import unicodedata
 from pathlib import Path
 
@@ -13,21 +11,20 @@ from lxml import html
 from jsonschema import ValidationError
 
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-from scripts.validate_artifact_examples import check as validate_bundle  # noqa: E402
-from knowledge_foundry.parsers import (  # noqa: E402
+from scripts.validate_artifact_examples import check as validate_bundle
+from knowledge_foundry.parsers import (
     _pdf_text, _pdf_table_cells, _pdf_table_text, FILENAME_FOOTNOTE, parse_markdown, parse_docx,
     _picture_contact_furniture, _picture_group_roles, _picture_text_groups, _picture_text_quality,
     _pdf_running_headers, SOURCE_REVIEW_WARNINGS,
 )
-from knowledge_foundry.pdf_structure import (  # noqa: E402
+from knowledge_foundry.pdf_structure import (
     pdf_page_characters, restore_numeric_identifiers, separate_table_note_markers,
 )
-from knowledge_foundry.pdf_tables import (  # noqa: E402
-    pdf_page_geometry, ruled_cells, table_context_errors, table_row_map, link_table_continuations, native_page_fragment,
+from knowledge_foundry.pdf_tables import (
+    pdf_page_geometry, ruled_cells, table_context_errors, link_table_continuations, native_page_fragment,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
 
 SUBSTANTIVE_TOKENS = 5
 SUBSTANTIVE_CHARS = 30
@@ -732,9 +729,22 @@ def audit_document(outcome, elements, sidecar, folder, *, source_path=None):
                           "element_ids": [item["id"] for item in represented]})
                 elif len(represented) == len(provenance):
                     for part, item in zip(provenance, represented):
+                        expected_text = source_fragment(node, part)
+                        detail = details.get(item['id'], {})
+                        joined_refs = detail.get('docling_refs', [])
+                        if (item['kind'] == 'footnote' and detail.get('layout_repair') == 'bottom_note_run'
+                                and len(joined_refs) > 1 and ref in joined_refs
+                                and len(joined_refs) == len(set(joined_refs))
+                                and all(r in native_by_ref for r in joined_refs)):
+                            # A repaired note can join this page's fragment of
+                            # a multi-page native node with adjacent note text.
+                            # Compare the complete declared source sequence.
+                            expected_text = '\n'.join(source_fragment(native_by_ref[r], p)
+                                for r in joined_refs for p in native_by_ref[r].get('prov', [])
+                                if p.get('page_no') == part.get('page_no'))
                         if (item["location"].get("page") != part.get("page_no") or
-                                normalized(item["text"]) != normalized(source_fragment(node, part)) or
-                                identifier_counts(item['text']) != identifier_counts(source_fragment(node, part))):
+                                normalized(item["text"]) != normalized(expected_text) or
+                                identifier_counts(item['text']) != identifier_counts(expected_text)):
                             flag("MULTI_PROVENANCE_CHARSPAN_MISMATCH", "error",
                                  {"ref": ref, "element_id": item["id"]})
         for collection in ("pictures", "tables"):
@@ -789,6 +799,10 @@ def audit_provider_document(outcome, bundle, sidecar, folder, source_path):
         parent = row.get('parent_element_id')
         if parent and (parent not in elements or elements[parent]['ordinal'] >= elements[eid]['ordinal']):
             flag('MALFORMED_PARENT', eid)
+    for element in elements.values():
+        if element['kind'] in SEMANTIC_KINDS | {'list_item'} and not element['text'].strip():
+            metrics['empty_semantic_elements'] += 1
+            flag('EMPTY_SEMANTIC_ELEMENT', element['id'])
     dialect = sidecar.get('export_dialect')
     if dialect:
         from knowledge_foundry.provider_exports import adapt_export
@@ -841,7 +855,7 @@ def select_outcomes(input_dir, additional_input_dirs=()):
     return list(selected.values())
 
 
-def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_root=ROOT):
+def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_root=ROOT, on_progress=None):
     reference = (json.loads(Path(reference_path).read_text(encoding="utf-8")) if reference_path else
                  {"status": "not_supplied", "passages": [], "structure": [], "reading_order": []})
     outcomes = select_outcomes(input_dir, additional_input_dirs)
@@ -849,12 +863,17 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
     documents = []
     for outcome in outcomes:
         if outcome["status"] in {"parsed", "partial"}:
+            if on_progress:
+                on_progress({'checkpoint': 'parsing', 'document': outcome['manifest_id'], 'status': 'auditing'})
             folder = Path(outcome["output"])
             bundle = json.loads((folder / "artifact-bundle.json").read_text(encoding="utf-8"))
             sidecar = json.loads((folder / "parse.json").read_text(encoding="utf-8"))
             corpus[outcome["manifest_id"]] = (bundle["elements"], sidecar["elements"])
             formats[outcome['manifest_id']] = bundle['sources'][0]['format']
             source_path = Path(sidecar.get('ingested_artifact_file') or Path(source_root) / outcome['local_path'])
+            if (source_path.is_file() and hashlib.sha256(source_path.read_bytes()).hexdigest() !=
+                    bundle['documents'][0]['content_sha256']):
+                raise ValueError('source hash mismatch: ' + outcome['manifest_id'])
             if sidecar.get('provider', 'internal') == 'internal':
                 document = audit_document(outcome, bundle['elements'], sidecar['elements'], folder, source_path=source_path)
             else:
@@ -1060,53 +1079,3 @@ def evaluate(input_dir, reference_path=None, additional_input_dirs=(), source_ro
                             "error_count": sum(error_counts.values()),
                             "warning_count": sum(warning_counts.values())}
     return measurements
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Audit parsing fidelity and normalization quality")
-    parser.add_argument("--input-dir", type=Path, default=Path("artifacts/parsed"))
-    parser.add_argument("--additional-input-dir", type=Path, action="append", default=[],
-                        help="also select newer parse outcomes from this directory (repeatable)")
-    parser.add_argument("--reference", type=Path,
-                        help="optional source-checked landmark JSON for this corpus")
-    parser.add_argument("--source-root", type=Path, default=ROOT,
-                        help="root for saved source paths (repository root by default)")
-    parser.add_argument("--output", type=Path, help="write measurements here (stdout by default)")
-    parser.add_argument("--manifest", type=Path, default=ROOT / "data/manifest.json")
-    parser.add_argument("--review-policy", type=Path, default=ROOT / "config/review-policy.json")
-    parser.add_argument("--sample-per-document", type=int, default=12)
-    parser.add_argument("--required-pages", type=Path, help="JSON list of source_id/page objects")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--initialize-review", type=Path)
-    group.add_argument("--review-file", type=Path)
-    args = parser.parse_args(argv)
-    if args.initialize_review and args.initialize_review.exists():
-        parser.error("review file already exists; reuse --review-file")
-    if (args.initialize_review or args.review_file) and args.output and (args.initialize_review or args.review_file).resolve() == args.output.resolve():
-        parser.error("review and output paths must differ")
-    result = evaluate(args.input_dir, args.reference, args.additional_input_dir, args.source_root)
-    if args.initialize_review or args.review_file:
-        from knowledge_foundry.parsing_review import prepare, seed
-        try:
-            result = prepare(result, select_outcomes(args.input_dir, args.additional_input_dir),
-                             args.source_root, args.manifest, args.review_policy, args.sample_per_document,
-                             json.loads(args.required_pages.read_text()) if args.required_pages else [],
-                             args.review_file, args.reference)
-            if args.initialize_review:
-                args.initialize_review.parent.mkdir(parents=True, exist_ok=True)
-                args.initialize_review.write_text(json.dumps(seed(result), ensure_ascii=False, indent=2) + "\n")
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            parser.exit(2, f"parsing review failed: {exc}\n")
-    rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
-    else:
-        sys.stdout.write(rendered)
-    if isinstance(result["gate"], dict):
-        return 0 if result["gate"]["status"] == "pass" else 1
-    return 1 if result["gate"] == "fail" or args.review_file and result["gate"] != "pass" else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -1,6 +1,5 @@
 """Generic source-adapter regressions. OCR and PDF conversion are mocked."""
 import copy
-import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,11 +10,11 @@ from unittest.mock import Mock, patch
 from docling_core.types.doc import (DoclingDocument, DocItemLabel, Size, BoundingBox,
                                     CoordOrigin, ProvenanceItem)
 from knowledge_foundry.pdf_source import (adapt_native, cell, complete_final_row,
-    contents_cells, column_list_cells, coarsen_columns, invisible_objects, key, lines, provenance, text, raster_display_title, joined_lines)
+    contents_cells, column_list_cells, coarsen_columns, invisible_objects, lines, provenance, text, raster_display_title, joined_lines)
 from knowledge_foundry.pdf_structure import pdf_page_characters
 from knowledge_foundry.parsers import parse_pdf
 from knowledge_foundry.parsing import _normalize, ROOT
-from scripts.auto_review_parsing import audit_document
+from knowledge_foundry.parsing_audit import audit_document
 from test_pdf_tables import write_pdf
 
 

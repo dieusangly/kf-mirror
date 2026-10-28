@@ -201,7 +201,7 @@ class CompilationEvaluationTests(unittest.TestCase):
             original_review = review.read_bytes()
             self.assertEqual(main(args + ['--review-file', str(review)]), 1)
             self.assertEqual(review.read_bytes(), original_review)
-            report = json.loads((self.classified / 'compilation-evaluation-report.json').read_text())
+            report = json.loads((self.classified / 'claim_review_report.json').read_text())
             self.assertEqual((report['automatic_gate'], report['gate']), ('pass', 'pending_review'))
             with self.assertRaises(SystemExit) as error:
                 main(args + ['--initialize-review'])
@@ -226,7 +226,7 @@ class CompilationEvaluationTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main(['--candidates-dir', str(self.generated), '--classified-dir', str(self.classified),
                                    '--initialize-review']), 1)
-        self.assertEqual(json.loads((self.classified / 'compilation-evaluation-report.json').read_text())['gate'], 'fail')
+        self.assertEqual(json.loads((self.classified / 'claim_review_report.json').read_text())['gate'], 'fail')
         self.assertFalse((self.classified / 'compilation-review.json').exists())
 
     def test_known_critical_failure_blocks_gate_even_with_pending_samples(self):

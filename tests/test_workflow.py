@@ -32,6 +32,8 @@ def test_manual_steps_use_latest_paths_and_block_missing_pending_gates(manual, c
     assert not manual.stale()
     with pytest.raises(ValueError, match='gate pending'):
         manual.run(limits(allow_paid=False), only_stage='parsing_review')
+    task = w.read(manual.output('parsing_review') / 'repair-task.json')
+    assert Path(task['repair_prompt']).name == 'agent_prompt_document_structuring_repair'
     assert manual.state['review_sessions_started'] == 0
     with pytest.raises(ValueError, match='missing prerequisite'):
         manual.run(limits(), only_stage='chunk')
@@ -478,7 +480,9 @@ def test_pending_exit_zero_is_inspected_and_can_resume(controller, commands, mon
     assert controller.state['stages'][review_stage]['executions'] == 2
 
 
-@pytest.mark.parametrize('review_stage,builder', [('parsing_review', 'parse'), ('chunk_review', 'chunk')])
+@pytest.mark.parametrize('review_stage,builder', [
+    ('parsing_review', 'parse'), ('chunk_review', 'chunk'), ('claim_review', 'classify'),
+])
 def test_failed_review_preserves_findings_requires_rebuild_and_fresh_review(controller, commands, monkeypatch, review_stage, builder):
     def defect(self, stage, out):
         if stage != review_stage:
@@ -650,7 +654,8 @@ def test_branch_invalidation_leaves_independent_summaries():
 def prepare_independent(controller, monkeypatch, result_overrides=None, inspected=True, stage='chunk_review'):
     prompt_dir = controller.root / 'src/knowledge_foundry/prompts'
     prompt_dir.mkdir(parents=True)
-    (prompt_dir / {'parsing_review': 'agent_prompt_parsing_review', 'chunk_review': 'agent_prompt_chunking_review', 'claim_review': 'agent_prompt_claim_review'}[stage]).write_text('Fixture prompt: read-only source inspection')
+    (prompt_dir / ('agent_prompt_claim_review' if stage == 'claim_review' else
+                   'agent_prompt_document_structuring_review')).write_text('Fixture prompt: read-only source inspection')
     out = controller.directory / stage / 'attempt-1'
     out.mkdir(parents=True)
     review = {'build_id': 'fixture-build', 'review_policy_sha256': 'policy',
@@ -687,6 +692,11 @@ def test_independent_session_pins_config_records_usage_and_rejects_reused_thread
     out, commands = prepare_independent(controller, monkeypatch, stage=stage)
     controller.independent_review(stage, out)
     command = commands[0]
+    prompt = (out / 'session-1/prompt.txt').read_text()
+    assert f'"review_checkpoint": "{stage}"' in prompt
+    assert '"RUN_ID": "fixture-run"' in prompt
+    assert '"MODEL": "configured-test-model"' in prompt
+    assert '"MODEL_REASONING_EFFORT": "high"' in prompt
     assert command[command.index('--model') + 1] == 'configured-test-model'
     assert command[command.index('--sandbox') + 1] == 'read-only'
     assert '--ephemeral' in command
@@ -1030,3 +1040,26 @@ def test_structuring_config_repairs_preserve_ingestion(controller, commands, mon
     if stage == 'chunk':
         assert controller.state['stages']['parse']['status'] == 'complete'
         assert controller.state['stages']['parsing_review']['status'] == 'complete'
+
+
+@pytest.mark.parametrize('prompt,affected,repair_from', [
+    ('agent_prompt_document_structuring_review', {'parsing_review', 'chunk_review'}, 'parsing_review'),
+    ('agent_prompt_claim_review', {'claim_review'}, 'claim_review'),
+])
+def test_review_prompt_changes_preserve_built_inputs(controller, commands, monkeypatch, prompt, affected, repair_from):
+    path = controller.root / 'src/knowledge_foundry/prompts' / prompt
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('Original review instructions')
+    controller.state['identity'] = w.input_identity(controller.root, controller.config_path)
+    monkeypatch.setattr(w.Workflow, 'independent_review', fixture_judgment)
+    controller.run(limits(), stop_after='classify')
+    preserved = {stage: copy.deepcopy(controller.state['stages'][stage])
+                 for stage in ('ingest', 'parse', 'parsing_evaluation')}
+    path.write_text('Revised review instructions')
+    assert controller.changed_stages() == affected
+    controller.repair(repair_from, 'Review criteria clarified; inspect without reparsing originals')
+    for stage, entry in preserved.items():
+        assert controller.state['stages'][stage] == entry
+    if repair_from == 'claim_review':
+        assert controller.state['stages']['classify']['status'] == 'complete'
+        assert controller.state['stages']['summaries']['status'] == 'complete'

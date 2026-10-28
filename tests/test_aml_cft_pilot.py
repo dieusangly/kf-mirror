@@ -4,10 +4,29 @@ from pathlib import Path
 
 import pytest
 
-from scripts.validate_pilot import load_run_ingestion, validate
+from scripts.validate_pilot import load_run_ingestion, validate, passage_elements, scope_regressions
 
 ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / 'artifacts/20261027-docling-aml-cft-01'
+
+
+def test_provider_independent_passages_keep_source_page_and_order_boundaries():
+    documents = {'doc': {'source_id': 'src:test'}}
+    elements = {str(i): {'id': str(i), 'document_id': 'doc', 'ordinal': i, 'text': text,
+                         'location': {'page': page}}
+                for i, (text, page) in enumerate([('Independent', 1), ('definition 39', 1),
+                                                 ('Never cross', 2), ('pages', 3)])}
+    assert [e['id'] for e in passage_elements(elements, 'src:test', 'Independent definition 39', documents, [1])] == ['0', '1']
+    assert not passage_elements(elements, 'src:test', 'Never cross pages', documents)
+    assert not passage_elements(elements, 'src:other', 'Independent', documents)
+    cases = [{'source_id': 'src:test', 'page': 1, 'text': 'definition 39',
+              'forbidden_ancestor_text': 'Independent'}]
+    hierarchy = {'0': {'parent_element_id': None}, '1': {'parent_element_id': '0'}}
+    assert not scope_regressions(elements, hierarchy, documents, cases)[0]['pass']
+    hierarchy['1']['parent_element_id'] = None
+    assert scope_regressions(elements, hierarchy, documents, cases)[0]['pass']
+    cases[0]['text'] = 'Missing definition'
+    assert not scope_regressions(elements, hierarchy, documents, cases)[0]['pass']
 
 
 def test_pilot_scope_and_regression_sources_are_exactly_the_active_thirteen():

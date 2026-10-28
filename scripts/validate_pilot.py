@@ -17,6 +17,58 @@ def normalized(text):
     return ''.join(c for c in unicodedata.normalize('NFKD', text).casefold() if c.isalnum())
 
 
+def passage_elements(elements, source_id, text, documents, pages=None):
+    """Locate a source passage across adjacent elements on the same page.
+
+    Provider boundaries and IDs differ. Page/source identity and literal text
+    define the regression, while each matched element retains its evidence ID.
+    """
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for element in elements.values():
+        page = element['location'].get('page')
+        if (documents[element['document_id']]['source_id'] == source_id
+                and (not pages or page in pages)):
+            groups[(element['document_id'], page)].append(element)
+    found, wanted = [], normalized(text)
+    if not wanted:
+        return found
+    for group in groups.values():
+        group.sort(key=lambda e: e['ordinal'])
+        values = [normalized(e['text']) for e in group]
+        stream = ''.join(values)
+        start = stream.find(wanted)
+        while start >= 0:
+            offset = 0
+            for element, value in zip(group, values):
+                end = offset + len(value)
+                if value and offset < start + len(wanted) and end > start:
+                    found.append(element)
+                offset = end
+            start = stream.find(wanted, start + 1)
+    return found
+
+
+def scope_regressions(elements, hierarchy, documents, regressions):
+    results = []
+    for case in regressions:
+        targets = passage_elements(elements, case['source_id'], case['text'], documents, [case['page']])
+        forbidden = passage_elements(elements, case['source_id'], case['forbidden_ancestor_text'], documents)
+        forbidden_ids = {e['id'] for e in forbidden}
+        bad = []
+        for target in targets:
+            for aid in ancestor_ids(target['id'], hierarchy):
+                if aid in forbidden_ids:
+                    bad.append(aid)
+        merged = bool({e['id'] for e in targets} & forbidden_ids)
+        results.append({'source_id': case['source_id'], 'page': case['page'],
+                        'target_element_ids': sorted({e['id'] for e in targets}),
+                        'forbidden_passage_element_ids': sorted(forbidden_ids),
+                        'forbidden_ancestor_ids': sorted(set(bad)), 'merged_scope_passages': merged,
+                        'pass': bool(targets) and bool(forbidden) and not bad and not merged})
+    return results
+
+
 def load_run_ingestion(run_dir):
     """Pin shared source bytes independently of a dated provider run."""
     run = Path(run_dir).resolve()
@@ -54,34 +106,28 @@ def validate(run_dir):
     if (pdf_documents, pdf_pages) != (11, 801):
         raise ValueError('pilot physical PDF scope differs from 11 PDFs / 801 pages')
     audit = audit_structure(bundle, metadata)
-    if audit['gate'] != 'pass':
-        raise ValueError('pilot structure audit failed: ' + str(audit['findings'][:3]))
     elements = {e['id']: e for e in bundle['elements']}
     hierarchy = {r['element_id']: r for r in json.loads((structured / 'document-hierarchy.json').read_text())}
     regressions = json.loads((ROOT / 'tests/fixtures/structuring-pilot-regressions.json').read_text())
-    for case in regressions:
-        if case['element_id'] not in elements or case['forbidden_ancestor_id'] in ancestor_ids(case['element_id'], hierarchy):
-            raise ValueError('stale legal definition scope: ' + case['source_id'] + ' page ' + str(case['page']))
     cases = json.loads((ROOT / 'tests/fixtures/retrieval-expanded-development.json').read_text())
     documents = {d['id']: d for d in bundle['documents']}
+    scope_results = scope_regressions(elements, hierarchy, documents, regressions)
     anchor_results = []
     for case in cases:
         matched = []
         for anchor in case['text_anchors']:
-            found = [e for e in elements.values() if documents[e['document_id']]['source_id'] == case['source_id']
-                     and (not case.get('pages') or e['location'].get('page') in case['pages'])
-                     and normalized(anchor) in normalized(e['text'])]
+            found = passage_elements(elements, case['source_id'], anchor, documents, case.get('pages'))
             covered = [c['id'] for c in bundle['chunks'] if any(r['element_id'] in {e['id'] for e in found}
                                                               and 'span' in r for r in c['evidence'])]
             matched.append(bool(covered))
         anchor_results.append({'id': case['id'], 'anchors_checked': len(matched), 'pass': all(matched)})
-    if not all(case['pass'] for case in anchor_results):
-        raise ValueError('pilot development anchors missing: ' + str([c['id'] for c in anchor_results if not c['pass']]))
     rows = [json.loads(line) for line in (structured / 'structural-chunks.jsonl').read_text().splitlines()]
-    return {'status': 'pass', 'documents': 13, 'pdf_documents': pdf_documents, 'pdf_pages': pdf_pages,
+    passed = audit['gate'] == 'pass' and all(case['pass'] for case in anchor_results + scope_results)
+    return {'status': 'pass' if passed else 'fail', 'documents': 13, 'pdf_documents': pdf_documents, 'pdf_pages': pdf_pages,
             'elements': len(elements), 'chunks': len(bundle['chunks']), 'structural_chunks': len(rows),
             'figure_assets': len(manifest.get('assets', {})), 'coverage': audit,
-            'critical_scope_regressions_checked': len(regressions), 'development_anchors': anchor_results,
+            'critical_scope_regressions_checked': len(regressions), 'scope_regressions': scope_results,
+            'development_anchors': anchor_results,
             'largest_structural_input_tokens': max(token_count(r['text']) for r in rows),
             'accepted': (structured / 'acceptance.json').is_file(),
             'limitation': 'Mechanical regression checks do not replace fresh source/layout review or semantic retrieval evaluation.'}
@@ -100,7 +146,7 @@ def main(argv=None):
         print(rendered)
     except (ValueError, KeyError, OSError) as exc:
         parser.exit(1, f'pilot validation failed: {exc}\n')
-    return 0
+    return 0 if report['status'] == 'pass' else 1
 
 
 if __name__ == '__main__':

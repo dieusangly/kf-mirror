@@ -5,7 +5,8 @@
     "forbidden_ancestor_id": "el:693542da2eb4aca1221663a5418450aa53c3c4b543640cd06483e939030242bd",
     "page": 35,
     "text": "(i) a crypto-asset service provider;",
-    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF pp34-35 Article 2(1)(6): (e) a collective investment undertaking, in particular governs only its (i)/(ii) investment-fund subitems. The chunk wrongly places sibling (i) a crypto-asset service provider under that lead-in. The original p35 shows (f),(g),(h),(i),(j) as siblings. Suggested correction: close (e) after its roman subitems and use the financial institution definition as the parent; do not infer scope from the repeated marker i."
+    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF pp34-35 Article 2(1)(6): (e) a collective investment undertaking, in particular governs only its (i)/(ii) investment-fund subitems. The chunk wrongly places sibling (i) a crypto-asset service provider under that lead-in. The original p35 shows (f),(g),(h),(i),(j) as siblings. Suggested correction: close (e) after its roman subitems and use the financial institution definition as the parent; do not infer scope from the repeated marker i.",
+    "forbidden_ancestor_text": "(e) a collective investment undertaking, in particular:"
   },
   {
     "source_id": "src:eu-reg-2024-1624-en",
@@ -13,7 +14,8 @@
     "forbidden_ancestor_id": "el:a2f70be1011204f08efe2e03c194ab41a6d1ef4dd7759511b0239c32faad9050",
     "page": 39,
     "text": "(39) 'management body in its supervisory function' means the management body acting in its role of overseeing and monitoring management decision-making;",
-    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF p39 Article 2(1): definition (36) person known to be a close associate has only subpoints (a),(b); definition (39) management body in its supervisory function is independent. Chunk prepends the (36) lead-in to (39), creating an unsupported definition relationship. Both source elements are present and located correctly. Suggested correction: close a definition scope at the next peer numbered definition."
+    "reason": "data/R24EN-eu-reg-2024-1624-en.pdf: PDF p39 Article 2(1): definition (36) person known to be a close associate has only subpoints (a),(b); definition (39) management body in its supervisory function is independent. Chunk prepends the (36) lead-in to (39), creating an unsupported definition relationship. Both source elements are present and located correctly. Suggested correction: close a definition scope at the next peer numbered definition.",
+    "forbidden_ancestor_text": "(36) 'person known to be a close associate' means:"
   },
   {
     "source_id": "src:eu-reg-2023-1113-en",
@@ -21,6 +23,7 @@
     "forbidden_ancestor_id": "el:f8c815a51af257fa1f5840b8ac43f1f6e450c57a0ad3dc29c19789c3b2dfef2b",
     "page": 15,
     "text": "(15) 'crypto-asset service provider' means a crypto-asset service provider as defined in Article 3(1), point (15), of Regulation (EU) 2023/1114, where performing one or more crypto-asset services as defined in Article 3(1), point (16), of that Regulation;",
-    "reason": "data/TFR23EN-eu-reg-2023-1113-en.pdf: PDF pp14-15 Article 3: point (9) transfer of funds governs only subpoints (a)-(d); point (15) crypto-asset service provider is an independent definition. Chunk places (15) under the stale (9) including: introduction. Suggested correction: close point (9) after (d) and start each peer definition independently; the source/parsed text contains both definitions."
+    "reason": "data/TFR23EN-eu-reg-2023-1113-en.pdf: PDF pp14-15 Article 3: point (9) transfer of funds governs only subpoints (a)-(d); point (15) crypto-asset service provider is an independent definition. Chunk places (15) under the stale (9) including: introduction. Suggested correction: close point (9) after (d) and start each peer definition independently; the source/parsed text contains both definitions.",
+    "forbidden_ancestor_text": "(9) 'transfer of funds' means any transaction at least partially carried out by electronic means on behalf of a payer through a payment service provider, with a view to making funds available to a payee through a payment service provider, irrespective of whether the payer and the payee are the same person and irrespective of whether the payment service provider of the payer and that of the payee are one and the same, including:"
   }
 ]

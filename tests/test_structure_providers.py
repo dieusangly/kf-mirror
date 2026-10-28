@@ -1,12 +1,11 @@
 """Native export adapters preserve vendor structure and never acquire sources."""
 import json
-from pathlib import Path
 
 import pytest
 
 from knowledge_foundry.provider_exports import adapt_export
 from knowledge_foundry.parsing import _normalize, parse_collection
-from knowledge_foundry.structure_providers import ExportProvider
+from knowledge_foundry.structure_providers import ExportProvider, resolve_provider, structuring_spec
 from test_pdf_tables import write_pdf
 
 
@@ -99,3 +98,58 @@ def test_unknown_elements_and_failed_pages_fail_explicitly(artifact):
         normalized('unstructured', [{'type': 'Unsupported', 'metadata': {'page_number': 1}}], artifact)
     with pytest.raises(ValueError, match='failed page'):
         normalized('llamaparse', {'items': {'pages': [{'page_number': 1, 'success': False}]}}, artifact)
+
+
+def test_named_profiles_keep_both_providers_independent():
+    import copy
+    config = {'structuring': {'profile': 'docling', 'profiles': {
+        'docling': {'provider': 'internal', 'options': {'ocr': {'mode': 'off'}}},
+        'unstructured': {'provider': 'knowledge_foundry.unstructured_provider:Provider',
+                         'options': {'strategy': 'hi_res', 'infer_table_structure': True}}}}}
+    original = copy.deepcopy(config)
+    name, options, provider = resolve_provider(config)
+    assert name == 'internal' and provider.settings['ocr']['mode'] == 'off'
+    selected = structuring_spec(config, 'unstructured')
+    name, options, provider = resolve_provider({**config, 'structuring': selected})
+    assert name == 'knowledge_foundry.unstructured_provider:Provider'
+    assert options == {'strategy': 'hi_res', 'infer_table_structure': True}
+    assert config == original
+
+
+def test_named_profile_override_and_source_overrides_reach_adapter(artifact, tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from knowledge_foundry.structure_providers import ProviderResult
+    seen = []
+    class Provider:
+        version = 'profile-test-v1'
+        def structure(self, saved, options):
+            seen.append((saved['document']['content_sha256'], options))
+            return ProviderResult([{'locator_key': 'group', 'kind': 'paragraph', 'text': 'Group',
+                                    'location': {'format': 'pdf', 'page': 1, 'label': 'p. 1'}}])
+    monkeypatch.setitem(sys.modules, 'profile_test_provider', SimpleNamespace(Provider=Provider))
+    path = tmp_path / 'pipeline.json'
+    config = json.loads(path.read_text())
+    config['structuring'] = {'profile': 'first', 'profiles': {
+        'first': {'provider': 'profile_test_provider:Provider', 'options': {'tag': 'first'},
+                  'source_overrides': {'X': {'options': {'tag': 'source-override'}}}},
+        'second': {'provider': 'profile_test_provider:Provider', 'options': {'tag': 'second'}}}}
+    path.write_text(json.dumps(config))
+    first = parse_collection(path, tmp_path / 'first')
+    second = parse_collection(path, tmp_path / 'second', profile='second')
+    assert first['provider_profile'] == 'first' and second['provider_profile'] == 'second'
+    assert [row['status'] for row in first['outcomes'] + second['outcomes']] == ['parsed', 'parsed'], (first['outcomes'], second['outcomes'])
+    assert seen == [(artifact['document']['content_sha256'], {'tag': 'source-override'}),
+                    (artifact['document']['content_sha256'], {'tag': 'second'})]
+    assert json.loads(path.read_text()) == config
+
+
+@pytest.mark.parametrize('spec', [
+    {'profile': 'absent', 'profiles': {'docling': {'provider': 'internal'}}},
+    {'profile': 'docling', 'profiles': {}},
+    {'profile': 'docling', 'profiles': {'docling': {'provider': 'internal'}}, 'options': {}},
+    {'profile': 'docling', 'profiles': {'docling': 'internal'}},
+])
+def test_named_profiles_reject_unknown_or_ambiguous_settings(spec):
+    with pytest.raises(ValueError):
+        resolve_provider({'structuring': spec})

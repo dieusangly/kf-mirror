@@ -77,7 +77,6 @@ def validate_frozen(directory):
 def audit_structure(bundle, metadata):
     """Provider-independent evidence coverage and structure conservation checks."""
     from scripts.validate_artifact_examples import check
-    from knowledge_foundry.chunking import clean
     check(bundle)
     elements = {e['id']: e for e in bundle['elements']}
     details = {r['element_id']: r for m in metadata for r in m['elements']}
@@ -87,7 +86,7 @@ def audit_structure(bundle, metadata):
 
 
 def audit_evidence(element_rows, chunks, details):
-    from knowledge_foundry.chunking import clean
+    from knowledge_foundry.chunking import clean, _location_key
     elements = {e['id']: e for e in element_rows}
     owners, coverage = {}, {}
     for chunk in chunks:
@@ -112,7 +111,8 @@ def audit_evidence(element_rows, chunks, details):
             # Identical representations at exactly the same source location may
             # share one witness; repeated wording elsewhere must be covered.
             duplicate = any(other != eid and elements[other]['kind'] == e['kind']
-                            and elements[other]['location'] == e['location']
+                            and elements[other]['document_id'] == e['document_id']
+                            and _location_key(elements[other]) == _location_key(e)
                             and clean(elements[other]['text']) == clean(e['text']) for other in coverage)
             if not duplicate:
                 findings.append({'code': 'STRUCTURAL_CONTENT_MISSING', 'element_id': eid, 'severity': 'error'})

@@ -25,33 +25,68 @@
     }
   },
   "structuring": {
-    "provider": "internal",
-    "options": {
-      "pdf": {
-        "backend": "docling_parse",
-        "table_structure": true,
-        "table_mode": "accurate",
-        "artifacts_path": null
+    "profile": "docling",
+    "profiles": {
+      "docling": {
+        "provider": "internal",
+        "options": {
+          "pdf": {
+            "backend": "docling_parse",
+            "table_structure": true,
+            "table_mode": "accurate",
+            "artifacts_path": null
+          },
+          "ocr": {
+            "mode": "auto",
+            "languages": [
+              "fra",
+              "eng"
+            ],
+            "scale": 3.0,
+            "psm": 3,
+            "tesseract_cmd": "tesseract",
+            "tessdata_path": null
+          },
+          "html": {
+            "content_selector": "article.js-article-content-to-copy"
+          },
+          "markdown": {
+            "tables": true
+          },
+          "docx": {
+            "include_headers_footers": false
+          }
+        }
       },
-      "ocr": {
-        "mode": "auto",
-        "languages": [
-          "fra",
-          "eng"
-        ],
-        "scale": 3.0,
-        "psm": 3,
-        "tesseract_cmd": "tesseract",
-        "tessdata_path": null
-      },
-      "html": {
-        "content_selector": "article.js-article-content-to-copy"
-      },
-      "markdown": {
-        "tables": true
-      },
-      "docx": {
-        "include_headers_footers": false
+      "unstructured": {
+        "provider": "knowledge_foundry.unstructured_provider:Provider",
+        "options": {
+          "strategy": "hi_res",
+          "languages": [
+            "fra",
+            "eng"
+          ],
+          "infer_table_structure": true,
+          "hi_res_model_name": "yolox"
+        },
+        "source_overrides": {
+          "L1": {
+            "provider": "internal",
+            "options": {
+              "html": {
+                "content_selector": "article.js-article-content-to-copy"
+              }
+            }
+          },
+          "L2": {
+            "provider": "internal",
+            "options": {
+              "html": {
+                "content_selector": "article.js-article-content-to-copy"
+              }
+            }
+          }
+        }
       }
     }
   }
