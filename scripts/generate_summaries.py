@@ -16,10 +16,14 @@ def main(argv=None):
     parser.add_argument('--config', type=Path, default=ROOT / 'config/summaries.json')
     parser.add_argument('--cache-dir', type=Path)
     parser.add_argument('--fixture', type=Path, help='offline summaries and embedding_vectors fixture')
+    parser.add_argument('--workers', type=int, default=4,
+                        help='maximum simultaneous model requests (default: 4; use 1 for serial execution)')
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error('--workers must be a positive integer')
     try:
         report = generate_summaries(args.context_dir, args.output_dir, args.config, args.cache_dir,
-                                    args.fixture, on_progress=lambda event: print(
+                                    args.fixture, workers=args.workers, on_progress=lambda event: print(
                                         json.dumps(event), file=sys.stderr, flush=True))
     except Exception as exc:
         parser.exit(2, f'summary generation failed: {exc}\n')

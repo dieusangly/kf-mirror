@@ -103,6 +103,17 @@ Claims/topics and summaries are independent branches:
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation"
 ```
 
+Generation, classification and summaries each default to four concurrent workers.
+Pass `--workers N` to set the limit, or `--workers 1` for serial execution.
+Classification requires completed generation; summaries run independently, with
+concurrency within each level. Limits apply per command when running stages together.
+
+An already running process keeps its current execution settings. To use concurrency
+for interrupted claim generation, stop the old process before restarting the same
+command with `--resume --workers 4`. Completed checkpoints are reused; in-flight
+requests may need repeating. Classification also supports `--resume`; summaries
+reuse their response cache when restarted into a fresh output directory.
+
 For claim defects, the
 [claim repair prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_repair)
 ends after diagnosis, corrections, focused regressions and reporting. Rebuilding

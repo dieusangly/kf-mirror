@@ -75,7 +75,12 @@ class GenerationRecoveryTests(unittest.TestCase):
         return provider
 
     def generate(self, directory, provider, **kwargs):
-        with patch('knowledge_foundry.claim_generation_and_classification._provider', return_value=provider):
+        def make_provider(*_args):
+            worker = type(provider)(provider.fixture)
+            worker.calls = provider.calls
+            return worker
+
+        with patch('knowledge_foundry.claim_generation_and_classification._provider', side_effect=make_provider):
             return generate_claims(None, directory, self.config, context_dir=self.context, **kwargs)
 
     def test_recovery_preserves_candidates_baseline_and_cumulative_usage(self):

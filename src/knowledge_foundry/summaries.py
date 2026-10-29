@@ -9,6 +9,7 @@ from collections import Counter
 import json
 import math
 from pathlib import Path
+from threading import Lock
 import shutil
 import time
 
@@ -18,6 +19,7 @@ from knowledge_foundry.claim_context import (
     ROOT, _file_hash, _json, _jsonl, _write_jsonl, load_preparation,
     pricing_for_step, validate_settings,
 )
+from knowledge_foundry.concurrency import run_bounded, validate_workers
 from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json
 from knowledge_foundry.evidence import evidence_key
 from knowledge_foundry.generation_context import RequestCounter, usable_input_budget
@@ -100,7 +102,8 @@ def _cluster(level, ids, summaries, minimum):
 
 
 def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summaries.json',
-                       cache_dir=None, fixture_path=None, on_progress=None):
+                       cache_dir=None, fixture_path=None, on_progress=None, workers=4):
+    validate_workers(workers)
     started = time.monotonic()
     config = _json(config_path)
     validate_summary_settings(config)
@@ -122,70 +125,93 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
     counter = RequestCounter(config, cache_dir / 'request-counts', stage='summary_generation')
     adapter = EmbeddingAdapter(config['steps']['embeddings'], cache_dir / 'embeddings', fixture,
                                pricing=pricing_for_step(config, 'embeddings'), pricing_version=config['pricing']['version'])
-    tool = None
-    summaries, summary_clusters, embeddings, usage = [], [], [], []
+    summaries, summary_clusters, embeddings = [], [], []
     telemetry = {'requests': 0, 'failed_requests': 0, 'cache_hits': 0}
+    telemetry_lock = Lock()
+    usage_by_cluster = {}
 
-    def summarize(level, cluster, inputs):
-        nonlocal tool
-        request = _payload(config, prompt, _input(level, cluster, inputs, prepared))
-        tokens = counter.check(request, 'summary input cluster ' + cluster['id'])
-        key = stable_hash([VERSION, step['version'], request, stable_hash(fixture) if fixture is not None else None])
-        cached = cache_dir / 'responses' / (key + '.json')
-        if cached.exists():
-            saved = _json(cached)
-            response = saved['response']
-            if saved.get('key') != key or saved.get('response_sha256') != stable_hash(response):
-                raise ValueError('summary response cache integrity mismatch')
-            telemetry['cache_hits'] += 1
-        else:
-            for attempt in range(step['retries'] + 1):
-                try:
-                    if step['provider'] == 'fixture':
-                        # Exact cluster ID or hash of the complete input, never an implicit summary.
-                        fixtures = fixture.get('summaries', {})
-                        response = fixtures.get(cluster['id'], fixtures.get(stable_hash(json.loads(request['input']))))
-                        if response is None:
-                            raise ValueError('fixture has no summary for ' + cluster['id'])
-                    else:
-                        if tool is None:
-                            tool = OpenAIResponsesTool(step['model'], step['reasoning_effort'],
-                                                       max_output_tokens=step['budget']['reserved_output_tokens'])
-                        telemetry['requests'] += 1
-                        response = tool.json_response(instructions=prompt, input_text=request['input'],
-                                                      schema_name='knowledge_summary', schema=OUTPUT_SCHEMA)
-                    Draft202012Validator(OUTPUT_SCHEMA).validate(response)
-                    if not response['text'].strip():
-                        raise ValueError('summary text must be nonempty')
-                    break
-                except Exception:
-                    telemetry['failed_requests'] += 1
-                    if attempt == step['retries']:
-                        raise
-                    time.sleep(min(2 ** attempt, 4))
-            atomic_json(cached, {'key': key, 'response': response, 'response_sha256': stable_hash(response)})
-        Draft202012Validator(OUTPUT_SCHEMA).validate(response)
-        if not response['text'].strip():
-            raise ValueError('summary text must be nonempty')
-        cluster_ids = cluster['semantic_cluster_ids'] if level > 1 else [cluster['id']]
-        record = {'level': level, 'input_cluster_id': cluster['id'],
-                  'input_summary_ids': [r['id'] for r in inputs], **_lineage(cluster_ids, prepared),
-                  'text': response['text'], 'review_status': 'draft', 'input_tokens': tokens,
-                  'generation': {**{k: step[k] for k in ('version', 'provider', 'model', 'reasoning_effort')},
-                                 'prompt_sha256': stable_hash(prompt), 'request_sha256': stable_hash(request)}}
-        record['id'] = _summary_id(record)
-        summaries.append(record)
-        if on_progress:
-            on_progress({'state': 'summary_created', 'level': level, 'summary_id': record['id'],
-                         'input_cluster_id': cluster['id']})
-        return record
+    def summarize(job):
+        level, cluster, inputs = job
+        local_counter = RequestCounter(config, cache_dir / 'request-counts', stage='summary_generation')
+        local_telemetry = {'requests': 0, 'failed_requests': 0, 'cache_hits': 0}
+        tool = None
+        try:
+            request = _payload(config, prompt, _input(level, cluster, inputs, prepared))
+            tokens = local_counter.check(request, 'summary input cluster ' + cluster['id'])
+            key = stable_hash([VERSION, step['version'], request, stable_hash(fixture) if fixture is not None else None])
+            cached = cache_dir / 'responses' / (key + '.json')
+            if cached.exists():
+                saved = _json(cached)
+                response = saved['response']
+                if saved.get('key') != key or saved.get('response_sha256') != stable_hash(response):
+                    raise ValueError('summary response cache integrity mismatch')
+                local_telemetry['cache_hits'] += 1
+            else:
+                for attempt in range(step['retries'] + 1):
+                    try:
+                        if step['provider'] == 'fixture':
+                            # Exact cluster ID or hash of the complete input, never an implicit summary.
+                            fixtures = fixture.get('summaries', {})
+                            response = fixtures.get(cluster['id'], fixtures.get(stable_hash(json.loads(request['input']))))
+                            if response is None:
+                                raise ValueError('fixture has no summary for ' + cluster['id'])
+                        else:
+                            if tool is None:
+                                tool = OpenAIResponsesTool(step['model'], step['reasoning_effort'],
+                                                           max_output_tokens=step['budget']['reserved_output_tokens'])
+                            local_telemetry['requests'] += 1
+                            response = tool.json_response(instructions=prompt, input_text=request['input'],
+                                                          schema_name='knowledge_summary', schema=OUTPUT_SCHEMA)
+                        Draft202012Validator(OUTPUT_SCHEMA).validate(response)
+                        if not response['text'].strip():
+                            raise ValueError('summary text must be nonempty')
+                        break
+                    except Exception:
+                        local_telemetry['failed_requests'] += 1
+                        if attempt == step['retries']:
+                            raise
+                        time.sleep(min(2 ** attempt, 4))
+                atomic_json(cached, {'key': key, 'response': response, 'response_sha256': stable_hash(response)})
+            Draft202012Validator(OUTPUT_SCHEMA).validate(response)
+            if not response['text'].strip():
+                raise ValueError('summary text must be nonempty')
+            cluster_ids = cluster['semantic_cluster_ids'] if level > 1 else [cluster['id']]
+            record = {'level': level, 'input_cluster_id': cluster['id'],
+                      'input_summary_ids': [r['id'] for r in inputs], **_lineage(cluster_ids, prepared),
+                      'text': response['text'], 'review_status': 'draft', 'input_tokens': tokens,
+                      'generation': {**{k: step[k] for k in ('version', 'provider', 'model', 'reasoning_effort')},
+                                     'prompt_sha256': stable_hash(prompt), 'request_sha256': stable_hash(request)}}
+            record['id'] = _summary_id(record)
+            return record
+        finally:
+            with telemetry_lock:
+                for key, value in local_telemetry.items():
+                    telemetry[key] += value
+                for key, value in local_counter.telemetry.items():
+                    if type(value) is int:
+                        counter.telemetry[key] += value
+                if tool is not None:
+                    usage_by_cluster[(level, cluster['id'])] = list(tool.usage_records)
+
+    def summarize_level(jobs):
+        records = []
+
+        def save(record):
+            records.append(record)
+            summaries.append(record)
+            if on_progress:
+                on_progress({'state': 'summary_created', 'level': record['level'], 'summary_id': record['id'],
+                             'input_cluster_id': record['input_cluster_id']})
+
+        run_bounded(summarize, jobs, workers, save)
+        return sorted(records, key=lambda record: record['id'])
 
     output_dir.mkdir(parents=True)
     try:
         shutil.copytree(context_dir, output_dir / 'preparation')
         (output_dir / 'summary-prompt.txt').write_text(prompt)
         atomic_json(output_dir / 'model-output-schema.json', OUTPUT_SCHEMA)
-        frontier = [summarize(1, c, []) for c in prepared['clusters']]
+        frontier = summarize_level((1, c, []) for c in prepared['clusters'])
         settings = config['steps']['summary_clusters']
         stop_reason = 'max_levels'
         for level in range(2, settings['max_levels'] + 1):
@@ -209,7 +235,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
             if all(len(group) == 1 for group in groups):
                 stop_reason = 'no_eligible_merges'
                 break
-            next_frontier = []
+            next_frontier, jobs = [], []
             for ids in groups:
                 if len(ids) == 1:
                     next_frontier.append(by_id[ids[0]])
@@ -217,12 +243,11 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
                 minimum = min(cosine(scores, a, b) for i, a in enumerate(ids) for b in ids[i + 1:])
                 group = _cluster(level, ids, by_id, minimum)
                 summary_clusters.append(group)
-                next_frontier.append(summarize(level, group, [by_id[i] for i in ids]))
-            frontier = next_frontier
+                jobs.append((level, group, [by_id[i] for i in ids]))
+            frontier = next_frontier + summarize_level(jobs)
         if len(frontier) == 1:
             stop_reason = 'single_root'
-        if tool is not None:
-            usage = tool.usage_records
+        usage = [record for key in sorted(usage_by_cluster) for record in usage_by_cluster[key]]
         report = {'status': 'complete', 'summaries': len(summaries), 'summary_clusters': len(summary_clusters),
                   'levels': dict(sorted(Counter(r['level'] for r in summaries).items())),
                   'root_summary_ids': sorted(r['id'] for r in frontier), 'stop_reason': stop_reason,

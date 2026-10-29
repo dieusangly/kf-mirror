@@ -38,7 +38,11 @@ def main(argv=None):
     parser.add_argument("--reuse-classification-from", type=Path, help="validated prior classification run")
     parser.add_argument("--reuse-candidates-dir", type=Path, help="candidate run consumed by the prior classification")
     parser.add_argument("--resume", action="store_true", help="resume this output run from per-candidate checkpoints")
+    parser.add_argument('--workers', type=int, default=4,
+                        help='maximum simultaneous model requests (default: 4; use 1 for serial execution)')
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error('--workers must be a positive integer')
     telemetry = None
 
     def progress(event):
@@ -51,7 +55,7 @@ def main(argv=None):
     try:
         report = classify_claims(args.candidates_dir, args.output_dir, args.config, args.taxonomy, args.fixture,
                                  on_progress=progress, reuse_classification_from=args.reuse_classification_from,
-                                 reuse_candidates_dir=args.reuse_candidates_dir, resume=args.resume)
+                                 reuse_candidates_dir=args.reuse_candidates_dir, resume=args.resume, workers=args.workers)
     except Exception as exc:
         parser.exit(2, f"claim classification failed: {exc}; interrupted output can be resumed with --resume\n")
     cost = telemetry['estimated_cost_usd']

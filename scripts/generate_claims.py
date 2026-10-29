@@ -45,7 +45,11 @@ def main(argv=None):
                         help="resume an incomplete matching generation run in --output-dir")
     parser.add_argument("--retry-failed-from", type=Path,
                         help="recover a finalized partial run into a fresh output directory; reuse successful clusters")
+    parser.add_argument('--workers', type=int, default=4,
+                        help='maximum simultaneous model requests (default: 4; use 1 for serial execution)')
     args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error('--workers must be a positive integer')
     telemetry = None
 
     def progress(event):
@@ -59,7 +63,7 @@ def main(argv=None):
         report = generate_claims(args.chunked_dir, args.output_dir, args.config, args.fixture,
                                  on_progress=progress, subset_clusters=args.subset_clusters, resume=args.resume,
                                  cluster_numbers=args.cluster_numbers, context_dir=args.context_dir,
-                                 retry_failed_from=args.retry_failed_from)
+                                 retry_failed_from=args.retry_failed_from, workers=args.workers)
     except Exception as exc:
         parser.exit(2, f"claim generation failed; completed semantic clusters remain resumable with --resume: {exc}\n")
     cost = telemetry['estimated_cost_usd']

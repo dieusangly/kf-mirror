@@ -8,6 +8,7 @@ import shutil
 import time
 from collections import Counter
 from pathlib import Path
+from threading import Lock
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -18,6 +19,7 @@ from knowledge_foundry.claim_context import (
     pricing_for_step,
     request_for_members,
 )
+from knowledge_foundry.concurrency import run_bounded, validate_workers
 from knowledge_foundry.evidence import claim_evidence_references
 from knowledge_foundry.generation_context import RequestCounter, generation_payload
 from knowledge_foundry.structural_links import footnote_links
@@ -757,8 +759,9 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
 
 def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-generation-and-classification.json", fixture_path=None,
                     on_progress=None, subset_clusters=None, resume=False, cluster_numbers=None, context_dir=None,
-                    subset_batches=None, batch_numbers=None, retry_failed_from=None):
+                    subset_batches=None, batch_numbers=None, retry_failed_from=None, workers=4):
     """Generate durable, grounded candidate claims from one immutable chunk bundle."""
+    validate_workers(workers)
     started = time.monotonic()
     if subset_batches is not None:
         if subset_clusters is not None:
@@ -868,8 +871,10 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             if key in counter.telemetry and type(value) is int:
                 counter.telemetry[key] += value
     candidate_clusters, evidence_accounting = [], []
+    cluster_records = {}
     for number in sorted(completed_clusters):
         saved_record = _read_json(checkpoint_dir / f'cluster-{number:06d}.json')
+        cluster_records[number] = saved_record
         evidence_accounting.append({'semantic_cluster_id': clusters[selected_indices[number - 1]]['id'],
                                     'passages': saved_record['evidence_accounting']})
         for key, value in saved_record.get('claim_generation_request_token_counting', saved_record.get('token_counting', {})).items():
@@ -882,14 +887,21 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                      "source_chunks": len(chunks), "total": len(selected_clusters),
                      "source_total": len(all_clusters), "subset": scope["mode"] == "subset",
                      "resumed_clusters": len(completed_clusters)})
-    for completed, cluster in enumerate(selected_clusters, start=1):
-        if completed in completed_clusters:
-            continue
-        ids, usage_start = [item["id"] for item in cluster], len(provider.usage_records)
+    candidate_ids = {item['id'] for item in candidates}
+    candidate_lock = Lock()
+
+    def process_cluster(item):
+        completed, cluster = item
+        local_provider = provider if workers == 1 else _provider(config, fixture_path)
+        if isinstance(local_provider, OpenAIProvider):
+            local_provider.tool.max_output_tokens = config['steps']['claim_generation']['budget']['reserved_output_tokens']
+        local_counter = RequestCounter(config, output_dir / 'request-counts')
+        local_counter.telemetry['frozen_counts_reused'] = 0
+        retries = []
+        ids, usage_start = [item["id"] for item in cluster], len(local_provider.usage_records)
         cluster_candidates, cluster_errors, cluster_accounting = [], [], []
         choices = cluster_choices[completed - 1]
         retry_feedback = ""
-        counter_start = dict(counter.telemetry)
 
         def generate_cluster():
             nonlocal retry_feedback, cluster_accounting
@@ -898,23 +910,24 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             # The frozen count is reusable only for the exact prepared request.
             cluster = clusters[selected_indices[completed - 1]]
             if not retry_feedback and cluster['request_sha256'] == stable_hash(request):
-                counter.telemetry['frozen_counts_reused'] += 1
+                local_counter.telemetry['frozen_counts_reused'] += 1
             else:
-                counter.check(request, 'semantic cluster ' + cluster['id'])
-            response = provider.candidates(ids if isinstance(provider, FixtureProvider) else
-                                           cluster_inputs[selected_indices[completed - 1]],
-                                           generation_prompt + retry_feedback, CANDIDATE_SCHEMA)
+                local_counter.check(request, 'semantic cluster ' + cluster['id'])
+            response = local_provider.candidates(ids if isinstance(local_provider, FixtureProvider) else
+                                                cluster_inputs[selected_indices[completed - 1]],
+                                                generation_prompt + retry_feedback, CANDIDATE_SCHEMA)
             try:
-                if isinstance(provider, FixtureProvider) and 'coverage' not in response:
+                if isinstance(local_provider, FixtureProvider) and 'coverage' not in response:
                     response = _fixture_accounting(response, choices)
                 Draft202012Validator(CANDIDATE_SCHEMA).validate(response)
                 response = _derive_coverage_links(response)
                 records = [_candidate_record(build_id, item, generation, choices) for item in response["claims"]]
                 accounting = _evidence_accounting(response, choices, records)
-                candidate_ids = {item["id"] for item in candidates}
-                if len({item["id"] for item in records}) != len(records) or \
-                        candidate_ids.intersection(item["id"] for item in records):
-                    raise ValueError("generation produced duplicate candidate claim IDs")
+                record_ids = {item['id'] for item in records}
+                with candidate_lock:
+                    if len(record_ids) != len(records) or candidate_ids.intersection(record_ids):
+                        raise ValueError("generation produced duplicate candidate claim IDs")
+                    candidate_ids.update(record_ids)
                 cluster_accounting = accounting
             except (ValueError, ValidationError) as exc:
                 retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
@@ -926,34 +939,51 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         try:
             cluster_candidates = _call(
                 generate_cluster, config["steps"]["claim_generation"]["retries"],
-                lambda attempt, total: on_progress and on_progress(
+                lambda attempt, total: retries.append(
                     {"phase": "generation", "state": "retry", "completed": completed,
                      "total": len(selected_clusters), "attempt": attempt, "attempts": total}))
         except Exception as exc:
             cluster_errors.append({"stage": "generation", "chunk_ids": ids, "error": str(exc)})
-        cluster_usage = provider.usage_records[usage_start:]
+        cluster_usage = local_provider.usage_records[usage_start:]
         cluster_record = {"cluster_number": completed, "chunk_ids": ids, "candidates": cluster_candidates,
                           "evidence_accounting": cluster_accounting,
                           "errors": cluster_errors, "usage_records": cluster_usage,
-                          "claim_generation_request_token_counting": {k: v - counter_start[k] for k, v in counter.telemetry.items()
-                                             if type(v) is int}}
+                          "claim_generation_request_token_counting": {k: v for k, v in local_counter.telemetry.items()
+                                                                     if type(v) is int}}
+        return cluster_record, retries
+
+    def save_cluster(result):
+        cluster_record, retries = result
+        completed = cluster_record['cluster_number']
+        cluster_candidates = cluster_record['candidates']
+        cluster_records[completed] = cluster_record
+        for key, value in cluster_record['claim_generation_request_token_counting'].items():
+            counter.telemetry[key] += value
         _write_json_atomic(checkpoint_dir / f"cluster-{completed:06d}.json", cluster_record)
         evidence_accounting.append({'semantic_cluster_id': clusters[selected_indices[completed - 1]]['id'],
-                                    'passages': cluster_accounting})
+                                    'passages': cluster_record['evidence_accounting']})
         candidate_clusters.extend({'candidate_id': c['id'],
                                    'semantic_cluster_id': clusters[selected_indices[completed - 1]]['id']}
                                   for c in cluster_candidates)
         candidates.extend(cluster_candidates)
-        errors.extend(cluster_errors)
-        usage.extend(cluster_usage)
         completed_clusters.add(completed)
         candidates.sort(key=lambda item: item["id"])
         _write_jsonl_atomic(candidate_path, candidates)
         _write_json_atomic(checkpoint_path, {**identity, "status": "in_progress",
                                               "completed_cluster_numbers": sorted(completed_clusters)})
-        if on_progress and _checkpoint(completed, len(selected_clusters)):
-            on_progress({"phase": "generation", "state": "progress", "completed": completed,
+        if on_progress:
+            for event in retries:
+                on_progress(event)
+        finished = len(completed_clusters)
+        if on_progress and _checkpoint(finished, len(selected_clusters)):
+            on_progress({"phase": "generation", "state": "progress", "completed": finished,
                          "total": len(selected_clusters), "candidates": len(candidates)})
+
+    run_bounded(process_cluster,
+                ((number, cluster) for number, cluster in enumerate(selected_clusters, start=1)
+                 if number not in completed_clusters), workers, save_cluster)
+    errors = [error for number in sorted(cluster_records) for error in cluster_records[number]['errors']]
+    usage = [record for number in sorted(cluster_records) for record in cluster_records[number]['usage_records']]
     if len({item["id"] for item in candidates}) != len(candidates):
         raise ValueError("generation produced duplicate candidate claim IDs")
     candidates.sort(key=lambda item: item["id"])
@@ -1030,8 +1060,9 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
 
 def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-generation-and-classification.json",
                     taxonomy_path=ROOT / "config/topics-v1.json", fixture_path=None,
-                    on_progress=None, reuse_classification_from=None, reuse_candidates_dir=None, resume=False):
+                    on_progress=None, reuse_classification_from=None, reuse_candidates_dir=None, resume=False, workers=4):
     """Classify a durable candidate claim artifact without regenerating its claims."""
+    validate_workers(workers)
     started = time.monotonic()
     candidate_dir, output_dir = Path(candidate_dir), Path(output_dir)
     if (reuse_classification_from is None) != (reuse_candidates_dir is None):
@@ -1091,15 +1122,19 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
     if on_progress:
         on_progress({"phase": "classification", "state": "started", "total": len(candidates),
                      "reusable_candidates": len(reusable), "saved_candidates": len(journal.records)})
-    for index, candidate in enumerate(candidates, start=1):
-        usage_start = len(provider.usage_records)
+
+    def process_candidate(item):
+        index, candidate = item
+        local_provider = provider if workers == 1 else _provider(config, fixture_path, 'topic_classification')
+        usage_start = len(local_provider.usage_records)
+        retries = []
         context = contexts[candidate['id']]
         retry_feedback = ""
 
         def classify_candidate():
             nonlocal retry_feedback
-            response = provider.classify(context, taxonomy, classification_prompt + retry_feedback,
-                                         CLASSIFICATION_SCHEMA)
+            response = local_provider.classify(context, taxonomy, classification_prompt + retry_feedback,
+                                               CLASSIFICATION_SCHEMA)
             try:
                 Draft202012Validator(CLASSIFICATION_SCHEMA).validate(response)
                 if response["topic_id"] is not None and response["topic_id"] not in valid_topics:
@@ -1111,22 +1146,52 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
             return response
 
         saved = journal.records.get(candidate['id'])
-        if saved is None or saved['error'] is not None:
-            classification, error = None, None
-            reused = candidate['id'] in reusable
-            try:
-                classification = reusable[candidate['id']] if reused else _call(
-                    classify_candidate, config["steps"]["topic_classification"]["retries"],
-                    lambda attempt, total: on_progress and on_progress(
-                        {"phase": "classification", "state": "retry", "completed": index,
-                         "total": len(candidates), "attempt": attempt, "attempts": total}))
-            except Exception as exc:
-                error = str(exc) or type(exc).__name__
-            saved = {'candidate_id': candidate['id'], 'request_sha256': requests[candidate['id']],
-                     'classification': classification, 'error': error, 'reused': reused,
-                     'usage_records': (saved['usage_records'] if saved else []) +
-                                      provider.usage_records[usage_start:]}
-            journal.save(saved)
+        classification, error = None, None
+        try:
+            classification = _call(
+                classify_candidate, config["steps"]["topic_classification"]["retries"],
+                lambda attempt, total: retries.append(
+                    {"phase": "classification", "state": "retry", "completed": index,
+                     "total": len(candidates), "attempt": attempt, "attempts": total}))
+        except Exception as exc:
+            error = str(exc) or type(exc).__name__
+        saved = {'candidate_id': candidate['id'], 'request_sha256': requests[candidate['id']],
+                 'classification': classification, 'error': error, 'reused': False,
+                 'usage_records': (saved['usage_records'] if saved else []) +
+                                  local_provider.usage_records[usage_start:]}
+        return saved, retries
+
+    finished = classified_count = 0
+
+    def save_candidate(result):
+        nonlocal finished, classified_count
+        saved, retries = result
+        journal.save(saved)
+        finished += 1
+        if saved['error'] is None and saved['classification']['topic_id'] is not None:
+            classified_count += 1
+        if on_progress:
+            for event in retries:
+                on_progress(event)
+            if _checkpoint(finished, len(candidates)):
+                on_progress({"phase": "classification", "state": "progress", "completed": finished,
+                             "total": len(candidates), "claims": classified_count})
+
+    pending = []
+    for index, candidate in enumerate(candidates, start=1):
+        cid = candidate['id']
+        saved = journal.records.get(cid)
+        if saved is not None and saved['error'] is None:
+            save_candidate((saved, []))
+        elif cid in reusable:
+            save_candidate(({'candidate_id': cid, 'request_sha256': requests[cid],
+                             'classification': reusable[cid], 'error': None, 'reused': True,
+                             'usage_records': saved['usage_records'] if saved else []}, []))
+        else:
+            pending.append((index, candidate))
+    run_bounded(process_candidate, pending, workers, save_candidate)
+    for candidate in candidates:
+        saved = journal.records[candidate['id']]
         if saved['error'] is not None:
             errors.append({'stage': 'classification', 'candidate_id': candidate['id'], 'error': saved['error']})
         elif saved['classification']['topic_id'] is None:
@@ -1134,9 +1199,6 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
         else:
             claims.append(_claim(build_id, candidate, saved['classification'], classifier))
         usage.extend(saved['usage_records'])
-        if on_progress and _checkpoint(index, len(candidates)):
-            on_progress({"phase": "classification", "state": "progress", "completed": index,
-                         "total": len(candidates), "claims": len(claims)})
     claims.sort(key=lambda item: item["id"])
     if len({item["id"] for item in claims}) != len(claims):
         raise ValueError("classification produced duplicate claim IDs")
