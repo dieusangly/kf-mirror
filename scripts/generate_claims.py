@@ -14,6 +14,11 @@ from knowledge_foundry.claim_generation_and_classification import generate_claim
 
 
 def _print_progress(event):
+    if event['phase'] == 'preparation':
+        total = event.get('total')
+        count = f" {event['completed']}/{total}" if total is not None else ''
+        print(f"[generate] Preparation: {event['step']}{count}", file=sys.stderr, flush=True)
+        return
     if event["phase"] == "generation" and event["state"] == "started":
         scope = "Subset" if event["subset"] else "Full"
         prefix = f"{scope}: {event['chunks']}/{event['source_chunks']} chunks; "

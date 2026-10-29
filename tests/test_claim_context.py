@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import shutil
 from unittest.mock import patch
 
 from knowledge_foundry.claim_generation_and_classification import generate_claims as generate_prepared, ROOT
@@ -37,6 +38,66 @@ class ClaimContextTests(unittest.TestCase):
                          sorted(c['id'] for c in result['bundle']['chunks']))
         with self.assertRaisesRegex(ValueError, 'already exists'):
             prepare_claim_context(self.chunked, directory, self.config)
+
+    def test_loader_limits_similarity_work_to_saved_clusters(self):
+        from knowledge_foundry.semantic_clusters import similarity_matrix
+        directory = prepare_fixture(self.chunked, self.config)
+        events = []
+        with patch('knowledge_foundry.claim_context.similarity_matrix', wraps=similarity_matrix) as scores:
+            prepared = load_preparation(directory, on_progress=events.append)
+        self.assertEqual(scores.call_count, 1)
+        self.assertEqual(scores.call_args.kwargs['groups'],
+                         [cluster['structural_chunk_ids'] for cluster in prepared['clusters']])
+        self.assertEqual(events[0]['step'], 'checking saved artifacts')
+        self.assertEqual(events[-1]['completed'], len(prepared['clusters']))
+
+    def test_verified_copy_reuses_checks_but_still_hashes_every_file(self):
+        directory = prepare_fixture(self.chunked, self.config)
+        prepared = load_preparation(directory)
+        copied = self.root / 'copied'
+        shutil.copytree(directory, copied)
+        events = []
+        with patch('knowledge_foundry.claim_context.similarity_matrix', side_effect=AssertionError('recomputed')):
+            self.assertIs(load_preparation(copied, validated_preparation=prepared, on_progress=events.append), prepared)
+        self.assertEqual(events[-1]['step'], 'reusing verified preparation')
+        (copied / 'semantic-clusters.json').write_text('[]')
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            load_preparation(copied, validated_preparation=prepared)
+
+    def test_verified_copy_rejects_changed_manifest_even_when_output_hashes_match(self):
+        directory = prepare_fixture(self.chunked, self.config)
+        prepared = load_preparation(directory)
+        path = directory / 'build-manifest.json'
+        # Reformatting changes identity even though the listed file hashes agree.
+        path.write_text(json.dumps(json.loads(path.read_text()), separators=(',', ':')))
+        with self.assertRaisesRegex(ValueError, 'artifacts mismatch'):
+            load_preparation(directory, validated_preparation=prepared)
+
+    def test_verified_copy_cannot_bypass_prompt_or_configuration_checks(self):
+        directory = prepare_fixture(self.chunked, self.config)
+        prepared = load_preparation(directory)
+        with patch('knowledge_foundry.claim_generation_and_classification._prompt', return_value=('changed', 'hash')):
+            with self.assertRaisesRegex(ValueError, 'prompt/schema'):
+                load_preparation(directory, validated_preparation=prepared)
+        config = fixture_settings()
+        config['steps']['semantic_clusters']['minimum_similarity'] = .9
+        with self.assertRaisesRegex(ValueError, 'configuration mismatch'):
+            load_preparation(directory, config, validated_preparation=prepared)
+
+    def test_stricter_request_verification_is_not_skipped_when_reusing_preparation(self):
+        from knowledge_foundry.semantic_clusters import similarity_matrix
+        directory = prepare_fixture(self.chunked, self.config)
+        prepared = load_preparation(directory, verify_requests=False)
+        with patch('knowledge_foundry.claim_context.similarity_matrix', wraps=similarity_matrix) as scores:
+            checked = load_preparation(directory, validated_preparation=prepared)
+        self.assertEqual(scores.call_count, 1)
+        self.assertTrue(checked['requests_verified'])
+
+    def test_lineage_only_loading_does_not_rebuild_unused_generation_requests(self):
+        directory = prepare_fixture(self.chunked, self.config)
+        with patch('knowledge_foundry.claim_context.request_for_members', side_effect=AssertionError('rendered')):
+            prepared = load_preparation(directory, verify_requests=False)
+        self.assertFalse(prepared['requests_verified'])
 
     def test_parsed_sidecars_are_frozen_and_hierarchy_tampering_is_rejected(self):
         from claim_fixtures import introduction_bundle
@@ -188,7 +249,7 @@ class ClaimContextTests(unittest.TestCase):
 
     def test_multiple_cross_document_claims_survive_classification_export_and_evaluation(self):
         from knowledge_foundry.claim_generation_and_classification import digest, classify_claims
-        from scripts.auto_review_claims import evaluate
+        from scripts.deterministic_claim_review import evaluate
         from scripts.validate_artifact_examples import check
         first = json.loads((self.chunked / 'artifact-bundle.json').read_text())
         second = json.loads((ROOT / 'examples/artifact-bundle-html.json').read_text())

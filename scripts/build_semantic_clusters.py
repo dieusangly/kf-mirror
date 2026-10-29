@@ -17,10 +17,13 @@ def main(argv=None):
                         help='build settings, with an explicit claim request-sizing configuration reference')
     parser.add_argument('--cache-dir', type=Path)
     parser.add_argument('--fixture', type=Path, help='offline embedding vectors keyed by exact-text hash')
+    parser.add_argument('--workers', type=int, default=4,
+                        help='maximum concurrent request-sizing calls (default: 4; use 1 for serial execution)')
     args = parser.parse_args(argv)
     try:
         report = prepare_claim_context(args.chunked_dir, args.output_dir, args.config, args.cache_dir, args.fixture,
-                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True))
+                                       on_progress=lambda event: print(json.dumps(event), file=sys.stderr, flush=True),
+                                       workers=args.workers)
     except Exception as exc:
         parser.exit(2, f'structural chunks and semantic clusters build failed: {exc}\n')
     print(json.dumps(report, ensure_ascii=False, indent=2))

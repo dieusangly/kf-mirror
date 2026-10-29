@@ -8,6 +8,16 @@ from scripts.generate_claims import _print_progress, main
 
 
 class GenerateClaimsCliTests(unittest.TestCase):
+    def test_preparation_progress_is_printed_before_generation_starts(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            _print_progress({'phase': 'preparation', 'state': 'progress',
+                             'step': 'checking saved artifacts', 'completed': 0, 'total': None})
+            _print_progress({'phase': 'preparation', 'state': 'progress',
+                             'step': 'checking generation checkpoints', 'completed': 25, 'total': 870})
+        self.assertIn('[generate] Preparation: checking saved artifacts', stderr.getvalue())
+        self.assertIn('checking generation checkpoints 25/870', stderr.getvalue())
+
     def test_unknown_cost_does_not_fail_after_generation(self):
         def generate(*args, **kwargs):
             kwargs['on_progress']({'phase': 'complete', 'state': 'complete',

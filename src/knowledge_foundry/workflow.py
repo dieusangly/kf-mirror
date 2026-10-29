@@ -560,11 +560,12 @@ class Workflow:
         else:
             args += ['--candidates-dir', str(self.bundle_directory('generate')), '--classified-dir', str(self.bundle_directory('classify')),
                      '--source-root', str(self.source_root), '--taxonomy', str(self.root / self.config['taxonomy'])]
-            script = 'auto_review_claims.py'
+            script = 'deterministic_claim_review.py'
         if name in {'parsing_review', 'chunk_review'}:
             script = 'deterministic_document_structuring_review.py'
             args = ['finalize' if (out / 'review.json').exists() else 'prepare', *args]
         else:
+            args = ['finalize' if (out / 'review.json').exists() else 'prepare', *args]
             args += ['--review-file' if (out / 'review.json').exists() else '--initialize-review', str(out / 'review.json')]
         return [sys.executable, str(self.root / 'scripts' / script), *args]
 
@@ -1026,10 +1027,9 @@ class Workflow:
                             'source review are separate tasks; do not execute them or approve outputs here. Preserve originals, '
                             'frozen artifacts, findings, judgments, sample selection, policy and thresholds. Tests do not grant '
                             'real-corpus approval. Escalate ambiguity/inaccessible evidence/non-convergence.'}
-                        if name in {'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'accept'}:
-                            task['repair_prompt'] = str(self.root / 'src/knowledge_foundry/prompts/agent_prompt_document_structuring_repair')
-                        elif name in {'generate', 'classify', 'claim_review'}:
-                            task['repair_prompt'] = str(self.root / 'src/knowledge_foundry/prompts/agent_prompt_claim_repair')
+                        if name in {'parse', 'parsing_evaluation', 'parsing_review', 'chunk', 'chunk_review', 'accept',
+                                    'generate', 'classify', 'claim_review'}:
+                            task['repair_prompt'] = str(self.root / 'src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings')
                         write(out / 'repair-task.json', task)
                         self.save()
                         raise ValueError(name + ' gate ' + status + '; see repair-task.json')

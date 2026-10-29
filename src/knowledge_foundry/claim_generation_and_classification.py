@@ -23,6 +23,7 @@ from knowledge_foundry.concurrency import run_bounded, validate_workers
 from knowledge_foundry.evidence import claim_evidence_references
 from knowledge_foundry.generation_context import RequestCounter, generation_payload
 from knowledge_foundry.structural_links import footnote_links
+from knowledge_foundry.claim_source_context import source_context_index, supporting_passages, uses_source_context
 from knowledge_foundry.openai_tools import DEFAULT_MODEL, OpenAIResponsesTool
 from knowledge_foundry.structural_chunks import assemble_structural_chunks, stable_hash
 
@@ -41,7 +42,7 @@ CANDIDATE_SCHEMA = {
         "type": "object", "additionalProperties": False, "required": ["text", "evidence"],
         "properties": {"text": {"type": "string", "minLength": 1},
                        "evidence": {"type": "array", "minItems": 1, "items": {
-                           "type": "string", "pattern": "^E[1-9][0-9]*$"}}}}}},
+                           "type": "string", "pattern": "^[ES][1-9][0-9]*$"}}}}}},
 }
 CANDIDATE_SCHEMA['properties']['coverage'] = {
     'type': 'array', 'items': {
@@ -183,7 +184,7 @@ def _passage(ref, element_map):
             "kind": element["kind"], "location": element["location"]}
 
 
-def _evidence_choices(chunks, element_map, structural_chunks=None):
+def _evidence_choices(chunks, element_map, structural_chunks=None, support_index=None):
     choices, by_reference = {}, {}
     for chunk in chunks:
         for ref in claim_evidence_references(chunk, element_map):
@@ -212,15 +213,21 @@ def _evidence_choices(chunks, element_map, structural_chunks=None):
         allowed = {canonical(item['reference']) for record in structural_chunks
                    for item in record['evidence_memberships'] if 'span' in item['reference']}
         choices = {label: item for label, item in choices.items() if canonical(item['reference']) in allowed}
+    if support_index is not None:
+        for number, item in enumerate(supporting_passages(chunks, structural_chunks, support_index), 1):
+            ref = item['reference']
+            choices[f'S{number}'] = {**item, 'chunk_id': item['original_chunk_ids'][0],
+                'document_id': ref['document_id'], 'source_id': ref['source_id'],
+                **_passage(ref, element_map)}
     return choices
 
 
-def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
+def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None, support_index=None):
     """Render source text once in structural order, with a text-free citation map."""
     if structural_chunks is None:
         structural_chunks, _ = assemble_structural_chunks(
             {'chunks': chunks, 'elements': list(element_map.values())})
-    choices = _evidence_choices(chunks, element_map, structural_chunks)
+    choices = _evidence_choices(chunks, element_map, structural_chunks, support_index)
     labels = {canonical(item['reference']): label for label, item in choices.items()}
     rendered, emitted, contexts = [], {}, {}
     for record in structural_chunks:
@@ -256,8 +263,8 @@ def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
             span = ref.get('span', {'start': 0, 'end': len(element['text'])})
             text_key = canonical({**ref, 'span': span})
             # If this context has an independently citable exact counterpart,
-            # render the text at that E passage, even when C is encountered first.
-            # Never make an E label depend on a non-citable C label's text.
+            # render the text at that E/S passage, even when C comes first.
+            # A citable label must not depend on a non-citable C label's text.
             counterpart = labels.get(text_key)
             if label.startswith('C') and counterpart is not None:
                 parts.append(f'[{label}] Contexte non citable. Voir [{counterpart}] (même passage source).')
@@ -270,6 +277,18 @@ def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
                 parts.append(f'[{label}]{qualifier}\n' + element['text'][span['start']:span['end']])
         rendered.append({**{k: record[k] for k in ('id', 'document_id', 'original_chunk_ids')},
                          'passage_ids': passage_ids, 'text': '\n\n'.join(parts)})
+    support = []
+    for label, item in choices.items():
+        if not label.startswith('S'):
+            continue
+        ref = item['reference']
+        key = canonical(ref)
+        if key in emitted:
+            text = f'[{label}] Voir [{emitted[key]}] (même passage source).'
+        else:
+            emitted[key] = label
+            text = f'[{label}] Appui de source, sans extraction autonome\n' + item['text']
+        support.append({'id': label, 'text': text})
     return canonical({'original_chunks': [{'chunk_id': c['id'], 'document_id': c['document_id']}
                                           for c in chunks],
                       'structural_chunks': rendered,
@@ -278,7 +297,8 @@ def _candidate_input(chunks, element_map, bundle=None, structural_chunks=None):
                       'eligible_evidence': [{'id': label, **{key: value for key, value in item.items()
                                                             if key not in {'chunk_id', 'text'}}}
                                             for label, item in choices.items()],
-                      'non_citable_context': list(contexts.values())})
+                      'non_citable_context': list(contexts.values()),
+                      **({'supporting_passages': support} if support_index is not None else {})})
 
 
 def _derive_coverage_links(response):
@@ -293,7 +313,7 @@ def _evidence_accounting(response, choices, records):
     """Check complete source accounting and links, never infer semantic coverage."""
     rows = response['coverage']
     labels = [row['evidence_id'] for row in rows]
-    if len(labels) != len(set(labels)) or set(labels) != set(choices):
+    if len(labels) != len(set(labels)) or set(labels) != {k for k in choices if k.startswith('E')}:
         raise ValueError('coverage must account for every eligible evidence ID exactly once')
     result = []
     for row in rows:
@@ -318,7 +338,7 @@ def _fixture_accounting(response, choices):
         {'evidence_id': label, 'status': 'ambiguous',
          'claim_indices': [i for i, claim in enumerate(response['claims']) if label in claim['evidence']],
          'reason': 'Offline legacy fixture; semantic coverage was not assessed.'}
-        for label in choices]}
+        for label in choices if label.startswith('E')]}
 
 
 def _accounting_summary(clusters, method, expected_passages, failed=False):
@@ -339,6 +359,8 @@ def _validate_accounting_rows(rows, choices, candidates):
     labels = {canonical(value['reference']): label for label, value in choices.items()}
     index = {candidate['id']: i for i, candidate in enumerate(candidates)}
     try:
+        for candidate in candidates:
+            _validate_candidate_choices(candidate, choices)
         response = {'claims': [{'text': c['text'], 'evidence': [labels[canonical(ref)] for ref in c['evidence']]}
                                for c in candidates],
                     'coverage': [{'evidence_id': labels[canonical(row['reference'])],
@@ -369,16 +391,18 @@ def _validate_saved_accounting(directory, manifest, candidates, preparation):
         raise ValueError('evidence accounting cluster mismatch')
     bundle = preparation['bundle']
     chunks, elements = ({item['id']: item for item in bundle[name]} for name in ('chunks', 'elements'))
+    support_index = source_context_index(bundle) if uses_source_context(preparation['manifest']['config']) else None
+    structural = {r['id']: r for r in preparation['structural_chunks']}
     mapping = {row['candidate_id']: row['semantic_cluster_id'] for row in
                _read_json(directory / 'candidate-clusters.json')}
     expected_passages = 0
     for cluster in clusters:
-        ids = selected[cluster['semantic_cluster_id']]['original_chunk_ids']
-        structural = {r['id']: r for r in preparation['structural_chunks']}
         semantic = selected[cluster['semantic_cluster_id']]
+        ids = semantic['original_chunk_ids']
         choices = _evidence_choices([chunks[cid] for cid in ids], elements,
-                                    [structural[sid] for sid in semantic['structural_chunk_ids']])
-        expected_passages += len(choices)
+                                   [structural[sid] for sid in semantic['structural_chunk_ids']],
+                                   support_index)
+        expected_passages += sum(k.startswith('E') for k in choices)
         own = [c for c in candidates if mapping[c['id']] == cluster['semantic_cluster_id']]
         if not cluster['passages'] and not own and any(e.get('chunk_ids') == ids for e in report['errors']):
             continue
@@ -485,6 +509,8 @@ def _candidate_record(generation_build_id, candidate, generation, choices):
     Draft202012Validator(CANDIDATE_SCHEMA['properties']['claims']['items']).validate(candidate)
     if any(label not in choices for label in candidate["evidence"]):
         raise ValueError("candidate claim selects an unknown evidence label")
+    if not any(label.startswith('E') for label in candidate['evidence']):
+        raise ValueError('candidate claim must cite primary evidence, not only source support')
     selected = [choices[label] for label in candidate["evidence"]]
     evidence = [copy.deepcopy(item["reference"]) for item in selected]
     if len({canonical(item) for item in evidence}) != len(evidence):
@@ -503,6 +529,15 @@ def _candidate_record(generation_build_id, candidate, generation, choices):
               "evidence": evidence, "grounding_review_status": "draft", "generation": generation}
     Draft202012Validator(CANDIDATE_VALIDATION_SCHEMA).validate(result)
     return result
+
+
+def _validate_candidate_choices(candidate, choices):
+    """Keep support bounded to this request and require primary-cluster evidence."""
+    permitted = {canonical(v['reference']) for v in choices.values()}
+    primary = {canonical(v['reference']) for k, v in choices.items() if k.startswith('E')}
+    selected = {canonical(ref) for ref in candidate['evidence']}
+    if not selected <= permitted or not selected.intersection(primary):
+        raise ValueError('candidate evidence is outside its request or lacks primary evidence')
 
 
 def _claim(build_id, candidate, classification, classifier):
@@ -576,9 +611,13 @@ def _generation_coverage(bundle, candidates, scope, errors):
     cited = {chunk_id: set() for chunk_id in selected}
     for candidate in candidates:
         evidence = {canonical(ref) for ref in candidate["evidence"]}
+        if not selected.intersection(candidate['chunk_ids']):
+            raise ValueError('coverage candidate claim chunk is outside the selected scope')
         for chunk_id in candidate["chunk_ids"]:
             if chunk_id not in selected:
-                raise ValueError("coverage candidate claim chunk is outside the selected scope")
+                # Independently validated support chunks qualify a selected
+                # claim, but do not expand the primary extraction population.
+                continue
             if evidence & references[chunk_id]:
                 cited[chunk_id].add(candidate["id"])
     chunks = []
@@ -625,7 +664,7 @@ def _generation_coverage(bundle, candidates, scope, errors):
     }
 
 
-def _candidate_manifest(candidate_dir):
+def _candidate_manifest(candidate_dir, *, on_progress=None):
     candidate_dir = Path(candidate_dir)
     manifest_path = candidate_dir / "build-manifest.json"
     if not manifest_path.is_file() and (candidate_dir / "generation-checkpoint.json").is_file():
@@ -644,7 +683,7 @@ def _candidate_manifest(candidate_dir):
             raise ValueError('candidate claim output hash mismatch')
     from knowledge_foundry.claim_context import validate_candidate_lineage
     candidates = _read_jsonl(candidate_path)
-    preparation = validate_candidate_lineage(candidate_dir, manifest, candidates)
+    preparation = validate_candidate_lineage(candidate_dir, manifest, candidates, on_progress=on_progress)
     _validate_saved_accounting(candidate_dir, manifest, candidates, preparation)
     return manifest, candidate_path, manifest_path
 
@@ -723,7 +762,7 @@ def _recovery_seed(directory, identity, selected_clusters, clusters):
 
 
 def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_map, element_map,
-                                 cluster_choices=None):
+                                 cluster_choices=None, on_progress=None):
     checkpoint_path = output_dir / "generation-checkpoint.json"
     if not checkpoint_path.is_file():
         raise ValueError("output directory is not a resumable claim-generation run")
@@ -733,7 +772,11 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
     checkpoint_dir = output_dir / "generation-checkpoints"
     cluster_by_number = {number: cluster for number, cluster in enumerate(selected_clusters, start=1)}
     candidates, errors, usage, completed = [], [], [], set()
-    for path in sorted(checkpoint_dir.glob("cluster-*.json")):
+    paths = sorted(checkpoint_dir.glob("cluster-*.json"))
+    if on_progress:
+        on_progress({'phase': 'preparation', 'state': 'progress', 'step': 'checking generation checkpoints',
+                     'completed': 0, 'total': len(paths)})
+    for index, path in enumerate(paths, start=1):
         record = _read_json(path)
         number = record.get("cluster_number")
         cluster = cluster_by_number.get(number)
@@ -742,8 +785,11 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
         if not isinstance(record.get("candidates"), list) or not isinstance(record.get("errors"), list) or \
                 not isinstance(record.get("usage_records"), list):
             raise ValueError("generation cluster checkpoint is invalid")
+        permitted_chunks = chunk_map if cluster_choices is not None else {c['id']: c for c in cluster}
         for candidate in record["candidates"]:
-            _validate_candidate(candidate, identity["generation_build_id"], {c["id"]: c for c in cluster}, element_map)
+            _validate_candidate(candidate, identity["generation_build_id"], permitted_chunks, element_map)
+            if cluster_choices is not None:
+                _validate_candidate_choices(candidate, cluster_choices[number - 1])
         if identity['checkpoint_version'] >= 2 and not isinstance(record.get('evidence_accounting'), list):
             raise ValueError('generation checkpoint lacks evidence accounting')
         if not record['errors']:
@@ -754,6 +800,9 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
         errors.extend(record["errors"])
         usage.extend(record["usage_records"])
         completed.add(number)
+        if on_progress and (index == 1 or index % 25 == 0 or index == len(paths)):
+            on_progress({'phase': 'preparation', 'state': 'progress', 'step': 'checking generation checkpoints',
+                         'completed': index, 'total': len(paths)})
     return candidates, errors, usage, completed
 
 
@@ -777,7 +826,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     config = _config(config_path)
     if output_dir.resolve().is_relative_to(Path(context_dir).resolve()):
         raise ValueError('generation output cannot be inside frozen structural chunks and semantic clusters artifacts')
-    preparation = load_preparation(context_dir, config)
+    preparation = load_preparation(context_dir, config, on_progress=on_progress)
     input_path = Path(context_dir) / "artifact-bundle.json"
     bundle = preparation['bundle']
     if chunked_dir is not None and file_digest(Path(chunked_dir) / 'artifact-bundle.json') != file_digest(input_path):
@@ -792,14 +841,16 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     clusters = preparation['clusters']
     all_clusters = [[original_map[cid] for cid in cluster['original_chunk_ids']] for cluster in clusters]
     structural = {r['id']: r for r in preparation['structural_chunks']}
+    support_index = source_context_index(bundle) if uses_source_context(config) else None
     cluster_inputs = [request_for_members(cluster['structural_chunk_ids'], structural, bundle, config,
-                                      generation_prompt, CANDIDATE_SCHEMA)[0]['input'] for cluster in clusters]
+                                      generation_prompt, CANDIDATE_SCHEMA, support_index)[0]['input'] for cluster in clusters]
     request_characters = [len(canonical(generation_payload(config, value, generation_prompt, CANDIDATE_SCHEMA)))
                           for value in cluster_inputs]
     selected_indices = _subset_batch_indices(request_characters, subset_clusters, cluster_numbers)
     selected_clusters = [all_clusters[index] for index in selected_indices]
     cluster_choices = [_evidence_choices(all_clusters[index], element_map,
-                       [structural[sid] for sid in clusters[index]['structural_chunk_ids']]) for index in selected_indices]
+                       [structural[sid] for sid in clusters[index]['structural_chunk_ids']], support_index)
+                       for index in selected_indices]
     selected_chunks = [chunk for cluster in selected_clusters for chunk in cluster]
     scope = {"mode": "subset" if subset_clusters is not None or cluster_numbers is not None else "full",
              "selection": "explicit" if cluster_numbers is not None else
@@ -820,7 +871,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     build_id = _build_id(pipeline_version, config_digest, document_ids)
     generation = {"method": "model", "version": config["steps"]["claim_generation"]["version"],
                   "model_id": provider.model_id, "prompt_sha256": generation_hash}
-    chunk_map = {item["id"]: item for item in selected_chunks}
+    chunk_map = original_map
     identity = _generation_identity(build_id, input_path, config_digest, generation_hash, scope)
     identity.update(preparation_manifest_sha256=preparation["manifest_sha256"],
                     cluster_plan_sha256=preparation["manifest"]["cluster_plan_sha256"])
@@ -841,7 +892,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         if (output_dir / "build-manifest.json").is_file():
             raise ValueError("claim-generation output is already complete")
         candidates, errors, usage, completed_clusters = _load_generation_checkpoints(
-            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices)
+            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices, on_progress=on_progress)
         _write_jsonl_atomic(candidate_path, sorted(candidates, key=lambda item: item["id"]))
     else:
         if resume:
@@ -857,11 +908,12 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
             if not path.exists():
                 _write_json_atomic(path, record)
         candidates, errors, usage, completed_clusters = _load_generation_checkpoints(
-            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices)
+            output_dir, identity, selected_clusters, chunk_map, element_map, cluster_choices, on_progress=on_progress)
     if not (output_dir / 'preparation').exists():
         shutil.copytree(context_dir, output_dir / 'preparation')
     else:
-        saved = load_preparation(output_dir / 'preparation', config)
+        saved = load_preparation(output_dir / 'preparation', config,
+                                 validated_preparation=preparation, on_progress=on_progress)
         if saved['manifest_sha256'] != preparation['manifest_sha256']:
             raise ValueError('saved structural chunks and semantic clusters artifacts mismatch')
     counter = RequestCounter(config, output_dir / 'request-counts')
@@ -1028,7 +1080,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                   cluster_plan_sha256=preparation['manifest']['cluster_plan_sha256'],
                   claim_generation_request_token_counting=counter.telemetry,
                   cross_document_candidates=sum(len({r['document_id'] for r in c['evidence']}) > 1 for c in candidates))
-    expected_passages = sum(len(choices) for choices in cluster_choices)
+    expected_passages = sum(sum(k.startswith('E') for k in choices) for choices in cluster_choices)
     report['evidence_accounting'] = _accounting_summary(evidence_accounting,
         'model_self_report' if config['steps']['claim_generation']['provider'] == 'openai' else 'offline_fixture',
         expected_passages, bool(errors))
@@ -1074,7 +1126,10 @@ def classify_claims(candidate_dir, output_dir, config_path=ROOT / "config/claim-
         raise ValueError('classification output must be separate from candidate and reuse artifacts')
     if output_dir.exists() and not resume:
         raise ValueError(f'output directory already exists: {output_dir}; use --resume for an interrupted run')
-    manifest, candidate_path, manifest_path = _candidate_manifest(candidate_dir)
+    if on_progress:
+        on_progress({'phase': 'preparation', 'state': 'progress', 'step': 'checking candidate artifacts',
+                     'completed': 0, 'total': None})
+    manifest, candidate_path, manifest_path = _candidate_manifest(candidate_dir, on_progress=on_progress)
     generation_report = _read_json(candidate_dir / 'report.json')
     if generation_report.get('status') != 'complete' or generation_report.get('errors'):
         raise ValueError('classification requires complete generation; recover the partial run with '

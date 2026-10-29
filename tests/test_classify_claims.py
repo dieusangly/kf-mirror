@@ -4,10 +4,17 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
-from scripts.classify_claims import main
+from scripts.classify_claims import main, _print_progress
 
 
 class ClassifyClaimsCliTests(unittest.TestCase):
+    def test_preparation_progress_is_printed_before_classification_starts(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            _print_progress({'phase': 'preparation', 'state': 'progress',
+                             'step': 'checking candidate artifacts', 'completed': 0, 'total': None})
+        self.assertIn('[classify] Preparation: checking candidate artifacts', stderr.getvalue())
+
     def test_unknown_cost_does_not_fail_after_classification(self):
         def classify(*args, **kwargs):
             kwargs['on_progress']({'phase': 'complete', 'state': 'complete',

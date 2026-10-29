@@ -1,5 +1,5 @@
 {
-  "taxonomy_version": "aml-cft-pilot-v6",
+  "taxonomy_version": "aml-cft-pilot-v7",
   "topics": [
     {
       "id": "topic:aml-cft-foundations",
@@ -9,12 +9,12 @@
     {
       "id": "topic:regulatory-scope",
       "title": "Assujettissement et champ d’application",
-      "scope": "Personnes, professions et activités assujetties à la LCB-FT, exemptions d'assujettissement, champ territorial et application des règles aux activités transfrontalières. Inclut les définitions qui déterminent le périmètre des entités ou activités couvertes. Exclut les exemptions ou conditions propres à une diligence, déclaration ou autre obligation : elles suivent cette obligation. Le statut explicatif d'un document et les dates d'application relèvent du statut des sources."
+      "scope": "Personnes, professions et activités assujetties à la LCB-FT, exemptions d'assujettissement, champ territorial et application des règles aux activités transfrontalières. Inclut les définitions qui déterminent le périmètre des entités ou activités couvertes. Exclut les exemptions ou conditions propres à une diligence, déclaration ou autre obligation : elles suivent cette obligation. Le statut explicatif d'un document et les dates d'application relèvent du statut des sources. Les définitions de services ou d'activités déterminant les opérations couvertes restent ici même si elles figurent en note ou dans un glossaire."
     },
     {
       "id": "topic:risk-assessment",
       "title": "Évaluation et classification des risques",
-      "scope": "Approche par les risques et méthodes d'évaluation nationale, sectorielle, institutionnelle ou individuelle ; menaces, vulnérabilités, facteurs et niveaux de risque liés aux clients, produits, canaux, pays et opérations ; risques inhérents et résiduels, effet des mesures d'atténuation sur leur cotation. Inclut les caractéristiques générales de schémas exprimées comme facteurs de risque. Exclut la description du fonctionnement d'un schéma sans proposition sur sa vulnérabilité ou son risque, les critères concrets de surveillance et les diligences opérationnelles spécifiques. La méthode d'évaluation des risques relève ici ; la finalité ou les limites éditoriales d'un rapport relèvent du statut des sources."
+      "scope": "Approche par les risques et méthodes d'évaluation nationale, sectorielle, institutionnelle ou individuelle ; menaces, vulnérabilités, facteurs et niveaux de risque liés aux clients, produits, canaux, pays et opérations ; risques inhérents et résiduels, effet des mesures d'atténuation sur leur cotation. Inclut les caractéristiques générales de schémas exprimées comme facteurs de risque. Exclut la description du fonctionnement d'un schéma sans proposition sur sa vulnérabilité ou son risque, les critères concrets de surveillance et les diligences opérationnelles spécifiques. La méthode d'évaluation des risques relève ici ; la finalité ou les limites éditoriales d'un rapport relèvent du statut des sources. La description d'un procédé d'acquisition ou de dissimulation sans évaluation de menace, vulnérabilité ou risque relève des typologies, même dans un rapport d'analyse des risques."
     },
     {
       "id": "topic:typologies-threats",
@@ -29,17 +29,17 @@
     {
       "id": "topic:beneficial-ownership",
       "title": "Bénéficiaires effectifs et transparence de la propriété",
-      "scope": "Définition, détermination, identification et vérification des bénéficiaires effectifs : détention, contrôle, seuils, chaînes de propriété et recours en dernier ressort, avec leurs conditions. Inclut les constructions juridiques, registres, signalements de divergences et obligations de transparence des entités, fiduciaires et prête-noms. Exclut le simple bénéficiaire d'un paiement, les informations exigées dans une DS, COSI ou transmission de fonds et les faits de propriété d'un cas sans lien explicite avec la détermination d'un bénéficiaire effectif. Le contrôle d'une entité pour appliquer un gel relève du gel des avoirs."
+      "scope": "Définition, détermination, identification et vérification des bénéficiaires effectifs : détention, contrôle, seuils, chaînes de propriété et recours en dernier ressort, avec leurs conditions. Inclut les constructions juridiques, registres, signalements de divergences et obligations de transparence des entités, fiduciaires et prête-noms. Exclut le simple bénéficiaire d'un paiement, les informations exigées dans une DS, COSI ou transmission de fonds et les faits de propriété d'un cas sans lien explicite avec la détermination d'un bénéficiaire effectif. Le contrôle d'une entité pour appliquer un gel relève du gel des avoirs. L'identification et l'autorisation des représentants du client restent des diligences client distinctes, même rapprochées dans un paragraphe de la vérification du bénéficiaire effectif."
     },
     {
       "id": "topic:ongoing-vigilance",
       "title": "Vigilance constante et détection des opérations atypiques",
-      "scope": "Suivi des relations d'affaires et opérations dans la durée : actualisation des dossiers, surveillance, paramétrage, détection et analyse des alertes, indicateurs concrets et cohérence des flux. Inclut la réévaluation du profil du client et l'adaptation de sa vigilance après une plainte ou une DS. Les bonnes pratiques de vérification et surveillance d'un cas sans diligence renforcée explicitement désignée relèvent ici. Exclut les faits narratifs isolés, l'identification initiale, les obligations propres à l'examen renforcé, aux PPE, à la correspondance, au filtrage des sanctions, à la traçabilité des transferts ou aux déclarations. L'attribution des missions de détection relève de la gouvernance."
+      "scope": "Suivi des relations d'affaires et opérations dans la durée : actualisation des dossiers, surveillance, paramétrage, détection et analyse des alertes, indicateurs concrets et cohérence des flux. Inclut la réévaluation du profil du client et l'adaptation de sa vigilance après une plainte ou une DS. Les bonnes pratiques de vérification et surveillance d'un cas sans diligence renforcée explicitement désignée relèvent ici. Exclut les faits narratifs isolés, l'identification initiale, les obligations propres à l'examen renforcé, aux PPE, à la correspondance, au filtrage des sanctions, à la traçabilité des transferts ou aux déclarations. L'attribution des missions de détection relève de la gouvernance. L'identification des professions bien placées pour détecter un indicateur concret reste ici ; elle ne décrit pas à elle seule l'organisation interne de ces professions."
     },
     {
       "id": "topic:enhanced-vigilance",
       "title": "Examens renforcés et mesures complémentaires",
-      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, pays tiers à haut risque et contre-mesures correspondantes ; documentation de ces examens. Exclut les mesures propres aux PPE ou aux relations de correspondance, le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique. La consignation et conservation des seuls résultats d'un examen renforcé restent ici ; les règles transversales de conservation suivent leur propre thème."
+      "scope": "Conditions et contenu des examens renforcés et mesures de vigilance renforcée ou complémentaire : opérations complexes, montants inhabituels, justification économique, pays tiers à haut risque et contre-mesures correspondantes ; documentation de ces examens. Exclut les mesures propres aux PPE ou aux relations de correspondance, le suivi ordinaire, la notation générale des risques et la décision ou les modalités d'une DS. Une rubrique, une demande de justificatifs ou l'expression « vigilance accrue » ne suffit pas : l'assertion doit porter explicitement sur une diligence renforcée spécifique. La consignation et conservation des seuls résultats d'un examen renforcé restent ici ; les règles transversales de conservation suivent leur propre thème. Une proposition générale de vigilance renforcée ne devient pas propre aux PPE parce que celles-ci sont citées parmi plusieurs exemples."
     },
     {
       "id": "topic:politically-exposed-persons",
@@ -69,7 +69,7 @@
     {
       "id": "topic:governance-internal-controls",
       "title": "Gouvernance et contrôle interne",
-      "scope": "Organisation interne du dispositif LCB-FT : responsabilité des dirigeants, fonctions de conformité, trois lignes de défense, procédures, contrôle interne, moyens, formation, intégrité du personnel, signalement interne des manquements et protection des auteurs de signalement. Inclut l'attribution des missions de détection, les instructions et le contrôle des personnes. Exclut les rôles propres aux DS ou déclarations systématiques, les indicateurs et le paramétrage de surveillance, la tierce introduction, l'externalisation, les exigences de groupe, la conservation et les procédures spécifiques à une autre obligation."
+      "scope": "Organisation interne du dispositif LCB-FT : responsabilité des dirigeants, fonctions de conformité, trois lignes de défense, procédures, contrôle interne, moyens, formation, intégrité du personnel, signalement interne des manquements et protection des auteurs de signalement. Inclut l'attribution des missions de détection, les instructions et le contrôle des personnes. Exclut les rôles propres aux DS ou déclarations systématiques, les indicateurs et le paramétrage de surveillance, la tierce introduction, l'externalisation, les exigences de groupe, la conservation et les procédures spécifiques à une autre obligation. La capacité sectorielle à repérer une fraude ne suffit pas : l'assertion doit préciser une responsabilité ou une organisation interne."
     },
     {
       "id": "topic:reliance-outsourcing",
@@ -104,7 +104,7 @@
     {
       "id": "topic:guidance-status",
       "title": "Statut, portée et temporalité des sources",
-      "scope": "Nature contraignante ou explicative, objet, portée documentaire, version, date de référence et limites déclarées des sources ; entrée en vigueur, dates d'application, dispositions transitoires et articulation temporelle des textes. Inclut la finalité d'une annexe, les choix éditoriaux et les limites de sélection d'un rapport. Exclut les règles d'assujettissement, la méthode substantielle d'évaluation des risques et les obligations opérationnelles : une simple référence à un article ou une date ne change pas leur objet. Ne pas inférer l'applicabilité actuelle d'une date de collecte."
+      "scope": "Nature contraignante ou explicative, objet, portée documentaire, version, date de référence et limites déclarées des sources ; entrée en vigueur, dates d'application, dispositions transitoires et articulation temporelle des textes. Inclut la finalité d'une annexe, les choix éditoriaux et les limites de sélection d'un rapport. Exclut les règles d'assujettissement, la méthode substantielle d'évaluation des risques et les obligations opérationnelles : une simple référence à un article ou une date ne change pas leur objet. Ne pas inférer l'applicabilité actuelle d'une date de collecte. Inclut la composition et l'objectif documentaire d'un ensemble de textes, la transposition, les sources codifiées ou non et les tableaux de correspondance entre instruments. Une obligation faite à la Commission d'étudier de futures règles n'est pas, à elle seule, une proposition sur le statut d'une source existante."
     }
   ]
 }

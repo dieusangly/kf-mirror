@@ -139,9 +139,9 @@ def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources,
             '--config', model_config, '--taxonomy', taxonomy, '--fixture', claim_fixture)
     review_args = ['--candidates-dir', generated, '--classified-dir', classified, '--manifest', manifest,
                    '--source-root', root, '--taxonomy', taxonomy]
-    assert command('auto_review_claims.py', *review_args, '--initialize-review')['gate'] == 'pending_review'
+    assert command('deterministic_claim_review.py', 'prepare', *review_args)['gate'] == 'pending_review'
     fixture_review(classified / 'compilation-review.json')
-    assert command('auto_review_claims.py', *review_args, '--review-file', classified / 'compilation-review.json')['gate'] == 'pass'
+    assert command('deterministic_claim_review.py', 'finalize', *review_args, '--review-file', classified / 'compilation-review.json')['gate'] == 'pass'
 
     summary_config = json.loads((ROOT / 'config/summaries.json').read_text())
     summary_config['steps']['summary_generation'].update(provider='fixture', retries=0)

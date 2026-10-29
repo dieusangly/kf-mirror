@@ -439,6 +439,7 @@ def _protect_outputs(paths, candidates_dir, classified_dir, manifest, taxonomy, 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('phase', choices=['prepare', 'finalize'])
     parser.add_argument('--candidates-dir', type=Path, required=True, help='directory containing saved candidate claims')
     parser.add_argument('--classified-dir', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, default=ROOT / 'data/manifest.json')
@@ -452,10 +453,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     output = args.output or args.classified_dir / 'claim_review_report.json'
     seed = getattr(args, 'initialize_review', None)
-    if hasattr(args, 'initialize_review') and seed is None:
+    if args.phase == 'prepare' and args.review_file:
+        parser.error('prepare does not accept --review-file')
+    if args.phase == 'finalize' and (hasattr(args, 'initialize_review') or not args.review_file):
+        parser.error('finalize requires --review-file and does not accept --initialize-review')
+    if args.phase == 'prepare' and seed is None:
         seed = args.classified_dir / 'compilation-review.json'
-    if seed and args.review_file:
-        parser.error('--initialize-review cannot be used with --review-file')
     if seed and seed.exists():
         parser.error(f'review file already exists: {seed}')
     if ((seed and seed.resolve() == output.resolve()) or

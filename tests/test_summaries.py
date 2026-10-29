@@ -94,6 +94,18 @@ class SummariesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'already exists'):
             generate_summaries(self.context, directory, self.config_path)
 
+    def test_generation_reuses_verified_preparation_during_final_validation(self):
+        from knowledge_foundry.semantic_clusters import similarity_matrix
+        self.config_path.write_text(json.dumps(self.config))
+        self.fixture_path.write_text(json.dumps(self.fixture))
+        events = []
+        with patch('knowledge_foundry.claim_context.similarity_matrix', wraps=similarity_matrix) as scores:
+            generate_summaries(self.context, self.root / 'reused-preparation', self.config_path,
+                               self.root / 'summary-cache', self.fixture_path, on_progress=events.append)
+        self.assertEqual(scores.call_count, 1)
+        self.assertEqual(events[0]['phase'], 'preparation')
+        self.assertTrue(any(event.get('step') == 'reusing verified preparation' for event in events))
+
     def test_recursive_summaries_preserve_transitive_sources_and_carry_singletons(self):
         directory, loaded = self.recursive_run()
         self.assertEqual(loaded['report']['levels'], {'1': 3, '2': 1, '3': 1})

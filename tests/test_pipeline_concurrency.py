@@ -59,6 +59,7 @@ class Requests:
             with self.lock:
                 self.active -= 1
 
+
     def provider_factory(self, fixture):
         tracker = self
 
@@ -74,6 +75,39 @@ class Requests:
                 return super().classify(context, *args)
 
         return lambda *_args: Provider(fixture)
+
+def test_preparation_concurrency_is_bounded_and_cluster_plan_is_deterministic(tmp_path):
+    from knowledge_foundry.generation_context import RequestCounter
+    chunked = tmp_path / 'chunks'
+    chunked.mkdir()
+    source = bundle([('paragraph', f'Requirement {i}.', i + 1) for i in range(8)],
+                    [[i] for i in range(8)])
+    (chunked / 'artifact-bundle.json').write_text(json.dumps(source))
+    settings = fixture_settings()
+    settings['steps']['embeddings'].update(dimensions=8, expected_dimensions=8)
+    config = tmp_path / 'config.json'
+    config.write_text(json.dumps(settings))
+    structural, _ = assemble_structural_chunks(source)
+    fixture = tmp_path / 'fixture.json'
+    fixture.write_text(json.dumps({'embedding_vectors': {
+        stable_hash(row['text']): [float(i == j) for j in range(8)]
+        for i, row in enumerate(structural)}}))
+    original_count = RequestCounter.count
+    outputs = []
+    for workers in (1, 4):
+        tracker = Requests(workers)
+        def measured(counter, payload):
+            tracker.visit(json.loads(payload['input'])['original_chunks'][0]['chunk_id'])
+            return original_count(counter, payload)
+        output = tmp_path / f'context-{workers}'
+        with patch.object(RequestCounter, 'count', measured):
+            prepare_claim_context(chunked, output, config, tmp_path / f'cache-{workers}',
+                                  fixture, workers=workers)
+        assert tracker.maximum == workers
+        assert len(tracker.calls) == 24  # singleton, independent group, final check
+        outputs.append(output)
+    for filename in ('semantic-clusters.json', 'structural-chunks.jsonl', 'embeddings.jsonl'):
+        assert (outputs[0] / filename).read_bytes() == (outputs[1] / filename).read_bytes()
 
 
 def usage():
@@ -119,7 +153,7 @@ def test_generation_resume_changes_workers_without_repeating_saved_requests(pipe
     output = tmp_path / 'resume-generation'
 
     def interrupt(event):
-        if event['state'] == 'progress' and event['completed'] == 1:
+        if event['phase'] == 'generation' and event['state'] == 'progress' and event['completed'] == 1:
             raise KeyboardInterrupt()
 
     tracker = Requests(first_workers)
@@ -145,7 +179,7 @@ def test_classification_resume_changes_workers_without_repeating_saved_requests(
     claims.generate_claims(None, generated, config, fixture_path, context_dir=context)
 
     def interrupt(event):
-        if event['state'] == 'progress' and event['completed'] == 2:
+        if event['phase'] == 'classification' and event['state'] == 'progress' and event['completed'] == 2:
             raise KeyboardInterrupt()
 
     tracker = Requests(1)

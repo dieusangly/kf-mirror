@@ -114,7 +114,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
     for left, right in ((output_dir, context_dir), (cache_dir, context_dir), (cache_dir, output_dir)):
         if left.resolve().is_relative_to(right.resolve()) or right.resolve().is_relative_to(left.resolve()):
             raise ValueError('summary input, output and mutable cache directories must be separate')
-    prepared = load_preparation(context_dir, verify_requests=False)
+    prepared = load_preparation(context_dir, verify_requests=False, on_progress=on_progress)
     if not prepared['clusters']:
         raise ValueError('summary generation requires semantic clusters')
     prompt = (Path(__file__).parent / 'prompts/summary_generation_v1.txt').read_text()
@@ -264,7 +264,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
                     'outputs': [{'path': p.name, 'sha256': _file_hash(p)}
                                 for p in sorted(output_dir.iterdir()) if p.is_file()]}
         atomic_json(output_dir / 'build-manifest.json', manifest)
-        load_summaries(output_dir)
+        load_summaries(output_dir, validated_preparation=prepared, on_progress=on_progress)
         return report
     except BaseException as exc:
         atomic_json(output_dir / 'failure.json', {'status': 'failed', 'error': str(exc),
@@ -272,7 +272,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
         raise
 
 
-def load_summaries(directory):
+def load_summaries(directory, *, validated_preparation=None, on_progress=None):
     """Verify a saved summary run and transitive lineage entirely offline."""
     directory = Path(directory)
     manifest = _json(directory / 'build-manifest.json')
@@ -287,7 +287,8 @@ def load_summaries(directory):
     for row in manifest['outputs']:
         if _file_hash(directory / row['path']) != row['sha256']:
             raise ValueError('summary output hash mismatch: ' + row['path'])
-    prepared = load_preparation(directory / 'preparation', verify_requests=False)
+    prepared = load_preparation(directory / 'preparation', verify_requests=False,
+                                validated_preparation=validated_preparation, on_progress=on_progress)
     if prepared['manifest_sha256'] != manifest['preparation_manifest_sha256']:
         raise ValueError('summary preparation manifest mismatch')
     summaries = _jsonl(directory / 'summaries.jsonl')

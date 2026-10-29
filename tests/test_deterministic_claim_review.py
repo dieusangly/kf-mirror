@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from knowledge_foundry.claim_generation_and_classification import ROOT, canonical, classify_claims, digest
 from knowledge_foundry.review import apply_reviews, read_review_policy
-from scripts.auto_review_claims import DEFAULT_POLICY, _select, evaluate, main
+from scripts.deterministic_claim_review import DEFAULT_POLICY, _select, evaluate, main
 
 
 from claim_fixtures import generate_claims, prepare_claim_review
@@ -192,31 +192,46 @@ class CompilationEvaluationTests(unittest.TestCase):
     def test_cli_initializes_once_and_matches_chunking_exit_codes(self):
         args = ['--candidates-dir', str(self.generated), '--classified-dir', str(self.classified)]
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.assertEqual(main(args + ['--initialize-review']), 0)
+            self.assertEqual(main(['prepare', *args]), 0)
             review = self.classified / 'compilation-review.json'
             self.assertTrue(review.is_file())
             pending = json.loads(review.read_text())
             pending['reviews'][0]['notes'] = 'Preserve this source-review note while resuming.'
             review.write_text(json.dumps(pending))
             original_review = review.read_bytes()
-            self.assertEqual(main(args + ['--review-file', str(review)]), 1)
+            self.assertEqual(main(['finalize', *args, '--review-file', str(review)]), 1)
             self.assertEqual(review.read_bytes(), original_review)
             report = json.loads((self.classified / 'claim_review_report.json').read_text())
             self.assertEqual((report['automatic_gate'], report['gate']), ('pass', 'pending_review'))
             with self.assertRaises(SystemExit) as error:
-                main(args + ['--initialize-review'])
+                main(['prepare', *args])
             self.assertEqual(error.exception.code, 2)
             self.assertEqual(review.read_bytes(), original_review)
             reviewed = self.reviewed()
             review.write_text(json.dumps(reviewed))
-            self.assertEqual(main(args + ['--review-file', str(review)]), 0)
+            self.assertEqual(main(['finalize', *args, '--review-file', str(review)]), 0)
+
+    def test_cli_rejects_wrong_phase_options_without_writing(self):
+        args = ['--candidates-dir', str(self.generated), '--classified-dir', str(self.classified)]
+        review = self.root / 'new-review.json'
+        for options in (
+            ['finalize', *args],
+            ['prepare', *args, '--review-file', str(review)],
+            ['finalize', *args, '--review-file', str(review), '--initialize-review'],
+        ):
+            with self.subTest(options=options), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    main(options)
+                self.assertEqual(error.exception.code, 2)
+        self.assertFalse(review.exists())
+        self.assertFalse((self.classified / 'claim_review_report.json').exists())
 
     def test_cli_refuses_to_overwrite_compilation_inputs(self):
         args = ['--candidates-dir', str(self.generated), '--classified-dir', str(self.classified)]
         path = self.classified / 'report.json'
         saved = path.read_bytes()
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
-            main(args + ['--output', str(path)])
+            main(['prepare', *args, '--output', str(path)])
         self.assertEqual(error.exception.code, 2)
         self.assertEqual(path.read_bytes(), saved)
 
@@ -224,7 +239,7 @@ class CompilationEvaluationTests(unittest.TestCase):
         path = self.classified / 'claims.jsonl'
         path.write_text(path.read_text() + '\n')
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(main(['--candidates-dir', str(self.generated), '--classified-dir', str(self.classified),
+            self.assertEqual(main(['prepare', '--candidates-dir', str(self.generated), '--classified-dir', str(self.classified),
                                    '--initialize-review']), 1)
         self.assertEqual(json.loads((self.classified / 'claim_review_report.json').read_text())['gate'], 'fail')
         self.assertFalse((self.classified / 'compilation-review.json').exists())

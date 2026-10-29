@@ -12,6 +12,8 @@ from knowledge_foundry.generation_context import RequestCounter, generation_payl
 from knowledge_foundry.semantic_clusters import cluster_members, refine_clusters, similarity_matrix, cosine
 from knowledge_foundry.structural_chunks import VERSION, assemble_structural_chunks, stable_hash
 from knowledge_foundry.document_structure import assemble_document_hierarchy
+from knowledge_foundry.claim_source_context import SOURCE_CONTEXT_VERSION, source_context_index, uses_source_context
+from knowledge_foundry.concurrency import run_bounded, validate_workers
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -106,8 +108,12 @@ def validate_settings(config, frozen=False):
     if not isinstance(steps, dict) or set(steps) != set(shapes):
         raise ValueError('invalid steps configuration shape')
     for name, keys in shapes.items():
-        if not isinstance(steps[name], dict) or set(steps[name]) != keys:
+        actual = set(steps[name]) if isinstance(steps[name], dict) else set()
+        if not isinstance(steps[name], dict) or actual not in (
+                [keys, keys | {'source_context'}] if name == 'claim_generation' else [keys]):
             raise ValueError('invalid ' + name + ' configuration shape')
+    if steps['claim_generation'].get('source_context', SOURCE_CONTEXT_VERSION) != SOURCE_CONTEXT_VERSION:
+        raise ValueError('unsupported claim generation source context')
     versions = {VERSION}
     if steps['structural_chunks']['version'] not in versions or steps['semantic_clusters']['version'] != 'all-members-v1':
         raise ValueError('unsupported structural chunk or semantic clustering version')
@@ -213,20 +219,24 @@ def _file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def request_for_members(members, structural, bundle, config, prompt, schema):
+def request_for_members(members, structural, bundle, config, prompt, schema, support_index=None):
     from knowledge_foundry.claim_generation_and_classification import _candidate_input
     chunk_map = {c['id']: c for c in bundle['chunks']}
     element_map = {e['id']: e for e in bundle['elements']}
     ids = [cid for sid in sorted(members) for cid in structural[sid]['original_chunk_ids']]
+    if uses_source_context(config) and support_index is None:
+        support_index = source_context_index(bundle)
     text = _candidate_input([chunk_map[cid] for cid in ids], element_map, bundle=bundle,
-                            structural_chunks=[structural[sid] for sid in sorted(members)])
+                            structural_chunks=[structural[sid] for sid in sorted(members)],
+                            support_index=support_index)
     return generation_payload(config, text, prompt, schema), ids
 
 
 def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/semantic-clustering.json',
-                          cache_dir=None, fixture_path=None, on_progress=None):
+                          cache_dir=None, fixture_path=None, on_progress=None, workers=4):
     from knowledge_foundry.claim_generation_and_classification import _config, _prompt, CANDIDATE_SCHEMA
     from scripts.validate_artifact_examples import check
+    validate_workers(workers)
     output_dir = Path(output_dir)
     if output_dir.exists():
         raise ValueError('structural chunks and semantic clusters output directory already exists; choose a fresh directory')
@@ -252,15 +262,27 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
         on_progress({'state': 'validated_structural_chunks_loaded', 'structural_chunks': len(structural)})
     by_id = {r['id']: r for r in structural}
     counter = RequestCounter(config, cache_dir / 'request-counts')
+    support_index = source_context_index(bundle) if uses_source_context(config) else None
+
     def payload(ids):
-        return request_for_members(ids, by_id, bundle, config, prompt, CANDIDATE_SCHEMA)[0]
+        return request_for_members(ids, by_id, bundle, config, prompt, CANDIDATE_SCHEMA, support_index)[0]
+
     # Check every singleton before paid embeddings or cluster refinement.
     if on_progress:
         on_progress({'state': 'checking_individual_structural_chunks_fit_claim_generation', 'completed': 0, 'total': len(structural)})
-    for index, record in enumerate(structural, start=1):
-        counter.check(payload([record['id']]), 'structural chunk ' + record['id'])
-        if on_progress and (index == 1 or index % 25 == 0 or index == len(structural)):
-            on_progress({"state": "checking_individual_structural_chunks_fit_claim_generation", "completed": index, "total": len(structural)})
+    completed = 0
+
+    def check_singleton(record):
+        return counter.check(payload([record['id']]), 'structural chunk ' + record['id'])
+
+    def singleton_checked(_tokens):
+        nonlocal completed
+        completed += 1
+        if on_progress and (completed == 1 or completed % 25 == 0 or completed == len(structural)):
+            on_progress({'state': 'checking_individual_structural_chunks_fit_claim_generation',
+                         'completed': completed, 'total': len(structural)})
+
+    run_bounded(check_singleton, structural, workers, singleton_checked)
     fixture = _json(fixture_path) if fixture_path else None
     adapter = EmbeddingAdapter(config['steps']['embeddings'], cache_dir / 'embeddings', fixture,
                                pricing=pricing_for_step(config, 'embeddings'), pricing_version=config['pricing']['version'])
@@ -274,26 +296,56 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
         clustering = config['steps']['semantic_clusters']
         groups = cluster_members(by_id, scores, clustering['minimum_similarity'])
         limit = usable_input_budget(config['steps']['claim_generation']['budget'])
+        # Pre-count independent groups concurrently. Adaptive splits still run
+        # in deterministic order and reuse these exact measurements.
+        measurements = {}
+        if on_progress:
+            on_progress({'state': 'counting_semantic_cluster_requests', 'completed': 0, 'total': len(groups)})
+
+        def count_group(group):
+            return tuple(group), counter.count(payload(group))
+
+        def group_counted(result):
+            key, tokens = result
+            measurements[key] = tokens
+            done = len(measurements)
+            if on_progress and (done == 1 or done % 25 == 0 or done == len(groups)):
+                on_progress({'state': 'counting_semantic_cluster_requests', 'completed': done, 'total': len(groups)})
+
+        run_bounded(count_group, groups, workers, group_counted)
+
+        def fits(ids):
+            key = tuple(ids)
+            if key not in measurements:
+                measurements[key] = counter.count(payload(ids))
+            return measurements[key] <= limit
+
         groups, splits = refine_clusters(groups, scores, clustering['minimum_similarity'],
-                                        lambda ids: counter.count(payload(ids)) <= limit,
-                                        clustering['refinement_step'], clustering['max_refinements'],
+                                        fits, clustering['refinement_step'], clustering['max_refinements'],
                                         on_progress=on_progress)
         clusters = []
         if on_progress:
             on_progress({'state': 'checking_semantic_clusters_fit_claim_generation',
                          'phase': 'final', 'completed': 0, 'total': len(groups)})
-        for index, group in enumerate(groups, start=1):
-            request, ids = request_for_members(group, by_id, bundle, config, prompt, CANDIDATE_SCHEMA)
+
+        def final_cluster(group):
+            request, ids = request_for_members(group, by_id, bundle, config, prompt, CANDIDATE_SCHEMA, support_index)
             tokens = counter.check(request, 'semantic cluster')
-            clusters.append({'id': 'semantic:' + stable_hash([cluster_namespace(config), group]),
-                             'structural_chunk_ids': group, 'original_chunk_ids': ids,
-                             'document_ids': sorted({by_id[sid]['document_id'] for sid in group}),
-                             'input_tokens': tokens, 'request_sha256': stable_hash(request),
-                             'minimum_similarity': min((cosine(scores, a, b) for i, a in enumerate(group)
-                                                       for b in group[i + 1:]), default=1.)})
-            if on_progress and (index == 1 or index % 25 == 0 or index == len(groups)):
+            return {'id': 'semantic:' + stable_hash([cluster_namespace(config), group]),
+                    'structural_chunk_ids': group, 'original_chunk_ids': ids,
+                    'document_ids': sorted({by_id[sid]['document_id'] for sid in group}),
+                    'input_tokens': tokens, 'request_sha256': stable_hash(request),
+                    'minimum_similarity': min((cosine(scores, a, b) for i, a in enumerate(group)
+                                               for b in group[i + 1:]), default=1.)}
+
+        def final_checked(cluster):
+            clusters.append(cluster)
+            done = len(clusters)
+            if on_progress and (done == 1 or done % 25 == 0 or done == len(groups)):
                 on_progress({'state': 'checking_semantic_clusters_fit_claim_generation',
-                             'phase': 'final', 'completed': index, 'total': len(groups)})
+                             'phase': 'final', 'completed': done, 'total': len(groups)})
+
+        run_bounded(final_cluster, groups, workers, final_checked)
         clusters.sort(key=lambda c: c['id'])
         report = {'status': 'complete', 'original_chunks': len(bundle['chunks']),
                   'structural_chunks': len(structural), 'semantic_clusters': len(clusters),
@@ -339,11 +391,19 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
         raise
 
 
-def load_preparation(context_dir, config=None, verify_requests=True):
-    """Offline verification; never refresh embeddings or token counts while reading."""
+def load_preparation(context_dir, config=None, verify_requests=True, *,
+                     validated_preparation=None, on_progress=None):
+    """Verify offline; reuse an invocation's validated copy only after hashing files."""
     from knowledge_foundry.claim_generation_and_classification import _prompt, CANDIDATE_SCHEMA
     from scripts.validate_artifact_examples import check
     directory = Path(context_dir)
+
+    def progress(step, completed=0, total=None):
+        if on_progress:
+            on_progress({'phase': 'preparation', 'state': 'progress', 'step': step,
+                         'completed': completed, 'total': total})
+
+    progress('checking saved artifacts')
     manifest = _json(directory / 'build-manifest.json')
     schema = _json(ROOT / "schemas/semantic-clustering-artifact-schema.json")
     Draft202012Validator(schema).validate(manifest)
@@ -361,12 +421,26 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     required |= set(frozen.get('assets', {})) | set(frozen.get('native_outputs', {}))
     if {r['path'] for r in manifest['outputs']} != required or len(manifest['outputs']) != len(required):
         raise ValueError('structural chunks and semantic clusters manifest outputs mismatch')
-    for entry in manifest['outputs']:
+    for index, entry in enumerate(manifest['outputs'], start=1):
         path = directory / entry['path']
         if not path.resolve().is_relative_to(directory.resolve()) or _file_hash(path) != entry['sha256']:
             raise ValueError('structural chunks and semantic clusters output hash mismatch: ' + str(path))
+        if index == 1 or index % 25 == 0 or index == len(manifest['outputs']):
+            progress('checking saved artifacts', index, len(manifest['outputs']))
     if _file_hash(directory / 'artifact-bundle.json') != manifest['input_bundle_sha256']:
         raise ValueError('structural chunks and semantic clusters upstream hash mismatch')
+    prompt, _ = _prompt('claim_generation_v1.txt')
+    if verify_requests and (manifest['generation_prompt_sha256'] != stable_hash(prompt) or
+                           manifest['candidate_schema_sha256'] != stable_hash(CANDIDATE_SCHEMA)):
+        raise ValueError('structural chunks and semantic clusters prompt/schema changed; build fresh artifacts')
+    if validated_preparation is not None:
+        if _file_hash(directory / 'build-manifest.json') != validated_preparation['manifest_sha256']:
+            raise ValueError('saved structural chunks and semantic clusters artifacts mismatch')
+        # A caller cannot reuse a request-unchecked load for a stricter check.
+        if not verify_requests or validated_preparation.get('requests_verified', False):
+            progress('reusing verified preparation', 1, 1)
+            return validated_preparation
+    progress('validating source structure')
     bundle = _json(directory / 'artifact-bundle.json')
     check(bundle)
     if bundle['claims'] or bundle['topics'] or len(bundle['builds']) != 1:
@@ -395,6 +469,7 @@ def load_preparation(context_dir, config=None, verify_requests=True):
     if [r['structural_chunk_id'] for r in embeddings] != [r['id'] for r in structural]:
         raise ValueError('structural chunks embedding membership/order mismatch')
     by_id = {r['id']: r for r in structural}
+    support_index = source_context_index(bundle) if uses_source_context(saved_config) else None
     embedding_config = saved_config['steps']['embeddings']
     for r in embeddings:
         if r['input_sha256'] != stable_hash(by_id[r['structural_chunk_id']]['text']) or \
@@ -402,21 +477,26 @@ def load_preparation(context_dir, config=None, verify_requests=True):
                 len(r['vector']) != (embedding_config['dimensions'] or embedding_config['expected_dimensions']) or \
                 any(r[k] != embedding_config[k] for k in ('provider', 'model', 'preprocessing_version')):
             raise ValueError('structural chunks embedding identity mismatch')
-    scores = similarity_matrix({r['structural_chunk_id']: r['vector'] for r in embeddings})
     clusters = _json(directory / 'semantic-clusters.json')
     validate_records('semantic_cluster', clusters)
     if stable_hash(clusters) != manifest['cluster_plan_sha256'] or clusters != sorted(clusters, key=lambda c: c['id']):
         raise ValueError('semantic clusters plan hash/order mismatch')
-    seen, originals = [], []
-    prompt, _ = _prompt('claim_generation_v1.txt')
-    if verify_requests and (manifest['generation_prompt_sha256'] != stable_hash(prompt) or
-                           manifest['candidate_schema_sha256'] != stable_hash(CANDIDATE_SCHEMA)):
-        raise ValueError('structural chunks and semantic clusters prompt/schema changed; build fresh artifacts')
     for cluster in clusters:
         ids = cluster['structural_chunk_ids']
         if not ids or ids != sorted(set(ids)) or any(sid not in by_id for sid in ids):
             raise ValueError('structural chunks membership/order mismatch')
-        request, chunk_ids = request_for_members(ids, by_id, bundle, saved_config, prompt, CANDIDATE_SCHEMA)
+    progress('checking within-cluster similarities')
+    scores = similarity_matrix({r['structural_chunk_id']: r['vector'] for r in embeddings},
+                               groups=[cluster['structural_chunk_ids'] for cluster in clusters])
+    seen, originals = [], []
+    step = 'validating saved cluster requests' if verify_requests else 'validating saved cluster membership'
+    progress(step, 0, len(clusters))
+    for index, cluster in enumerate(clusters, start=1):
+        ids = cluster['structural_chunk_ids']
+        if verify_requests:
+            request, chunk_ids = request_for_members(ids, by_id, bundle, saved_config, prompt, CANDIDATE_SCHEMA, support_index)
+        else:
+            chunk_ids = [cid for sid in ids for cid in by_id[sid]['original_chunk_ids']]
         minimum = min((cosine(scores, a, b) for i, a in enumerate(ids) for b in ids[i + 1:]), default=1.)
         if cluster['original_chunk_ids'] != chunk_ids or cluster['document_ids'] != sorted({by_id[s]['document_id'] for s in ids}) or \
                 cluster['minimum_similarity'] != minimum or minimum < saved_config['steps']['semantic_clusters']['minimum_similarity'] or \
@@ -428,6 +508,8 @@ def load_preparation(context_dir, config=None, verify_requests=True):
             raise ValueError('semantic clusters request format changed; build fresh structural chunks and semantic clusters artifacts')
         seen.extend(ids)
         originals.extend(chunk_ids)
+        if index == 1 or index % 25 == 0 or index == len(clusters):
+            progress(step, index, len(clusters))
     if sorted(seen) != sorted(by_id) or sorted(originals) != sorted(c['id'] for c in bundle['chunks']):
         raise ValueError('structural chunks and semantic clusters require complete unique membership')
     report = _json(directory / 'report.json')
@@ -440,17 +522,18 @@ def load_preparation(context_dir, config=None, verify_requests=True):
         raise ValueError('structural chunks and semantic clusters diagnostics mismatch')
     return {'manifest': manifest, 'bundle': bundle, 'structural_chunks': structural,
             'clusters': clusters, 'hierarchy': hierarchy, 'report': report,
+            'requests_verified': verify_requests,
             'manifest_sha256': _file_hash(directory / 'build-manifest.json')}
 
 
-def validate_candidate_lineage(directory, manifest, candidates):
+def validate_candidate_lineage(directory, manifest, candidates, *, on_progress=None):
     """Validate structural chunk and semantic cluster lineage; preserve legacy candidate claim contracts."""
     directory = Path(directory)
     if 'preparation_manifest_sha256' not in manifest:
         if 'selected_semantic_cluster_ids' in manifest.get('compilation_scope', {}):
             raise ValueError('claim generation is missing structural chunk and semantic cluster lineage')
         return None
-    prepared = load_preparation(directory / 'preparation', verify_requests=False)
+    prepared = load_preparation(directory / 'preparation', verify_requests=False, on_progress=on_progress)
     if prepared['manifest_sha256'] != manifest['preparation_manifest_sha256'] or \
             prepared['manifest']['cluster_plan_sha256'] != manifest.get('cluster_plan_sha256') or \
             prepared['manifest']['input_bundle_sha256'] != manifest['input_bundle_sha256']:
@@ -482,11 +565,20 @@ def validate_candidate_lineage(directory, manifest, candidates):
     by_cluster = {c['id']: c for c in selected}
     original_map = {c['id']: c for c in bundle['chunks']}
     element_map = {e['id']: e for e in bundle['elements']}
-    from knowledge_foundry.claim_generation_and_classification import _validate_candidate
+    from knowledge_foundry.claim_generation_and_classification import (
+        _validate_candidate, _validate_candidate_choices, _evidence_choices,
+    )
+    support_index = source_context_index(bundle) if uses_source_context(prepared['manifest']['config']) else None
+    structural = {r['id']: r for r in prepared['structural_chunks']}
+    choices_by_cluster = {}
     for candidate in candidates:
         cluster = by_cluster.get(by_candidate[candidate['id']])
         if cluster is None:
             raise ValueError('candidate claim maps outside selected semantic clusters')
-        _validate_candidate(candidate, manifest['generation_build_id'],
-                            {cid: original_map[cid] for cid in cluster['original_chunk_ids']}, element_map)
+        if cluster['id'] not in choices_by_cluster:
+            choices_by_cluster[cluster['id']] = _evidence_choices(
+                [original_map[cid] for cid in cluster['original_chunk_ids']], element_map,
+                [structural[sid] for sid in cluster['structural_chunk_ids']], support_index)
+        _validate_candidate_choices(candidate, choices_by_cluster[cluster['id']])
+        _validate_candidate(candidate, manifest['generation_build_id'], original_map, element_map)
     return prepared

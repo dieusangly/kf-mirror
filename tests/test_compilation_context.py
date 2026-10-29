@@ -16,7 +16,7 @@ from knowledge_foundry.claim_generation_and_classification import (
 from knowledge_foundry.chunking import build_collection
 from knowledge_foundry.parsing import parse_collection
 from knowledge_foundry.structural_chunks import assemble_structural_chunks
-from scripts.auto_review_claims import evaluate as evaluate_compilation
+from scripts.deterministic_claim_review import evaluate as evaluate_compilation
 from knowledge_foundry.parsing_audit import evaluate as audit_parsing
 from scripts.validate_artifact_examples import check
 

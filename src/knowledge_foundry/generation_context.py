@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from threading import Lock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -55,6 +56,7 @@ class RequestCounter:
     def __init__(self, config, cache_dir, api_key=None, stage='claim_generation'):
         config = config['steps'][stage]
         self.config, self.cache_dir, self.api_key = config, Path(cache_dir), api_key
+        self._lock, self._cache_locks = Lock(), {}
         self.telemetry = {'requests': 0, 'cache_hits': 0, 'failed_requests': 0,
                           'estimated_cost_usd': None if config['provider'] == 'openai' else 0,
                           'method': 'provider' if config['provider'] == 'openai' else 'offline_utf8_byte_estimate'}
@@ -62,13 +64,25 @@ class RequestCounter:
     def count(self, payload):
         identity = {'version': COUNT_VERSION, 'method': self.telemetry['method'], 'payload': payload}
         key = stable_hash(identity)
+        # Different requests may run together; equal payloads share one cache
+        # writer and one provider request, including on a cold cache.
+        with self._lock:
+            cache_lock = self._cache_locks.setdefault(key, Lock())
+        with cache_lock:
+            return self._count(payload, identity, key)
+
+    def _increment(self, field):
+        with self._lock:
+            self.telemetry[field] += 1
+
+    def _count(self, payload, identity, key):
         path = self.cache_dir / (key + '.json')
         if path.exists():
             record = json.loads(path.read_text())
             if record.get('identity') != identity or type(record.get('input_tokens')) is not int or \
                     record['input_tokens'] < 1 or record.get('sha256') != stable_hash([identity, record['input_tokens']]):
                 raise ValueError('token count cache integrity mismatch')
-            self.telemetry['cache_hits'] += 1
+            self._increment('cache_hits')
             return record['input_tokens']
         if self.config['provider'] == 'fixture':
             count = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
@@ -79,7 +93,7 @@ class RequestCounter:
             if not key_value:
                 raise ValueError('OPENAI_API_KEY is required for request token counting')
             for attempt in range(self.config['retries'] + 1):
-                self.telemetry['requests'] += 1
+                self._increment('requests')
                 try:
                     request = Request('https://api.openai.com/v1/responses/input_tokens',
                                       # The counting endpoint accepts input fields, but not this output limit.
@@ -92,14 +106,14 @@ class RequestCounter:
                         raise ValueError('invalid provider input token count')
                     break
                 except HTTPError as exc:
-                    self.telemetry['failed_requests'] += 1
+                    self._increment('failed_requests')
                     failure = _token_count_http_error(exc, key_value)
                     retryable = exc.code in {408, 409, 429} or 500 <= exc.code <= 599
                     if not retryable or attempt == self.config['retries']:
                         raise failure from exc
                     time.sleep(min(2 ** attempt, 4))
                 except Exception:
-                    self.telemetry['failed_requests'] += 1
+                    self._increment('failed_requests')
                     if attempt == self.config['retries']:
                         raise
                     time.sleep(min(2 ** attempt, 4))

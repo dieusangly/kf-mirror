@@ -1,8 +1,8 @@
 {
-  "pipeline_version": "compilation-v13",
+  "pipeline_version": "compilation-v14",
   "steps": {
     "claim_generation": {
-      "version": "claim-generation-v13",
+      "version": "claim-generation-v14",
       "provider": "openai",
       "model": "gpt-6-luna",
       "reasoning_effort": "medium",
@@ -15,10 +15,11 @@
         "verified_model": "gpt-6-luna",
         "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
         "verified_on": "2026-10-16"
-      }
+      },
+      "source_context": "original-neighbors-v1"
     },
     "topic_classification": {
-      "version": "topic-classification-v12",
+      "version": "topic-classification-v13",
       "provider": "openai",
       "model": "gpt-6-luna",
       "reasoning_effort": "medium",

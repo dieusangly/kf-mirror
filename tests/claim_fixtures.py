@@ -49,10 +49,10 @@ def save_structure_fixture(chunked, parsed_dir=None):
 
 
 def prepare_claim_context(chunked, output, config_path=None, cache_dir=None, fixture_path=None,
-                          on_progress=None, parsed_dir=None):
+                          on_progress=None, parsed_dir=None, workers=4):
     save_structure_fixture(chunked, parsed_dir)
     args = (chunked, output) if config_path is None else (chunked, output, config_path, cache_dir, fixture_path)
-    return _prepare_claim_context(*args, on_progress=on_progress)
+    return _prepare_claim_context(*args, on_progress=on_progress, workers=workers)
 
 
 def fixture_settings():

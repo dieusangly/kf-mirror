@@ -1,8 +1,23 @@
 import unittest
+import math
+from unittest.mock import patch
 from knowledge_foundry.semantic_clusters import similarity_matrix, cluster_members, refine_clusters
 
 
 class SemanticClustersTests(unittest.TestCase):
+    def test_saved_groups_compute_only_required_pairs_with_identical_values(self):
+        vectors = {'A': [1., .2, .3], 'B': [.8, .1, .4], 'C': [0., 1., 0.], 'D': [0., 0., 1.]}
+        full = similarity_matrix(vectors)
+        with patch('knowledge_foundry.semantic_clusters.math.fsum', wraps=math.fsum) as products:
+            saved = similarity_matrix(vectors, groups=[['B', 'A'], ['C'], ['D']])
+        self.assertEqual(saved, {('A', 'B'): full[('A', 'B')]})
+        self.assertEqual(products.call_count, 1)
+
+    def test_grouped_scores_still_validate_singletons_and_unused_vectors(self):
+        for invalid in ([0., 0.], [float('nan'), 0.], [True, 0.], [1., 0., 0.]):
+            with self.subTest(vector=invalid), self.assertRaises(ValueError):
+                similarity_matrix({'A': [1., 0.], 'B': invalid}, groups=[['A'], ['B']])
+
     def test_dog_d_cross_document_vectors_cluster_while_cat_stays_separate(self):
         vectors = {'dog-D-doc-A': [1, 0, 0], 'dog-D-doc-B': [.99, .05, 0], 'cat-doc-A': [0, 0, 1]}
         scores = similarity_matrix(vectors)

@@ -14,6 +14,11 @@ from knowledge_foundry.claim_generation_and_classification import classify_claim
 
 
 def _print_progress(event):
+    if event['phase'] == 'preparation':
+        total = event.get('total')
+        count = f" {event['completed']}/{total}" if total is not None else ''
+        print(f"[classify] Preparation: {event['step']}{count}", file=sys.stderr, flush=True)
+        return
     if event["phase"] == "classification" and event["state"] == "started":
         print(f"[classify] Classifying {event['total']} candidate claims "
               f"({event.get('reusable_candidates', 0)} reusable; {event.get('saved_candidates', 0)} checkpointed)",

@@ -12,7 +12,7 @@ from claim_fixtures import generate_claims
 from knowledge_foundry.claim_generation_and_classification import (
     FixtureProvider, classify_claims,
 )
-from scripts.auto_review_claims import _load
+from scripts.deterministic_claim_review import _load
 from scripts.classify_claims import main
 
 
@@ -84,7 +84,7 @@ class ClassificationReuseTests(unittest.TestCase):
         target, provider = self.root / 'mid-loop', self.provider()
 
         def interrupt(event):
-            if event['state'] == 'progress' and event['completed'] == 2:
+            if event['phase'] == 'classification' and event['state'] == 'progress' and event['completed'] == 2:
                 raise KeyboardInterrupt()
 
         with self.assertRaises(KeyboardInterrupt):

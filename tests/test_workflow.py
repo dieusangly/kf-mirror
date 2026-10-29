@@ -33,7 +33,7 @@ def test_manual_steps_use_latest_paths_and_block_missing_pending_gates(manual, c
     with pytest.raises(ValueError, match='gate pending'):
         manual.run(limits(allow_paid=False), only_stage='parsing_review')
     task = w.read(manual.output('parsing_review') / 'repair-task.json')
-    assert Path(task['repair_prompt']).name == 'agent_prompt_document_structuring_repair'
+    assert Path(task['repair_prompt']).name == 'agent_prompt_repair_failed_review_findings'
     assert manual.state['review_sessions_started'] == 0
     with pytest.raises(ValueError, match='missing prerequisite'):
         manual.run(limits(), only_stage='chunk')

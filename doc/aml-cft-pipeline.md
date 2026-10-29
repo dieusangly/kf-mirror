@@ -80,7 +80,7 @@ Finalize reruns checks and scores both reviews. It writes acceptance for the exa
 frozen output only when both gates pass; pending/failing results return exit 1,
 and invalidate any prior acceptance. Invalid inputs return exit 2. It never
 reparses or rechunks. For defects, use the
-[repair prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_repair)
+[repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)
 for diagnosis, implementation corrections, focused regression tests and a results
 report. Rebuilding from the recommended checkpoint is a separate task, followed
 by a separate source/layout review task. Corpus acceptance is not part of repair
@@ -96,12 +96,24 @@ accept `--output` to select another report path.
 Requires accepted structure and `OPENAI_API_KEY`; these commands make paid calls.
 Claims/topics and summaries are independent branches:
 
+Claim requests distinguish primary cluster evidence (`E`) from exact-span source
+support (`S`): governing context, bounded neighbors and same-page notes from saved
+original chunks. Support can qualify a primary claim but cannot produce a claim
+alone or expand primary coverage. Proximity does not establish applicability.
+Spanless context remains non-citable. Request sizing includes this support.
+
 ```sh
 .venv/bin/python scripts/build_semantic_clusters.py --chunked-dir "$RUN/document-structuring/chunks" --output-dir "$RUN/semantic-clustering"
 .venv/bin/python scripts/generate_claims.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/claim-generation"
 .venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification"
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation"
 ```
+
+Semantic-clustering preparation defaults to four concurrent request-sizing calls;
+pass `build_semantic_clusters.py --workers N` to change that limit. It parallelizes
+singleton checks, independent cluster counts and final checks. Adaptive splitting
+and clustering decisions retain deterministic order; unchanged embeddings reuse
+the persistent cache.
 
 Generation, classification and summaries each default to four concurrent workers.
 Pass `--workers N` to set the limit, or `--workers 1` for serial execution.
@@ -114,25 +126,41 @@ command with `--resume --workers 4`. Completed checkpoints are reused; in-flight
 requests may need repeating. Classification also supports `--resume`; summaries
 reuse their response cache when restarted into a fresh output directory.
 
+Startup reports artifact, structure, cluster and checkpoint validation progress.
+Saved cluster validation checks only within-cluster similarities and reuses
+preparation already verified in the same invocation after checking copy hashes.
+File integrity, request identity, lineage and checkpoint checks remain required;
+resuming does not rebuild the full similarity matrix or repeat completed model calls.
+
 For claim defects, the
-[claim repair prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_repair)
+[repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)
 ends after diagnosis, corrections, focused regressions and reporting. Rebuilding
 from its recommended checkpoint and reviewing the rebuilt claims are separate
 tasks; passing corpus review is not part of repair completion.
+
+After a generation prompt, schema or source-context change, rebuild semantic
+clustering from the accepted chunks to recompute request sizes, then regenerate
+and reclassify. The same run ID can be reused: first move the superseded
+`semantic-clustering`, `claim-generation`, `claim-classification` and `claim-review`
+directories together into a timestamped `RUN/history/` directory, recording the
+repair reason. Rebuild into the now-empty canonical stage paths; do not resume
+old outputs with changed settings. Keep accepted Document Structuring outputs
+and the independent summary branch. A taxonomy-only repair can reclassify saved
+candidates, followed by a fresh review of that exact output.
 
 ## 5. Review generated claims
 
 For newly generated/classified artifacts, initialize the source-review package:
 
 ```sh
-.venv/bin/python scripts/auto_review_claims.py --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --initialize-review "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
+.venv/bin/python scripts/deterministic_claim_review.py prepare --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --initialize-review "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
 ```
 
 Complete the separate [claim review task](../src/knowledge_foundry/prompts/agent_prompt_claim_review)
 against the saved sources, then evaluate its judgments:
 
 ```sh
-.venv/bin/python scripts/auto_review_claims.py --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --review-file "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
+.venv/bin/python scripts/deterministic_claim_review.py finalize --candidates-dir "$RUN/claim-generation" --classified-dir "$RUN/claim-classification" --review-file "$RUN/claim-review/review.json" --output "$RUN/claim-review/report.json"
 ```
 
 Continue only when both automatic and source-review gates pass. Retain earlier

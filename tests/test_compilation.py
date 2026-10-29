@@ -92,11 +92,14 @@ class CompilationTests(unittest.TestCase):
             self.assertTrue((output / "build-manifest.json").is_file())
             self.assertTrue((generated / "claim-candidates.jsonl").is_file())
             self.assertTrue((generated / "report.json").is_file())
-            self.assertEqual([event["phase"] for event in generation_events],
+            self.assertEqual([event["phase"] for event in generation_events if event['phase'] != 'preparation'],
                              ["generation", "generation", "export", "complete"])
-            self.assertEqual([event["phase"] for event in classification_events],
+            self.assertEqual([event["phase"] for event in classification_events if event['phase'] != 'preparation'],
                              ["classification", "classification", "export", "complete"])
             self.assertEqual(classification_events[-1]["telemetry"]["estimated_cost_usd"], 0)
+            for events in (generation_events, classification_events):
+                self.assertEqual(events[0]['phase'], 'preparation')
+                self.assertTrue(any(event.get('step', '').startswith('validating saved cluster') for event in events))
 
     def test_resume_finalizes_saved_batch_without_repeating_generation(self):
         with tempfile.TemporaryDirectory() as value:
