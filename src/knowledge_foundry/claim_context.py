@@ -559,9 +559,10 @@ def validate_candidate_lineage(directory, manifest, candidates, *, on_progress=N
             report.get('preparation') != prepared['report']:
         raise ValueError('claim generation structural chunk and semantic cluster report mismatch')
     mapping = _json(directory / 'candidate-clusters.json')
-    if sorted(row['candidate_id'] for row in mapping) != sorted(c['id'] for c in candidates):
+    pairs = {(r['candidate_id'], r['semantic_cluster_id']) for r in mapping}
+    if len(pairs) != len(mapping) or {r['candidate_id'] for r in mapping} != {c['id'] for c in candidates}:
         raise ValueError('candidate claim cluster mapping is incomplete or duplicated')
-    by_candidate = {r['candidate_id']: r['semantic_cluster_id'] for r in mapping}
+    by_candidate = {c['id']: c for c in candidates}
     by_cluster = {c['id']: c for c in selected}
     original_map = {c['id']: c for c in bundle['chunks']}
     element_map = {e['id']: e for e in bundle['elements']}
@@ -571,8 +572,9 @@ def validate_candidate_lineage(directory, manifest, candidates, *, on_progress=N
     support_index = source_context_index(bundle) if uses_source_context(prepared['manifest']['config']) else None
     structural = {r['id']: r for r in prepared['structural_chunks']}
     choices_by_cluster = {}
-    for candidate in candidates:
-        cluster = by_cluster.get(by_candidate[candidate['id']])
+    for row in mapping:
+        candidate = by_candidate[row['candidate_id']]
+        cluster = by_cluster.get(row['semantic_cluster_id'])
         if cluster is None:
             raise ValueError('candidate claim maps outside selected semantic clusters')
         if cluster['id'] not in choices_by_cluster:

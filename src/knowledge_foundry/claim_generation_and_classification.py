@@ -8,7 +8,6 @@ import shutil
 import time
 from collections import Counter
 from pathlib import Path
-from threading import Lock
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -309,6 +308,20 @@ def _derive_coverage_links(response):
         for row in response['coverage']]}
 
 
+def _unique_candidates(records):
+    """Merge identical claims and union their independently validated chunk owners."""
+    unique = {}
+    for record in records:
+        previous = unique.setdefault(record['id'], record)
+        if previous != record:
+            if ({k: v for k, v in previous.items() if k != 'chunk_ids'} !=
+                    {k: v for k, v in record.items() if k != 'chunk_ids'}):
+                raise ValueError('conflicting records for candidate claim ID: ' + record['id'])
+            unique[record['id']] = {
+                **previous, 'chunk_ids': sorted(set(previous['chunk_ids']) | set(record['chunk_ids']))}
+    return list(unique.values())
+
+
 def _evidence_accounting(response, choices, records):
     """Check complete source accounting and links, never infer semantic coverage."""
     rows = response['coverage']
@@ -328,7 +341,7 @@ def _evidence_accounting(response, choices, records):
         if not row['reason'].strip():
             raise ValueError('coverage needs a substantive reason: ' + label)
         result.append({'reference': choices[label]['reference'], 'status': row['status'],
-                       'candidate_ids': [records[i]['id'] for i in indices], 'reason': row['reason']})
+                       'candidate_ids': list(dict.fromkeys(records[i]['id'] for i in indices)), 'reason': row['reason']})
     return result
 
 
@@ -393,7 +406,7 @@ def _validate_saved_accounting(directory, manifest, candidates, preparation):
     chunks, elements = ({item['id']: item for item in bundle[name]} for name in ('chunks', 'elements'))
     support_index = source_context_index(bundle) if uses_source_context(preparation['manifest']['config']) else None
     structural = {r['id']: r for r in preparation['structural_chunks']}
-    mapping = {row['candidate_id']: row['semantic_cluster_id'] for row in
+    mapping = {(row['candidate_id'], row['semantic_cluster_id']) for row in
                _read_json(directory / 'candidate-clusters.json')}
     expected_passages = 0
     for cluster in clusters:
@@ -403,7 +416,7 @@ def _validate_saved_accounting(directory, manifest, candidates, preparation):
                                    [structural[sid] for sid in semantic['structural_chunk_ids']],
                                    support_index)
         expected_passages += sum(k.startswith('E') for k in choices)
-        own = [c for c in candidates if mapping[c['id']] == cluster['semantic_cluster_id']]
+        own = [c for c in candidates if (c['id'], cluster['semantic_cluster_id']) in mapping]
         if not cluster['passages'] and not own and any(e.get('chunk_ids') == ids for e in report['errors']):
             continue
         _validate_accounting_rows(cluster['passages'], choices, own)
@@ -729,7 +742,7 @@ def _recovery_seed(directory, identity, selected_clusters, clusters):
     if report['status'] != 'partial' or not report['errors']:
         raise ValueError('recovery requires a finalized partial generation run with errors')
     candidates = _read_jsonl(candidate_path)
-    mapping = {r['candidate_id']: r['semantic_cluster_id']
+    mapping = {(r['candidate_id'], r['semantic_cluster_id'])
                for r in _read_json(directory / 'candidate-clusters.json')}
     accounting = {r['semantic_cluster_id']: r['passages']
                   for r in _read_json(directory / 'evidence-accounting.json')['clusters']}
@@ -742,7 +755,7 @@ def _recovery_seed(directory, identity, selected_clusters, clusters):
         failed.add(number)
     seeds = []
     for ordinal, (chunks, cluster) in enumerate(zip(selected_clusters, clusters), 1):
-        own = [c for c in candidates if mapping[c['id']] == cluster['id']]
+        own = [c for c in candidates if (c['id'], cluster['id']) in mapping]
         if ordinal in failed:
             if own or accounting[cluster['id']]:
                 raise ValueError('failed recovery cluster must not contain accepted output')
@@ -803,7 +816,7 @@ def _load_generation_checkpoints(output_dir, identity, selected_clusters, chunk_
         if on_progress and (index == 1 or index % 25 == 0 or index == len(paths)):
             on_progress({'phase': 'preparation', 'state': 'progress', 'step': 'checking generation checkpoints',
                          'completed': index, 'total': len(paths)})
-    return candidates, errors, usage, completed
+    return _unique_candidates(candidates), errors, usage, completed
 
 
 def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-generation-and-classification.json", fixture_path=None,
@@ -939,8 +952,6 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                      "source_chunks": len(chunks), "total": len(selected_clusters),
                      "source_total": len(all_clusters), "subset": scope["mode"] == "subset",
                      "resumed_clusters": len(completed_clusters)})
-    candidate_ids = {item['id'] for item in candidates}
-    candidate_lock = Lock()
 
     def process_cluster(item):
         completed, cluster = item
@@ -975,11 +986,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
                 response = _derive_coverage_links(response)
                 records = [_candidate_record(build_id, item, generation, choices) for item in response["claims"]]
                 accounting = _evidence_accounting(response, choices, records)
-                record_ids = {item['id'] for item in records}
-                with candidate_lock:
-                    if len(record_ids) != len(records) or candidate_ids.intersection(record_ids):
-                        raise ValueError("generation produced duplicate candidate claim IDs")
-                    candidate_ids.update(record_ids)
+                records = _unique_candidates(records)
                 cluster_accounting = accounting
             except (ValueError, ValidationError) as exc:
                 retry_feedback = ("\nLa réponse précédente a été rejetée : " + str(exc)[:600] +
@@ -1017,7 +1024,7 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
         candidate_clusters.extend({'candidate_id': c['id'],
                                    'semantic_cluster_id': clusters[selected_indices[completed - 1]]['id']}
                                   for c in cluster_candidates)
-        candidates.extend(cluster_candidates)
+        candidates[:] = _unique_candidates([*candidates, *cluster_candidates])
         completed_clusters.add(completed)
         candidates.sort(key=lambda item: item["id"])
         _write_jsonl_atomic(candidate_path, candidates)
@@ -1087,7 +1094,8 @@ def generate_claims(chunked_dir, output_dir, config_path=ROOT / "config/claim-ge
     _write_json(output_dir / 'evidence-accounting.json', {
         'version': 1, 'generation_build_id': build_id,
         'clusters': sorted(evidence_accounting, key=lambda row: row['semantic_cluster_id'])})
-    _write_json(output_dir / 'candidate-clusters.json', sorted(candidate_clusters, key=lambda r: r['candidate_id']))
+    _write_json(output_dir / 'candidate-clusters.json', sorted(
+        candidate_clusters, key=lambda r: (r['candidate_id'], r['semantic_cluster_id'])))
     _write_json(output_dir / "report.json", report)
     files = sorted(path for path in output_dir.rglob("*") if path.is_file() and checkpoint_dir not in path.parents and
                    path != checkpoint_path)

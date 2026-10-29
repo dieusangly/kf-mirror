@@ -120,6 +120,13 @@ Pass `--workers N` to set the limit, or `--workers 1` for serial execution.
 Classification requires completed generation; summaries run independently, with
 concurrency within each level. Limits apply per command when running stages together.
 
+Identical candidate IDs are stored once, retaining every producing cluster link
+and its evidence accounting. Different wording or evidence remains separate.
+For finalized `partial` generation, run `generate_claims.py` with
+`--retry-failed-from <partial-directory>`, the same preparation/configuration and
+a fresh `--output-dir`. Successful clusters are reused; only failures are retried.
+Preserve the partial directory, for example under the run's `history/`.
+
 An already running process keeps its current execution settings. To use concurrency
 for interrupted claim generation, stop the old process before restarting the same
 command with `--resume --workers 4`. Completed checkpoints are reused; in-flight

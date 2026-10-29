@@ -225,15 +225,18 @@ def build_graph(bundle, claim_candidates=None, claim_generation=None, classifica
         add(summary['id'], summary['input_cluster_id'], 'summarizes')
 
     candidate_cluster = {}
+    seen_mappings = set()
     for mapping in claim_generation.get("candidate_clusters", []):
         candidate_id, cluster_id = mapping.get("candidate_id"), mapping.get("semantic_cluster_id")
         if not isinstance(candidate_id, str) or not isinstance(cluster_id, str):
             raise ValueError("candidate cluster mappings need candidate_id and semantic_cluster_id")
-        if candidate_id in candidate_cluster and candidate_cluster[candidate_id] != cluster_id:
-            raise ValueError(f"candidate maps to multiple semantic clusters: {candidate_id}")
+        pair = (candidate_id, cluster_id)
+        if pair in seen_mappings:
+            raise ValueError(f"duplicate candidate cluster mapping: {candidate_id}")
+        seen_mappings.add(pair)
         if cluster_id not in semantic_ids:
             raise ValueError(f"candidate references unknown semantic cluster: {cluster_id}")
-        candidate_cluster[candidate_id] = cluster_id
+        candidate_cluster.setdefault(candidate_id, []).append(cluster_id)
         add(candidate_id, cluster_id, "generated from")
 
     claim_by_identity = {}
@@ -247,12 +250,11 @@ def build_graph(bundle, claim_candidates=None, claim_generation=None, classifica
         missing = min(set(candidate_cluster) - set(candidates_by_id))
         raise ValueError(f"candidate cluster mapping references unknown candidate: {missing}")
     for candidate in claim_candidates or []:
-        cluster_id = candidate_cluster.get(candidate["id"])
+        cluster_ids = candidate_cluster.get(candidate["id"], [])
         claim = claim_by_identity.get(_candidate_identity(candidate))
         if claim:
             add(candidate["id"], claim["id"], "classified as")
-        if cluster_id:
-            if claim:
+            for cluster_id in cluster_ids:
                 add(claim["id"], cluster_id, "generated from")
 
     candidate_statuses = {}
