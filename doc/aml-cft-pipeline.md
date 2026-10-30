@@ -109,6 +109,12 @@ Spanless context remains non-citable. Request sizing includes this support.
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation"
 ```
 
+`semantic_clusters.max_claim_request_input_tokens` in `config/semantic-clustering.json`
+limits each cluster's complete claim-sizing request to 32,000 input tokens.
+Claim and summary generation have no operational input cap; their complete requests
+must fit the configured model context window after output reservation and safety
+margin.
+
 Semantic-clustering preparation defaults to four concurrent request-sizing calls;
 pass `build_semantic_clusters.py --workers N` to change that limit. It parallelizes
 singleton checks, independent cluster counts and final checks. Adaptive splitting
@@ -122,22 +128,37 @@ concurrency within each level. Limits apply per command when running stages toge
 
 Identical candidate IDs are stored once, retaining every producing cluster link
 and its evidence accounting. Different wording or evidence remains separate.
-For finalized `partial` generation, run `generate_claims.py` with
-`--retry-failed-from <partial-directory>`, the same preparation/configuration and
-a fresh `--output-dir`. Successful clusters are reused; only failures are retried.
-Preserve the partial directory, for example under the run's `history/`.
 
-An already running process keeps its current execution settings. To use concurrency
-for interrupted claim generation, stop the old process before restarting the same
-command with `--resume --workers 4`. Completed checkpoints are reused; in-flight
-requests may need repeating. Classification also supports `--resume`; summaries
-reuse their response cache when restarted into a fresh output directory.
+### Resume and retry
 
-Startup reports artifact, structure, cluster and checkpoint validation progress.
-Saved cluster validation checks only within-cluster similarities and reuses
-preparation already verified in the same invocation after checking copy hashes.
-File integrity, request identity, lineage and checkpoint checks remain required;
-resuming does not rebuild the full similarity matrix or repeat completed model calls.
+Stop the previous process before restarting. Keep inputs, settings, prompts,
+selection/reuse flags and taxonomy unchanged; concurrency can change. Saved
+successes are reused after validation; unsaved in-flight requests may repeat.
+
+For **interrupted claims or classification**, keep the output folder and add `--resume`:
+
+```sh
+.venv/bin/python scripts/generate_claims.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/claim-generation" --resume
+.venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification" --resume
+```
+
+For a **finalized `partial` run**, preserve the old folder and retry failures into a
+fresh output path. Run the command for the affected stage. Classification requires
+complete generation; point `--candidates-dir` at the recovered claims if applicable.
+`--reuse-candidates-dir` identifies the candidates consumed by the old classification.
+
+```sh
+.venv/bin/python scripts/generate_claims.py --context-dir "$RUN/semantic-clustering" --retry-failed-from "$RUN/claim-generation" --output-dir "$RUN/claim-generation-retry"
+.venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --reuse-classification-from "$RUN/claim-classification" --reuse-candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification-retry"
+```
+
+For **interrupted summaries**, rerun with the same cache and an absent output folder;
+there is no `--resume` flag. Preserve the cache (default `artifacts/summary-cache`).
+To reuse the original output path, first archive or remove only its failed folder.
+
+```sh
+.venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation-retry" --cache-dir artifacts/summary-cache
+```
 
 For claim defects, the
 [repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)

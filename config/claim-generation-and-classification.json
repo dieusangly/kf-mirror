@@ -11,7 +11,6 @@
         "context_window_tokens": 1050000,
         "reserved_output_tokens": 32768,
         "safety_margin_tokens": 4096,
-        "operational_input_cap_tokens": 32000,
         "verified_model": "gpt-6-luna",
         "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
         "verified_on": "2026-10-16"

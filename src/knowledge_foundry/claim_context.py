@@ -1,6 +1,7 @@
 """Cluster accepted structural chunks and verify frozen semantic lineage."""
 
 from collections import Counter
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
@@ -8,7 +9,9 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json
-from knowledge_foundry.generation_context import RequestCounter, generation_payload, usable_input_budget
+from knowledge_foundry.generation_context import (
+    RequestCounter, generation_payload, model_input_budget, usable_input_budget,
+)
 from knowledge_foundry.semantic_clusters import cluster_members, refine_clusters, similarity_matrix, cosine
 from knowledge_foundry.structural_chunks import VERSION, assemble_structural_chunks, stable_hash
 from knowledge_foundry.document_structure import assemble_document_hierarchy
@@ -74,8 +77,25 @@ def execution_settings(config, stage='claim_generation'):
     """Only output-affecting settings participate in execution/cache identity."""
     names = ('topic_classification',) if stage == 'topic_classification' else (
         'structural_chunks', 'embeddings', 'semantic_clusters', 'claim_generation')
-    return {'pipeline_version': config['pipeline_version'],
-            'steps': {name: config['steps'][name] for name in names}}
+    settings = {'pipeline_version': config['pipeline_version'],
+                'steps': {name: deepcopy(config['steps'][name]) for name in names}}
+    if stage != 'topic_classification':
+        # Canonicalize the new owner to the historical shape so a cap-only move
+        # preserves frozen request compatibility and generation build identities.
+        clustering = settings['steps']['semantic_clusters']
+        legacy_cap = clustering.pop('operational_input_cap_tokens', None)
+        cap = clustering.pop('max_claim_request_input_tokens', legacy_cap)
+        if cap is not None:
+            settings['steps']['claim_generation']['budget']['operational_input_cap_tokens'] = cap
+    return settings
+
+
+def clustering_input_budget(config):
+    """New builds own the cap; legacy manifests retain their saved sizing budget."""
+    budget = config['steps']['claim_generation']['budget']
+    clustering = config['steps']['semantic_clusters']
+    cap = clustering.get('max_claim_request_input_tokens', clustering.get('operational_input_cap_tokens'))
+    return min(model_input_budget(budget), cap) if cap is not None else usable_input_budget(budget)
 
 
 def cluster_namespace(config):
@@ -109,8 +129,12 @@ def validate_settings(config, frozen=False):
         raise ValueError('invalid steps configuration shape')
     for name, keys in shapes.items():
         actual = set(steps[name]) if isinstance(steps[name], dict) else set()
-        if not isinstance(steps[name], dict) or actual not in (
-                [keys, keys | {'source_context'}] if name == 'claim_generation' else [keys]):
+        allowed = [keys]
+        if name == 'claim_generation':
+            allowed.append(keys | {'source_context'})
+        elif name == 'semantic_clusters':
+            allowed.extend([keys | {'max_claim_request_input_tokens'}, keys | {'operational_input_cap_tokens'}])
+        if not isinstance(steps[name], dict) or actual not in allowed:
             raise ValueError('invalid ' + name + ' configuration shape')
     if steps['claim_generation'].get('source_context', SOURCE_CONTEXT_VERSION) != SOURCE_CONTEXT_VERSION:
         raise ValueError('unsupported claim generation source context')
@@ -118,6 +142,9 @@ def validate_settings(config, frozen=False):
     if steps['structural_chunks']['version'] not in versions or steps['semantic_clusters']['version'] != 'all-members-v1':
         raise ValueError('unsupported structural chunk or semantic clustering version')
     embedding, clustering = steps['embeddings'], steps['semantic_clusters']
+    for key in ('max_claim_request_input_tokens', 'operational_input_cap_tokens'):
+        if key in clustering and (type(clustering[key]) is not int or clustering[key] < 1):
+            raise ValueError('invalid clustering ' + key)
     for key in ('expected_dimensions', 'max_input_tokens', 'max_request_inputs', 'max_request_tokens', 'timeout_seconds'):
         if type(embedding[key]) is not int or embedding[key] < 1:
             raise ValueError('invalid embedding ' + key)
@@ -150,13 +177,14 @@ def validate_settings(config, frozen=False):
             type(clustering['max_refinements']) is not int or not 0 <= clustering['max_refinements'] <= 100:
         raise ValueError('invalid clustering bounds')
     budget = steps['claim_generation']['budget']
-    if not isinstance(budget, dict) or set(budget) != {'context_window_tokens', 'reserved_output_tokens',
-            'safety_margin_tokens', 'operational_input_cap_tokens', 'verified_model', 'documentation_url', 'verified_on'}:
+    budget_keys = {'context_window_tokens', 'reserved_output_tokens', 'safety_margin_tokens',
+                   'verified_model', 'documentation_url', 'verified_on'}
+    if not isinstance(budget, dict) or set(budget) not in (budget_keys, budget_keys | {'operational_input_cap_tokens'}):
         raise ValueError('invalid generation budget shape')
     for key in ('context_window_tokens', 'reserved_output_tokens', 'safety_margin_tokens'):
         if type(budget[key]) is not int or budget[key] < (0 if key == 'safety_margin_tokens' else 1):
             raise ValueError('invalid generation budget ' + key)
-    cap = budget['operational_input_cap_tokens']
+    cap = budget.get('operational_input_cap_tokens')
     if cap is not None and (type(cap) is not int or cap < 1):
         raise ValueError('invalid operational input cap')
     if usable_input_budget(budget) < 1 or budget['verified_model'] != steps['claim_generation']['model'] or \
@@ -262,6 +290,7 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
         on_progress({'state': 'validated_structural_chunks_loaded', 'structural_chunks': len(structural)})
     by_id = {r['id']: r for r in structural}
     counter = RequestCounter(config, cache_dir / 'request-counts')
+    limit = clustering_input_budget(config)
     support_index = source_context_index(bundle) if uses_source_context(config) else None
 
     def payload(ids):
@@ -273,7 +302,7 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
     completed = 0
 
     def check_singleton(record):
-        return counter.check(payload([record['id']]), 'structural chunk ' + record['id'])
+        return counter.check(payload([record['id']]), 'structural chunk ' + record['id'], input_limit=limit)
 
     def singleton_checked(_tokens):
         nonlocal completed
@@ -295,7 +324,6 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
         scores = similarity_matrix(vectors)
         clustering = config['steps']['semantic_clusters']
         groups = cluster_members(by_id, scores, clustering['minimum_similarity'])
-        limit = usable_input_budget(config['steps']['claim_generation']['budget'])
         # Pre-count independent groups concurrently. Adaptive splits still run
         # in deterministic order and reuse these exact measurements.
         measurements = {}
@@ -330,7 +358,7 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
 
         def final_cluster(group):
             request, ids = request_for_members(group, by_id, bundle, config, prompt, CANDIDATE_SCHEMA, support_index)
-            tokens = counter.check(request, 'semantic cluster')
+            tokens = counter.check(request, 'semantic cluster', input_limit=limit)
             return {'id': 'semantic:' + stable_hash([cluster_namespace(config), group]),
                     'structural_chunk_ids': group, 'original_chunk_ids': ids,
                     'document_ids': sorted({by_id[sid]['document_id'] for sid in group}),
@@ -502,7 +530,7 @@ def load_preparation(context_dir, config=None, verify_requests=True, *,
                 cluster['minimum_similarity'] != minimum or minimum < saved_config['steps']['semantic_clusters']['minimum_similarity'] or \
                 cluster['id'] != 'semantic:' + stable_hash([cluster_namespace(saved_config), ids]):
             raise ValueError('semantic clusters membership/similarity mismatch')
-        if type(cluster['input_tokens']) is not int or not 0 < cluster['input_tokens'] <= usable_input_budget(saved_config['steps']['claim_generation']['budget']):
+        if type(cluster['input_tokens']) is not int or not 0 < cluster['input_tokens'] <= clustering_input_budget(saved_config):
             raise ValueError('semantic clusters request budget mismatch')
         if verify_requests and cluster['request_sha256'] != stable_hash(request):
             raise ValueError('semantic clusters request format changed; build fresh structural chunks and semantic clusters artifacts')
@@ -517,7 +545,7 @@ def load_preparation(context_dir, config=None, verify_requests=True, *,
                        'structural_chunks': len(structural), 'semantic_clusters': len(clusters),
                        'singletons': sum(len(c['structural_chunk_ids']) == 1 for c in clusters),
                        'cross_document_clusters': sum(len(c['document_ids']) > 1 for c in clusters),
-                       'usable_input_tokens': usable_input_budget(saved_config['steps']['claim_generation']['budget'])}
+                       'usable_input_tokens': clustering_input_budget(saved_config)}
     if any(report.get(k) != v for k, v in expected_counts.items()):
         raise ValueError('structural chunks and semantic clusters diagnostics mismatch')
     return {'manifest': manifest, 'bundle': bundle, 'structural_chunks': structural,

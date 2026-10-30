@@ -170,14 +170,45 @@ class SummariesTests(unittest.TestCase):
         self.assertEqual(len(loaded['summaries']), 3)
         self.assertEqual(loaded['summary_clusters'], [])
 
+    def test_generation_cost_records_usage_and_saved_rates_and_excludes_local_cache_reuse(self):
+        self.config['steps']['summary_generation']['provider'] = 'openai'
+        rates = self.config['pricing']['providers']['openai']['models']['gpt-6-luna']
+        rates['short_context_usd_per_million_tokens'] = {
+            'input': 2, 'cached_input': 1, 'cache_write': 3, 'output': 4}
+        usage = {'input_tokens': 100, 'cached_input_tokens': 20,
+                 'cache_write_tokens': 10, 'output_tokens': 5}
+        with patch('knowledge_foundry.summaries.OpenAIResponsesTool') as tool, \
+                patch('knowledge_foundry.summaries.RequestCounter.count', return_value=100):
+            tool.return_value.json_response.return_value = {'text': 'A source summary.'}
+            tool.return_value.usage_records = [usage]
+            _, loaded = self.generate('priced')
+            generation = loaded['report']['generation']
+            self.assertEqual(generation['requests'], 3)
+            self.assertAlmostEqual(generation['estimated_cost_usd'], .00063)
+            self.assertEqual(generation['usage']['input_tokens'], 300)
+            self.assertEqual(generation['rate_card']['rates'], rates)
+            _, cached = self.generate('priced-cache-reuse')
+            generation = cached['report']['generation']
+            self.assertEqual(generation['cache_hits'], 3)
+            self.assertEqual(generation['requests'], 0)
+            self.assertEqual(generation['estimated_cost_usd'], 0)
+            self.assertEqual(generation['usage']['input_tokens'], 0)
+
     def test_budget_failure_is_explicit_and_does_not_change_preparation(self):
-        self.config['steps']['summary_generation']['budget']['operational_input_cap_tokens'] = 1
+        self.config['steps']['summary_generation']['budget'].update(
+            context_window_tokens=8193, reserved_output_tokens=4096, safety_margin_tokens=4096)
         self.config_path.write_text(json.dumps(self.config))
         self.fixture_path.write_text(json.dumps(self.fixture))
         with self.assertRaisesRegex(ValueError, 'summary input cluster.*limit 1'):
             generate_summaries(self.context, self.root / 'failed', self.config_path,
                                self.root / 'summary-cache', self.fixture_path)
         self.assertEqual((self.context / 'artifact-bundle.json').read_bytes(), self.original)
+
+    def test_legacy_operational_cap_does_not_limit_summary_generation(self):
+        self.config['steps']['summary_generation']['budget']['operational_input_cap_tokens'] = 1
+        _, loaded = self.generate('legacy-cap')
+        self.assertEqual(len(loaded['summaries']), 3)
+        self.assertTrue(all(row['input_tokens'] > 1 for row in loaded['summaries']))
 
     def test_rehashed_forged_source_provenance_is_rejected(self):
         directory, loaded = self.generate('summaries')

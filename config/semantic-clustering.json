@@ -17,6 +17,7 @@
       "preprocessing_version": "structural-evidence-text-v1"
     },
     "semantic_clusters": {
+      "max_claim_request_input_tokens": 32000,
       "version": "all-members-v1",
       "minimum_similarity": 0.8,
       "refinement_step": 0.05,

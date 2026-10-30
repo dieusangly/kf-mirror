@@ -19,10 +19,11 @@ from knowledge_foundry.claim_context import (
     ROOT, _file_hash, _json, _jsonl, _write_jsonl, load_preparation,
     pricing_for_step, validate_settings,
 )
+from knowledge_foundry.claim_generation_and_classification import _cost, _usage
 from knowledge_foundry.concurrency import run_bounded, validate_workers
 from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json
 from knowledge_foundry.evidence import evidence_key
-from knowledge_foundry.generation_context import RequestCounter, usable_input_budget
+from knowledge_foundry.generation_context import RequestCounter, model_input_budget
 from knowledge_foundry.openai_tools import OpenAIResponsesTool, response_payload
 from knowledge_foundry.semantic_clusters import cluster_members, cosine, similarity_matrix
 from knowledge_foundry.structural_chunks import VERSION as STRUCTURAL_VERSION, stable_hash
@@ -30,6 +31,18 @@ from knowledge_foundry.structural_chunks import VERSION as STRUCTURAL_VERSION, s
 VERSION = 'recursive-summaries-v1'
 OUTPUT_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['text'],
                  'properties': {'text': {'type': 'string', 'minLength': 1}}}
+
+
+def _generation_telemetry(config, telemetry, usage):
+    step = config['steps']['summary_generation']
+    rates = pricing_for_step(config, 'summary_generation')
+    cost = (_cost(usage, rates)
+            if usage or telemetry['requests'] == 0 or step['provider'] == 'fixture' else None)
+    return {'provider': step['provider'], 'model': step['model'], **telemetry,
+            'usage': _usage(usage), 'estimated_cost_usd': cost,
+            'rate_card': {'version': config['pricing']['version'], 'model': step['model'], 'rates': rates},
+            'limitation': 'Estimate covers recorded usage in this run only; costs of prior calls '
+                          'reused from the local response cache are excluded. Failed calls may have unrecorded usage.'}
 
 
 def validate_summary_settings(config):
@@ -230,7 +243,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
                     return False
                 group = _cluster(level, ids, by_id, 1.)
                 return counter.count(_payload(config, prompt, _input(level, group,
-                    [by_id[i] for i in ids], prepared))) <= usable_input_budget(step['budget'])
+                    [by_id[i] for i in ids], prepared))) <= model_input_budget(step['budget'])
             groups = cluster_members(by_id, scores, settings['minimum_similarity'], fits)
             if all(len(group) == 1 for group in groups):
                 stop_reason = 'no_eligible_merges'
@@ -251,7 +264,7 @@ def generate_summaries(context_dir, output_dir, config_path=ROOT / 'config/summa
         report = {'status': 'complete', 'summaries': len(summaries), 'summary_clusters': len(summary_clusters),
                   'levels': dict(sorted(Counter(r['level'] for r in summaries).items())),
                   'root_summary_ids': sorted(r['id'] for r in frontier), 'stop_reason': stop_reason,
-                  'generation': {'provider': step['provider'], 'model': step['model'], **telemetry},
+                  'generation': _generation_telemetry(config, telemetry, usage),
                   'duration_seconds': round(time.monotonic() - started, 3), 'usage_records': usage,
                   'request_token_counting': counter.telemetry, 'embeddings': adapter.telemetry}
         _write_jsonl(output_dir / 'summaries.jsonl', sorted(summaries, key=lambda r: (r['level'], r['id'])))
@@ -350,7 +363,7 @@ def load_summaries(directory, *, validated_preparation=None, on_progress=None):
         request = _payload(config, prompt, _input(level, cluster, inputs, prepared))
         generation = {**{k: step[k] for k in ('version', 'provider', 'model', 'reasoning_effort')},
                       'prompt_sha256': stable_hash(prompt), 'request_sha256': stable_hash(request)}
-        if record['generation'] != generation or not 0 < record['input_tokens'] <= usable_input_budget(step['budget']):
+        if record['generation'] != generation or not 0 < record['input_tokens'] <= model_input_budget(step['budget']):
             raise ValueError('summary generation identity/budget mismatch')
         frontier.add(record['id'])
     if sorted(leaf_clusters) != sorted(semantic) or used_clusters != set(by_cluster):

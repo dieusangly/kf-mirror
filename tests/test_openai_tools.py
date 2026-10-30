@@ -49,7 +49,25 @@ class OpenAIToolsTests(unittest.TestCase):
             payload['instructions'] += ' retry feedback'
             counter.count(payload)
             self.assertEqual(send.call_count, 2)
-        self.assertEqual(usable_input_budget(config['steps']['claim_generation']['budget']), 32000)
+        self.assertEqual(usable_input_budget(config['steps']['claim_generation']['budget']), 1013136)
+
+    def test_generation_ignores_operational_cap_but_enforces_model_capacity(self):
+        import tempfile
+        from knowledge_foundry.generation_context import RequestCounter, model_input_budget
+        from claim_fixtures import fixture_settings
+        config = fixture_settings()
+        budget = config['steps']['claim_generation']['budget']
+        budget['operational_input_cap_tokens'] = 32000  # Historical configuration.
+        with tempfile.TemporaryDirectory() as name:
+            counter = RequestCounter(config, name)
+            with patch.object(counter, 'count', return_value=40000):
+                self.assertEqual(counter.check({}, 'claim cluster'), 40000)
+                with self.assertRaisesRegex(ValueError, 'clustering input cap'):
+                    counter.check({}, 'clustering', input_limit=32000)
+            with patch.object(counter, 'count', return_value=model_input_budget(budget) + 1):
+                with self.assertRaisesRegex(ValueError, 'model context budget') as error:
+                    counter.check({}, 'claim cluster')
+                self.assertNotIn('rebuild structural', str(error.exception))
 
     def test_provider_counter_failure_is_explicit_and_bounded(self):
         import tempfile

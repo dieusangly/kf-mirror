@@ -46,6 +46,56 @@ def test_relative_references_and_legacy_identity(tmp_path, monkeypatch):
     assert execution_settings(load_settings(build_path)) == execution_settings(expected)
 
 
+@pytest.mark.parametrize('owner', ['claim_generation', 'semantic_clusters'])
+def test_cap_owner_move_preserves_legacy_generation_and_artifact_identity(tmp_path, owner):
+    config = fixture_settings()
+    legacy = copy.deepcopy(config)
+    cap = legacy['steps']['semantic_clusters'].pop('max_claim_request_input_tokens')
+    if owner == 'claim_generation':
+        legacy['steps']['claim_generation']['budget']['operational_input_cap_tokens'] = cap
+    else:
+        legacy['steps']['semantic_clusters']['operational_input_cap_tokens'] = cap
+    assert execution_settings(config) == execution_settings(legacy)
+    # Normalization must not change either caller's configuration.
+    assert 'operational_input_cap_tokens' not in config['steps']['claim_generation']['budget']
+    legacy_path = tmp_path / 'legacy.json'
+    legacy_path.write_text(json.dumps(legacy))
+    assert load_settings(legacy_path) == legacy
+
+    chunked = tmp_path / 'chunked'
+    chunked.mkdir()
+    bundle = json.loads((ROOT / 'examples/artifact-bundle-pdf.json').read_text())
+    bundle['claims'], bundle['topics'] = [], []
+    bundle['builds'][0].update(output_claim_ids=[], output_topic_ids=[])
+    (chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
+    directory = tmp_path / 'legacy-preparation'
+    records, _ = assemble_structural_chunks(bundle)
+    fixture = tmp_path / 'vectors.json'
+    fixture.write_text(json.dumps({'embedding_vectors': {
+        stable_hash(row['text']): [1., 0.] for row in records}}))
+    prepare_claim_context(chunked, directory, legacy_path, tmp_path / 'cache', fixture)
+    assert load_preparation(directory, config)['clusters']
+
+
+@pytest.mark.parametrize('value', [0, -1, True, None, '32000'])
+def test_invalid_clustering_request_cap_is_rejected(tmp_path, value):
+    config = fixture_settings()
+    config['steps']['semantic_clusters']['max_claim_request_input_tokens'] = value
+    path = tmp_path / 'invalid.json'
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match='max_claim_request_input_tokens'):
+        load_settings(path)
+
+
+def test_duplicate_clustering_cap_names_are_rejected(tmp_path):
+    config = fixture_settings()
+    config['steps']['semantic_clusters']['operational_input_cap_tokens'] = 32000
+    path = tmp_path / 'duplicate.json'
+    path.write_text(json.dumps(config))
+    with pytest.raises(ValueError, match='semantic_clusters.*shape'):
+        load_settings(path)
+
+
 @pytest.mark.parametrize('change', ['missing', 'mismatch', 'overlap', 'unknown', 'bad_budget', 'bad_sizing'])
 def test_invalid_dependencies_fail_before_requests(tmp_path, change):
     claim_path, build_path = write_split(tmp_path, fixture_settings())
@@ -112,10 +162,10 @@ def test_split_build_matches_legacy_and_freezes_dependencies(tmp_path):
     # Fresh builds have distinct manifests when their cache-hit telemetry differs.
     assert generate_claims(None, tmp_path / 'generated-fresh', claim_path, fixture,
                            context_dir=split_dir)['status'] == 'complete'
-    # Changing consumer sizing invalidates the old plan before any model calls.
-    changed = json.loads(claim_path.read_text())
-    changed['steps']['claim_generation']['budget']['operational_input_cap_tokens'] -= 1
-    claim_path.write_text(json.dumps(changed))
+    # Changing cluster sizing invalidates the old plan before any model calls.
+    changed = json.loads(build_path.read_text())
+    changed['steps']['semantic_clusters']['max_claim_request_input_tokens'] -= 1
+    build_path.write_text(json.dumps(changed))
     with patch('knowledge_foundry.claim_generation_and_classification._provider') as provider:
         with pytest.raises(ValueError, match='settings|configuration'):
             generate_claims(None, tmp_path / 'incompatible', claim_path, fixture, context_dir=split_dir)

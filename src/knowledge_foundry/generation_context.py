@@ -13,9 +13,14 @@ from knowledge_foundry.structural_links import stable_hash
 COUNT_VERSION = "response-input-count-v2"
 
 
+def model_input_budget(config):
+    return config['context_window_tokens'] - config['reserved_output_tokens'] - config['safety_margin_tokens']
+
+
 def usable_input_budget(config):
-    budget = config['context_window_tokens'] - config['reserved_output_tokens'] - config['safety_margin_tokens']
-    cap = config['operational_input_cap_tokens']
+    """Read historical budgets as saved, including their optional operational cap."""
+    budget = model_input_budget(config)
+    cap = config.get('operational_input_cap_tokens')
     return min(budget, cap) if cap is not None else budget
 
 
@@ -121,11 +126,16 @@ class RequestCounter:
                            'sha256': stable_hash([identity, count])})
         return count
 
-    def check(self, payload, label):
+    def check(self, payload, label, input_limit=None):
         tokens = self.count(payload)
-        limit = usable_input_budget(self.config['budget'])
+        limit = model_input_budget(self.config['budget'])
+        if input_limit is not None:
+            limit = min(limit, input_limit)
         if tokens > limit:
+            constraint = ('clustering input cap; adjust semantic_clusters.max_claim_request_input_tokens'
+                          if input_limit is not None else
+                          'model context budget after reserved output and safety margin; '
+                          'reduce this request or configure a model with sufficient verified capacity')
             raise ValueError(f'{label}: complete generation request has {tokens} input tokens; limit {limit}; '
-                             'inspect structural links or rebuild structural chunks and semantic clusters with a verified larger budget; '
-                             'structural splitting is outside scope')
+                             f'{constraint}')
         return tokens

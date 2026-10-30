@@ -166,8 +166,8 @@ class ClaimContextTests(unittest.TestCase):
         original_check = RequestCounter.check
         checked = []
 
-        def check(counter, payload, label):
-            result = original_check(counter, payload, label)
+        def check(counter, payload, label, **kwargs):
+            result = original_check(counter, payload, label, **kwargs)
             if label.startswith('structural chunk '):
                 checked.append(label)
             return result
@@ -231,7 +231,7 @@ class ClaimContextTests(unittest.TestCase):
 
     def test_oversized_singleton_fails_before_embeddings(self):
         settings = fixture_settings()
-        settings['steps']['claim_generation']['budget']['operational_input_cap_tokens'] = 1
+        settings['steps']['semantic_clusters']['max_claim_request_input_tokens'] = 1
         self.config.write_text(json.dumps(settings))
         events = []
         with patch('knowledge_foundry.embeddings.EmbeddingAdapter.embed', side_effect=AssertionError('no embeddings')):
@@ -316,7 +316,7 @@ class ClaimContextTests(unittest.TestCase):
             [('paragraph', 'Dogs rest.', 1), ('paragraph', 'Dogs sleep.', 1),
              ('paragraph', 'Dogs eat.', 1)], [[0], [1], [2]])
         (self.chunked / 'artifact-bundle.json').write_text(json.dumps(bundle))
-        config = fixture_settings(); config['steps']['claim_generation']['budget']['operational_input_cap_tokens'] = 250
+        config = fixture_settings(); config['steps']['semantic_clusters']['max_claim_request_input_tokens'] = 250
         self.config.write_text(json.dumps(config))
         def measured(_counter, payload):
             self.assertIn('schema', payload['text']['format'])
