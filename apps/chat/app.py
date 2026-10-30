@@ -94,7 +94,7 @@ def main():
     try:
         snapshots = [s for s in store.snapshots() if s['status'] == 'published']
     except Exception:
-        st.error('PostgreSQL is unavailable or migrations have not run. Follow doc/retrieval-rag.md.')
+        st.error('PostgreSQL is unavailable or migrations have not run. Follow doc/aml-cft-pipeline.md.')
         st.stop()
     if not snapshots:
         st.info('No published snapshots. Import validated artifacts, then explicitly publish the snapshot.')

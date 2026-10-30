@@ -1,11 +1,19 @@
 {
-  "aml-cft-expanded-pilot": {
+  "aml-cft-pilot-13": {
     "title": "13-document AML/CFT pilot",
     "suggested_questions": [
       "Les lignes directrices ACPR–Tracfin ont-elles un caractère contraignant ?",
       "Une COSI exige-t-elle un soupçon, comme une déclaration de soupçon ?",
       "Qui peut être bénéficiaire effectif au sens du code ?"
     ],
-    "runs": {}
+    "runs": {
+      "20261028-docling-aml-cft-01": {
+        "artifact_path": "artifacts/20261028-docling-aml-cft-01/document-structuring/chunks/artifact-bundle.json",
+        "preparation_dir": "artifacts/20261028-docling-aml-cft-01/semantic-clustering",
+        "claims_dir": "artifacts/20261028-docling-aml-cft-01/claim-classification",
+        "summaries_dir": "artifacts/20261028-docling-aml-cft-01/summary-generation",
+        "graph_path": "artifacts/20261028-docling-aml-cft-01/graphs/knowledge-provenance-graph.html"
+      }
+    }
   }
 }

@@ -52,25 +52,24 @@ needs only `chunk.py` and saved parsing; preserve prior outputs.
 
 ## 3. Review and accept
 
-Use the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_review)
-in a Codex session with `RUN_ID`, `MODEL` and `MODEL_REASONING_EFFORT` set to the
-saved run and actual session settings. Codex orchestrates **prepare → inspect →
-finalize**; the script performs deterministic checks and scoring without model calls.
+Follow the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_review)
+with `RUN_ID`, `MODEL` and `MODEL_REASONING_EFFORT` matching the saved run and
+actual session. Codex orchestrates **prepare → inspect → finalize**; script
+checks/scoring are deterministic and make no model calls.
 
 ```sh
 .venv/bin/python scripts/deterministic_document_structuring_review.py prepare --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
 ```
 
-Prepare runs extraction/chunk audits and reuses `parsing-review/` and
-`chunk-review/`. It preserves current judgments and refreshes stale empty pending
-templates. Stale files containing actual findings require a fresh review directory;
-use `--parsing-review-dir` / `--chunk-review-dir` and retain those paths for finalize.
+Prepare audits extraction/chunks, preserving judgments in `parsing-review/` and
+`chunk-review/` and refreshing stale empty templates. Stale files with findings
+require fresh `--parsing-review-dir` / `--chunk-review-dir` paths; reuse those
+paths for finalize.
 
-Follow the review prompt's completion rule for every `to_review`
-sample in both packages, including original sources and rendered layout. Save
-judgments, source-located notes and actual reviewer identity in each `review.json`.
-Run finalize only after every sample has a completed judgment or a documented
-inspection blocker. Automatic passes never substitute for source inspection.
+Inspect every `to_review` sample against original sources and rendered layout
+under the prompt's completion rule. Save judgments, located notes and reviewer
+identity in each `review.json`. Finalize only after every sample has a judgment
+or documented inspection blocker; automatic passes cannot replace inspection.
 
 ```sh
 .venv/bin/python scripts/deterministic_document_structuring_review.py finalize --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
@@ -81,10 +80,9 @@ frozen output only when both gates pass; pending/failing results return exit 1,
 and invalidate any prior acceptance. Invalid inputs return exit 2. It never
 reparses or rechunks. For defects, use the
 [repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)
-for diagnosis, implementation corrections, focused regression tests and a results
-report. Rebuilding from the recommended checkpoint is a separate task, followed
-by a separate source/layout review task. Corpus acceptance is not part of repair
-completion.
+for diagnosis, corrections, focused regressions and reporting. Rebuilding from
+the recommended checkpoint and source/layout review are separate tasks; repair
+completion does not grant corpus acceptance.
 
 The combined report is `document-structuring/document_structuring_review_report.json`;
 checkpoint folders retain their own `report.json`. The standalone claim evaluator
@@ -96,11 +94,11 @@ accept `--output` to select another report path.
 Requires accepted structure and `OPENAI_API_KEY`; these commands make paid calls.
 Claims/topics and summaries are independent branches:
 
-Claim requests distinguish primary cluster evidence (`E`) from exact-span source
-support (`S`): governing context, bounded neighbors and same-page notes from saved
-original chunks. Support can qualify a primary claim but cannot produce a claim
-alone or expand primary coverage. Proximity does not establish applicability.
-Spanless context remains non-citable. Request sizing includes this support.
+Claims distinguish primary cluster evidence (`E`) from exact-span support (`S`):
+governing context, bounded neighbors and same-page notes from saved chunks.
+Support counts toward request size and may qualify claims, but cannot create
+them alone or expand primary coverage. Proximity does not establish applicability;
+spanless context remains non-citable.
 
 ```sh
 .venv/bin/python scripts/build_semantic_clusters.py --chunked-dir "$RUN/document-structuring/chunks" --output-dir "$RUN/semantic-clustering"
@@ -115,16 +113,11 @@ Claim and summary generation have no operational input cap; their complete reque
 must fit the configured model context window after output reservation and safety
 margin.
 
-Semantic-clustering preparation defaults to four concurrent request-sizing calls;
-pass `build_semantic_clusters.py --workers N` to change that limit. It parallelizes
-singleton checks, independent cluster counts and final checks. Adaptive splitting
-and clustering decisions retain deterministic order; unchanged embeddings reuse
-the persistent cache.
-
-Generation, classification and summaries each default to four concurrent workers.
-Pass `--workers N` to set the limit, or `--workers 1` for serial execution.
-Classification requires completed generation; summaries run independently, with
-concurrency within each level. Limits apply per command when running stages together.
+Clustering, generation, classification and summaries default to four workers per
+command; use `--workers N` or `--workers 1` for serial execution. Clustering
+parallelizes singleton sizing, independent counts and final checks while keeping
+adaptive decisions deterministic and reusing cached embeddings. Classification
+requires complete generation; summaries run independently, parallel within each level.
 
 Identical candidate IDs are stored once, retaining every producing cluster link
 and its evidence accounting. Different wording or evidence remains separate.
@@ -142,10 +135,10 @@ For **interrupted claims or classification**, keep the output folder and add `--
 .venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification" --resume
 ```
 
-For a **finalized `partial` run**, preserve the old folder and retry failures into a
-fresh output path. Run the command for the affected stage. Classification requires
-complete generation; point `--candidates-dir` at the recovered claims if applicable.
-`--reuse-candidates-dir` identifies the candidates consumed by the old classification.
+For a **finalized `partial` run**, preserve the old folder and retry the affected
+stage into a fresh output path. Classification needs complete generation: point
+`--candidates-dir` at recovered claims and `--reuse-candidates-dir` at the
+candidates consumed by the old classification.
 
 ```sh
 .venv/bin/python scripts/generate_claims.py --context-dir "$RUN/semantic-clustering" --retry-failed-from "$RUN/claim-generation" --output-dir "$RUN/claim-generation-retry"
@@ -160,11 +153,8 @@ To reuse the original output path, first archive or remove only its failed folde
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation-retry" --cache-dir artifacts/summary-cache
 ```
 
-For claim defects, the
-[repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)
-ends after diagnosis, corrections, focused regressions and reporting. Rebuilding
-from its recommended checkpoint and reviewing the rebuilt claims are separate
-tasks; passing corpus review is not part of repair completion.
+For claim defects, use the repair workflow in section 3, then separately rebuild
+and review the affected claims.
 
 After a generation prompt, schema or source-context change, rebuild semantic
 clustering from the accepted chunks to recompute request sizes, then regenerate
@@ -199,26 +189,25 @@ findings; initialization refuses to overwrite an existing review file.
 Include generated candidates, semantic clusters and recursive summaries:
 
 ```sh
-.venv/bin/python scripts/render_knowledge_graph.py --bundle "$RUN/claim-classification/artifact-bundle.json" --claim-generation-dir "$RUN/claim-generation" --summary-dir "$RUN/summary-generation" --output "$RUN/claim-classification/graph.html"
+.venv/bin/python scripts/render_knowledge_graph.py --bundle "$RUN/claim-classification/artifact-bundle.json" --claim-generation-dir "$RUN/claim-generation" --summary-dir "$RUN/summary-generation" --output "$RUN/graphs/knowledge-provenance-graph.html"
 ```
 
-Open the standalone HTML file in a browser. Add `--force` to replace an existing
-viewer. Keeping this standalone graph under `claim-classification` also lets the
-assistant resolve it to the matching classified artifact.
+The renderer creates parent directories and replaces existing HTML. Open it in a
+browser; the run-level graph covers all artifact stages. Section 8 registers it
+for the assistant, which checks the claims manifest against the selected snapshot.
 
 ## 7. Rebuild the PostgreSQL search projection
 
-Set `KF_DATABASE_URL` for an existing PostgreSQL database with pgvector available;
-see [.envrc.example](../.envrc.example). Migrations create the repository tables
-and vector extension. The database role needs the corresponding permissions.
+Set `KF_DATABASE_URL` for an existing PostgreSQL database; see
+[.envrc.example](../.envrc.example). Migrations create repository tables and the
+pgvector extension, which must be installed and permitted for the database role.
 
-Reimporting saved artifacts creates an immutable search snapshot, reusing an
-identical existing snapshot when possible. Previous snapshots and conversation
-history are retained. `--embed-missing` may make paid embedding calls for records
-without compatible saved vectors; omit it for import without new embedding calls.
+Import creates an immutable snapshot or reuses an identical one, retaining older
+snapshots and conversation history. `--embed-missing` may make paid calls for
+records without compatible vectors; omit it to avoid new embedding calls.
 
 ```sh
-CORPUS=aml-cft-expanded-pilot
+CORPUS=aml-cft-pilot-13
 export KF_RETRIEVAL_CONFIG=config/retrieval-multilingual.json
 .venv/bin/python scripts/index_artifacts.py migrate
 mkdir -p "$RUN/indexing"
@@ -243,33 +232,54 @@ not approve every claim or summary:
 
 ## 8. Run the document assistant
 
-Register the selected run in the corpus configuration so the assistant can show
-its matching provenance graph. This preserves other configured corpora/runs:
+Register the run once (or after changing paths) to enable its provenance graph.
+This preserves other configured corpora/runs and does not import or publish data:
 
 ```sh
-.venv/bin/python - "$RUN_ID" "$RUN" <<'PYTHON'
+.venv/bin/python - "$RUN_ID" "$RUN" "$CORPUS" <<'PYTHON'
 import json, sys
 from pathlib import Path
 run_id, run = sys.argv[1], Path(sys.argv[2])
 path = Path('config/retrieval-corpora.json')
 catalog = json.loads(path.read_text())
-catalog['aml-cft-expanded-pilot']['runs'][run_id] = {
+catalog[sys.argv[3]]['runs'][run_id] = {
     'artifact_path': str(run / 'document-structuring/chunks/artifact-bundle.json'),
     'preparation_dir': str(run / 'semantic-clustering'),
     'claims_dir': str(run / 'claim-classification'),
     'summaries_dir': str(run / 'summary-generation'),
-    'graph_path': str(run / 'claim-classification/graph.html'),
+    'graph_path': str(run / 'graphs/knowledge-provenance-graph.html'),
 }
 path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n')
 PYTHON
 .venv/bin/python -m streamlit run apps/chat/app.py
 ```
 
-Open `http://localhost:8501`, select the corpus and published snapshot, and use
-**Open provenance graph** to inspect lineage. The app inherits `KF_DATABASE_URL`
-and `KF_RETRIEVAL_CONFIG`; it uses `config/retrieval-corpora.json` by default.
-`OPENAI_API_KEY` enables generated answers and vector/combined search, which may
-incur charges. Without it, the app uses keyword search and exact source excerpts.
+Open `http://localhost:8501` and select the corpus/published snapshot.
+**Open provenance graph** shows lineage. The app inherits `KF_DATABASE_URL` and
+`KF_RETRIEVAL_CONFIG`, defaulting to `config/retrieval-corpora.json` for the catalog.
+`OPENAI_API_KEY` enables paid answers and vector/combined search; without it,
+the app uses keyword search and exact excerpts.
+
+## Back up results and PostgreSQL
+
+Keep the selected run directory, `artifacts/ingested/`, and the repository version
+with its configuration and `data/manifest.json`. Optional embedding and summary
+caches avoid repeated work and paid calls during regeneration.
+
+To preserve all database corpora, snapshots, vectors, chat history and feedback,
+use PostgreSQL client tools compatible with the server:
+
+```sh
+source .envrc
+mkdir -p artifacts/db
+DUMP="artifacts/db/knowledge-foundry-$(TZ=Europe/Paris date +%Y%m%d-%H%M%S).dump"
+pg_dump --dbname="$KF_DATABASE_URL" --format=custom --file="$DUMP"
+pg_restore --list "$DUMP" > /dev/null
+```
+
+Upload the dump alongside the artifact backup. Listing checks archive readability,
+not a full restore. Restore the original directory layout; saved metadata may
+contain absolute paths. Recreate credentials separately; do not include `.envrc`.
 
 ## Validate or compare saved runs
 

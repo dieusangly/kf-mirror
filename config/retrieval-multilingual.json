@@ -10,7 +10,7 @@
     "minimum_keyword_score": 0.0,
     "minimum_keyword_coverage": 0.25,
     "rrf_constant": 60,
-    "max_context_evidence": 24,
+    "max_context_evidence": 48,
     "max_context_depth": 4,
     "followup_turns": 2,
     "rerank": true

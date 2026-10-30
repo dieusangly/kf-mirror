@@ -36,9 +36,9 @@ class Provider:
         }], native={"original_response": "..."})
 ```
 
-The constructor takes no arguments; `artifact` supplies source/document identity,
-frozen metadata and original path. Adapters own SDKs, credentials, retries and
-replay compatibility; errors become per-document failures.
+Constructors take no arguments. `artifact` supplies source/document identity,
+frozen metadata and the original path. Adapters own SDKs, credentials, retries
+and replay compatibility; errors become per-document failures.
 
 - Elements need unique stable `locator_key`, `kind`, literal `text`, `location`;
   optional `parent_key` references a preceding parent. Normalization adds IDs
@@ -86,9 +86,9 @@ element types fail explicitly.
 
 `knowledge_foundry.unstructured_provider:Provider` runs local `partition_pdf` on
 verified bytes, with telemetry disabled and no URL, credentials or hosted API.
-Both PDF engines are pinned in `requirements.txt`; [installation/run commands](aml-cft-pipeline.md)
-use `.venv`. First use may download open-source NLP/model weights; keep caches
-outside dated runs and record environment/model versions.
+PDF engines are pinned in `requirements.txt`; see [commands](aml-cft-pipeline.md).
+First use may download NLP/model weights. Keep caches outside dated runs and
+record environment/model versions.
 
 The `unstructured` profile selects `hi_res`, YOLOX, French/English OCR and table
 inference. L1/L2 explicitly use the internal HTML reader/article selector.
@@ -108,9 +108,9 @@ boxes convert to PDF points, duplicate IDs receive stable order-based locators,
 and ambiguous/missing/forward parents warn rather than create invalid links.
 The shared pipeline saves figure crops from originals.
 
-The pinned SDK labels predicted footnotes `Footer`, potentially excluding real
-source evidence. Explicit `Footnote` is supported, but cannot be inferred from
-`Footer` alone. Table HTML may omit cells or disagree with plain text. See
+The SDK labels predicted footnotes `Footer`, potentially excluding source
+evidence; supported `Footnote` elements cannot be inferred from that label.
+Table HTML may omit cells or disagree with plain text. See
 [benchmarks](benchmarks.md) for measured failures and acceptance status; retained
 `configuration.json`/`environment.txt` describe the historical pilot environment.
 

@@ -64,6 +64,17 @@ class RenderKnowledgeGraphTests(unittest.TestCase):
         self.assertIn("Knowledge provenance graph", rendered)
         self.assertIn("topic:guidelines-status", rendered)
 
+    def test_cli_creates_parent_directories_and_replaces_existing_html(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "nested" / "graphs" / "graph.html"
+            args = ["--bundle", "examples/artifact-bundle-pdf.json", "--output", str(output)]
+            self.assertEqual(main(args + ["--title", "First graph"]), 0)
+            self.assertIn("<title>First graph</title>", output.read_text(encoding="utf-8"))
+            self.assertEqual(main(args + ["--title", "Updated graph"]), 0)
+            rendered = output.read_text(encoding="utf-8")
+            self.assertIn("<title>Updated graph</title>", rendered)
+            self.assertNotIn("<title>First graph</title>", rendered)
+
     def test_claim_candidates_are_linked_to_chunks_and_evidence(self):
         chunk = self.bundle["chunks"][0]
         candidate = {

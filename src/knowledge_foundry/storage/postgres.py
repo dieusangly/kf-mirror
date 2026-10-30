@@ -43,7 +43,7 @@ class PostgresStore:
     def __init__(self, dsn=None):
         self.dsn = dsn or os.environ.get('KF_DATABASE_URL')
         if not self.dsn:
-            raise ValueError('KF_DATABASE_URL is required; see doc/retrieval-rag.md')
+            raise ValueError('KF_DATABASE_URL is required; see doc/aml-cft-pipeline.md')
 
     @contextmanager
     def connection(self):

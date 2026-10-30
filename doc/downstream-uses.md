@@ -12,9 +12,11 @@ Accepted structural chunks feed semantic clustering, then independent branches:
 | Training (prospective) | Reviewed context → claim; claim/context → topic/null. | Reviewed text → summary; summaries → higher summaries. |
 | Reasoning training (prospective) | Curate questions, evidence, checked conclusions and verifiable steps. | Supply context maps; verify against underlying evidence. |
 
-Claims/classification, recursive summaries, retrieval, provenance graph,
-PostgreSQL/pgvector and the assistant are implemented, but have not been rerun
-end to end on this unaccepted 13-document pilot.
+The 13-document Docling pilot has accepted structure, generated claims/summaries
+and a [retrieval evaluation](../artifacts/20261028-docling-aml-cft-01/indexing/retrieval-report.json).
+Its [claim-review exception](../artifacts/20261028-docling-aml-cft-01/claim-review/acceptance-exception.json)
+retains failed review findings and does not authorize a downstream gate bypass
+or publication. Retrieval checks do not certify answer quality.
 
 - Citations resolve to original evidence; summaries are not primary claim evidence.
   Shared topics/similarity do not establish agreement or legal applicability.

@@ -1,8 +1,8 @@
 # State of the art
 
 Survey researched 1 October 2026; repository relationship updated 27 October.
-This is a design comparison, not measured accuracy/throughput. Links are
-first-party; verify current licenses/service terms before adopting a project.
+Design comparison; accuracy/throughput are unmeasured. Links are first-party;
+verify licenses/service terms before adoption.
 
 | Project | Useful capability | Relationship to Foundry |
 | --- | --- | --- |

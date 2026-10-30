@@ -50,3 +50,31 @@ def test_separate_graph_stage_requires_saved_current_hashes(tmp_path, flat):
     snapshot['identity']['claims_manifest_sha256'] = file_hash(manifest)
     definition['runs']['run']['graph_path'] = '../outside.html'
     assert graph_path(snapshot, definition, tmp_path) is None
+
+
+def test_standalone_run_graph_requires_matching_manifest_and_exact_location(tmp_path):
+    run = tmp_path / 'artifacts/pilot'
+    claims = run / 'claim-classification'
+    claims.mkdir(parents=True)
+    manifest = claims / 'build-manifest.json'
+    manifest.write_text('{}')
+    graph = run / 'graphs/knowledge-provenance-graph.html'
+    graph.parent.mkdir()
+    graph.write_text('<html>All artifact stages</html>')
+    snapshot = {'identity': {'claims_manifest_sha256': file_hash(manifest)}}
+    entry = {'claims_dir': str(claims), 'graph_path': str(graph)}
+    definition = {'runs': {'pilot': entry}}
+    assert graph_path(snapshot, definition, tmp_path) == graph
+    assert graph_path(snapshot, {}, tmp_path) is None
+    manifest.write_text('{"changed": true}')
+    assert graph_path(snapshot, definition, tmp_path) is None
+    snapshot['identity']['claims_manifest_sha256'] = file_hash(manifest)
+    other = tmp_path / 'artifacts/other/graphs/knowledge-provenance-graph.html'
+    other.parent.mkdir(parents=True)
+    other.write_text('Other run')
+    entry['graph_path'] = str(other)
+    assert graph_path(snapshot, definition, tmp_path) is None
+    graph.unlink()
+    graph.symlink_to(other)
+    entry['graph_path'] = str(graph)
+    assert graph_path(snapshot, definition, tmp_path) is None

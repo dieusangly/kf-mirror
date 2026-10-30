@@ -20,12 +20,11 @@ Sources → Ingestion → Document Structuring → Accepted Structural Chunks
   every-member similarity checks; claims/topics and recursive summaries form
   independent branches with source evidence.
 
-Review follows **prepare → agent source inspection → finalize** using
-`deterministic_document_structuring_review.py`. Extraction and chunk audits remain
-internal checks of Document Structuring.
+Review uses `deterministic_document_structuring_review.py`: **prepare → agent
+source inspection → finalize**. Extraction/chunk audits are internal checks.
 
-`Document` is a provenance record, not a stage. Source/document, element, chunk,
-evidence, claim and topic ID contracts remain unchanged.
+`Document` records provenance. Source/document, element, chunk, evidence, claim
+and topic ID contracts remain unchanged.
 
 Store executions in `artifacts/YYYYMMDD-provider-corpus-NN/`; share originals and
 pinned snapshots in `artifacts/ingested/`. Parsing repairs reuse ingestion;

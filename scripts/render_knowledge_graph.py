@@ -376,13 +376,10 @@ def main(argv=None):
     parser.add_argument("--claim-generation-dir", type=Path,
                         help="optional generated-claims run directory with structural chunks and semantic clusters")
     parser.add_argument('--summary-dir', type=Path, help='optional frozen recursive-summary run; claims are optional')
-    parser.add_argument("--output", type=Path, required=True, help="new HTML file to create")
+    parser.add_argument("--output", type=Path, required=True, help="HTML file to create or replace; parent directories are created")
     parser.add_argument("--title", default="Knowledge provenance graph", help="HTML page title")
-    parser.add_argument("--force", action="store_true", help="replace an existing output file")
     args = parser.parse_args(argv)
 
-    if args.output.exists() and not args.force:
-        parser.error(f"output already exists: {args.output} (use --force to replace it)")
     try:
         with args.bundle.open(encoding="utf-8") as handle:
             bundle = json.load(handle)
@@ -401,6 +398,7 @@ def main(argv=None):
     except (OSError, json.JSONDecodeError, ValueError) as error:
         parser.error(str(error))
     try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(render_html(graph, args.title), encoding="utf-8")
     except OSError as error:
         parser.error(str(error))

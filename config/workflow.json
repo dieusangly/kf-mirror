@@ -1,5 +1,5 @@
 {
-  "corpus": "aml-cft-expanded-pilot",
+  "corpus": "aml-cft-pilot-13",
   "pipeline": "config/pipeline.json",
   "structural": "config/semantic-clustering.json",
   "claims": "config/claim-generation-and-classification.json",

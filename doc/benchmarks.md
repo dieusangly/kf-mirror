@@ -18,14 +18,13 @@ compares PDF engines. No paid services or downstream model calls were used ($0).
 | [Unstructured fast](../artifacts/20261027-unstructured-aml-cft-01/fast-baseline/run.json) | 0.27.35; embedded text, no table inference. |
 | [Unstructured hi_res](../artifacts/20261027-unstructured-aml-cft-01/run.json) | 0.27.35; YOLOX, table inference, French/English OCR, 350 DPI; three CPU workers. |
 
-The active `20261027-unstructured-aml-cft-01` output is hi_res; fast is archived
-under `fast-baseline/`. Parsing ran on 27 October 2026; final validation completed
-on 28 October. At that time, all 388 Docling/shared-ingestion files and 105 original
-fast files were verified preserved; two path-adjusted fast metadata files have exact
-original copies. Run descriptors retain settings, environments, model hashes,
-worker reports and preservation evidence; live config consolidation does not
-rewrite that history. Hi-res weights were cached in a four-page preflight;
-corpus execution used `HF_HUB_OFFLINE=1`.
+The active Unstructured output is hi_res; fast is under `fast-baseline/`. Parsing
+ran on 27 October 2026; validation finished on 28 October. All 388 Docling/shared-ingestion
+files and 105 original fast files were preserved; two path-adjusted
+fast metadata files have exact original copies. Run descriptors retain settings,
+environments, model hashes, worker reports and preservation evidence independently
+of live configuration. A four-page preflight cached hi_res weights; corpus
+execution used `HF_HUB_OFFLINE=1`.
 
 ## Results
 
@@ -67,9 +66,8 @@ samples do not estimate a corpus-wide failure rate.
 | Numbers and hierarchy | NRA23 p31 still joins year `2010` and note `31` as `201031`. Hi_res improves list separation, R24EN p35 labels and PANN24 p1 headings, but detaches/omits markers; 979 of 981 headings are level 1. |
 | Geometry | Both retain 200 invalid boxes in TFR23EN and one in KYC21. Hi_res adds five invalid figure boxes (T: four; NRA23: one), preventing crops. All 135 successful crops are linked and preserved. |
 
-SDK text, classifications and geometry are preserved rather than silently
-repaired. Native HTML may disagree with plain text; authoritative-element
-coverage cannot detect substantive text misclassified as a footer.
+SDK text, classifications and geometry are preserved. Native HTML may disagree
+with plain text; coverage cannot detect substantive text misclassified as a footer.
 
 ## Measurement limits
 
