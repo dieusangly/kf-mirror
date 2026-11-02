@@ -61,8 +61,21 @@ def audit_answer(answer, store):
             'semantic_answer_support': 'not measured; review generated answers against cited passages'}
 
 
+def compact_row(row):
+    """Keep evaluation outcomes and usage without repeated source traces."""
+    compact = {k: v for k, v in row.items() if k not in {
+        'matched_evidence_ids', 'passage_ids', 'navigation_ids', 'resolution',
+        'context_decisions', 'evidence_ids'}}
+    if row.get('ranking') is not None:
+        compact['ranking'] = {k: v for k, v in row['ranking'].items()
+                             if k not in {'candidate_ids', 'admitted_ids', 'selected_ids'}}
+    if 'excerpts' in row:
+        compact['excerpts'] = {k: v for k, v in row['excerpts'].items() if k != 'text'}
+    return compact
+
+
 def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combined'),
-             modes=('passage',), snapshot_id=None, sequential=False, check_excerpts=False):
+             modes=('passage',), snapshot_id=None, sequential=False, check_excerpts=False, trace=False):
     snapshot = assistant.store.snapshot(corpus, snapshot_id)
     rows = []
     for mode in modes:
@@ -101,7 +114,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                             'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
                             'text_anchor_hit': matches_anchors(answer['citations'], case),
                             'citation_audit': audit_answer(answer, assistant.store)}
-                    rows.append(row)
+                    rows.append(row if trace else compact_row(row))
                 except (ValueError, PipelineRuntimeError) as exc:
                     rows.append({'id': case['id'], 'mode': mode, 'method': method, 'error': str(exc)})
                 if sequential:
@@ -121,6 +134,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                             'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None})
     return {'snapshot_id': snapshot['id'], 'top_k': assistant.config['search']['top_k'],
             'configuration': copy.deepcopy(assistant.config), 'cases_sha256': stable_hash(cases),
+            'trace': trace,
             'label_status': 'draft smoke locators; source/page overlap is not semantic relevance',
             'sequential': sequential,
             'answer_support': 'unscored; exact text anchors and page overlap do not establish semantic support',

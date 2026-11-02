@@ -24,6 +24,7 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--sequence', action='store_true', help='run in one conversation; OpenAI mode may call the query rewriter')
     parser.add_argument('--check-excerpts', action='store_true', help='audit deterministic excerpts without answer-model calls')
+    parser.add_argument('--trace', action='store_true', help='include candidate and evidence IDs, stage diagnostics and excerpt text')
     parser.add_argument('--no-rerank', action='store_true', help='compare search without model reranking')
     args = parser.parse_args(argv)
     if args.unpublished and not args.snapshot_id:
@@ -36,7 +37,8 @@ def main(argv=None):
         store = SnapshotEvaluationStore(store, args.corpus, args.snapshot_id)
     report = evaluate(DocumentAssistant(store, config), args.corpus,
                       json.loads(args.cases.read_text()), methods=args.methods, modes=args.modes,
-                      snapshot_id=args.snapshot_id, sequential=args.sequence, check_excerpts=args.check_excerpts)
+                      snapshot_id=args.snapshot_id, sequential=args.sequence, check_excerpts=args.check_excerpts,
+                      trace=args.trace)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(report['metrics'], indent=2))

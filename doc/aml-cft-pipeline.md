@@ -219,8 +219,13 @@ Check retrieval against the ready, unpublished snapshot and inspect the report
 before publication. Vector/combined search can make paid query-embedding calls:
 
 ```sh
-.venv/bin/python scripts/evaluate_retrieval.py --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" --snapshot-id "$INDEX_SNAPSHOT_ID" --unpublished --cases tests/fixtures/retrieval-expanded-development.json --methods keyword vector combined --modes passage claim summary --no-rerank --check-excerpts --output "$RUN/indexing/retrieval-report.json"
+mkdir -p "$RUN/retrieval-evaluation"
+.venv/bin/python scripts/evaluate_retrieval.py --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" --snapshot-id "$INDEX_SNAPSHOT_ID" --unpublished --cases tests/fixtures/retrieval-expanded-development.json --methods keyword vector combined --modes passage claim summary --no-rerank --check-excerpts --output "$RUN/retrieval-evaluation/retrieval-report.json"
 ```
+
+Reports retain metrics, per-question results, usage, costs and warnings by default.
+Add `--trace` for candidate and evidence IDs, passage expansions, context decisions
+and excerpt text. `--check-excerpts` runs the same checks in either format.
 
 Publication explicitly selects the snapshot available to the assistant; it does
 not approve every claim or summary:
