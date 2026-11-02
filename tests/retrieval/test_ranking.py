@@ -27,6 +27,9 @@ def test_generic_selection_uses_only_supplied_records_and_records_usage(tmp_path
     selected, telemetry = rank_candidates(docs, 'Must dogs rest?', settings(tmp_path), stream)
     assert [d.id for d in selected] == [docs[expected].id]
     assert telemetry['model'] == 'fixture' and telemetry['estimated_cost_usd'] > 0
+    assert telemetry['candidate_ids'] == [d.id for d in docs]
+    assert telemetry['admitted_ids'] == [d.id for d in docs]
+    assert telemetry['selected_ids'] == [docs[expected].id]
 
 
 @pytest.mark.parametrize('indices', [[999], [-1], [True], ['0'], [0, 0], [0, 1], None])

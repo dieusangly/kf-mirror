@@ -58,4 +58,6 @@ def rank_candidates(documents, question, config, stream=None):
         'estimated_cost_usd': estimate_cost(usage, config['answer'].get('pricing'), config['answer']['model']),
         'latency_seconds': round(time.monotonic() - started, 3), 'request_input_tokens': request_tokens(payload, config),
         'candidates_received': len(documents), 'candidates_admitted': len(admitted), 'selected': len(indices),
+        'candidate_ids': [d.id for d in documents], 'admitted_ids': [d.id for d in admitted],
+        'selected_ids': [admitted[i].id for i in indices],
         'prompt_version': 'rag-rank-v1', 'prompt_sha256': stable_hash(PROMPT)}

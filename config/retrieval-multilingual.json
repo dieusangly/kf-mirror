@@ -1,5 +1,5 @@
 {
-  "version": "retrieval-multilingual-pilot-v1",
+  "version": "retrieval-multilingual-pilot-v2",
   "search": {
     "method": "combined",
     "mode": "passage",
@@ -11,7 +11,7 @@
     "minimum_keyword_coverage": 0.25,
     "rrf_constant": 60,
     "max_context_evidence": 48,
-    "max_context_depth": 4,
+    "max_context_depth": 8,
     "followup_turns": 2,
     "rerank": true
   },

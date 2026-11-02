@@ -9,7 +9,7 @@ def location_key(e):
 
 
 def assemble_context(store, snapshot_id, documents, question, history, config, source_ids=None, document_ids=None, *, query=None):
-    accepted, seen, warnings = [], set(), []
+    accepted, seen, warnings, decisions = [], set(), [], []
     max_evidence = config['search']['max_context_evidence']
     base = request_payload(config, question, history, [])
     if request_tokens(base, config) > config['budget']['input_tokens']:
@@ -51,6 +51,8 @@ def assemble_context(store, snapshot_id, documents, question, history, config, s
         if seed['id'] in processed:
             continue
         group = [ranked_by_id[k] for k in list_groups.get(seed['id'], [seed['id']])]
+        decision = {'seed_ids': [e['id'] for e in group]}
+        decisions.append(decision)
         processed.update(e['id'] for e in group)
         bundle = [(e, False) for e in group]
         frontier, visited = group, {e['id'] for e in group}
@@ -68,6 +70,7 @@ def assemble_context(store, snapshot_id, documents, question, history, config, s
             visited.update(ids)
             frontier = list(more.values())
         if any(set(e['context_ids']) - visited for e in frontier):
+            decision.update(reason='depth', bundle_ids=sorted(visited))
             warnings.append('Evidence and its governing context were excluded because the context depth limit was reached.')
             continue
         additions, keys, promotions = [], set(), []
@@ -89,11 +92,14 @@ def assemble_context(store, snapshot_id, documents, question, history, config, s
             additions.append({**value, 'label': 'E' + str(len(accepted) + len(additions) + 1),
                               'is_context': is_context})
         trial = accepted + additions
+        decision['bundle_ids'] = sorted(visited)
         payload = request_payload(config, question, history, trial)
         if len(trial) > max_evidence:
+            decision['reason'] = 'list_count' if len(group) > max_evidence else 'count'
             warnings.append('Evidence and its governing context were excluded because the evidence count budget was full.')
             continue
         if request_tokens(payload, config) > config['budget']['input_tokens']:
+            decision['reason'] = 'tokens'
             warnings.append('Evidence and its governing context were excluded because the input token budget was full.')
             continue
         for prior, value in promotions:
@@ -101,5 +107,6 @@ def assemble_context(store, snapshot_id, documents, question, history, config, s
             prior.update({k: value[k] for k in ('retrieval_passage', 'retrieval_rank', 'retrieval_order') if k in value})
             prior['context_ids'] = sorted(set(prior['context_ids']) | set(value['context_ids']))
         accepted, seen = trial, seen | keys
+        decision['reason'] = 'admitted'
     return {'evidence': accepted, 'payload': request_payload(config, question, history, accepted),
-            'warnings': sorted(set(warnings))}
+            'warnings': sorted(set(warnings)), 'context_decisions': decisions}

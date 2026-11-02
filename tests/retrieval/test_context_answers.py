@@ -150,6 +150,47 @@ def test_depth_limit_excludes_incomplete_governing_context(tmp_path):
     assert any(e['id'] == deeper['id'] for e in result['evidence'])
 
 
+def test_pilot_depth_admits_complete_heading_chain_and_preserves_count_limit(tmp_path):
+    import copy
+    from knowledge_foundry.retrieval.config import ROOT, load_config
+
+    records, evidence, _ = projection()
+    row = next(r for r in records if r['text'].startswith('Dogs must'))
+    seed = next(e for e in evidence if e['id'] == row['evidence_ids'][0])
+    headings = []
+    for i in range(6):
+        heading = copy.deepcopy(seed)
+        heading.update(id=f'heading:{i}', element_kind='heading', text=f'Scope {i}',
+                       context_ids=[f'heading:{i + 1}'] if i < 5 else [])
+        heading['reference']['element_id'] = f'el:scope-{i}'
+        headings.append(heading)
+    seed['context_ids'] = ['heading:0']
+    by_id = {e['id']: e for e in [seed, *headings]}
+
+    class Store:
+        def evidence(self, sid, ids):
+            return {k: copy.deepcopy(by_id[k]) for k in ids}
+
+        def rank_evidence(self, sid, query, rows):
+            return rows
+
+    c = config(tmp_path)
+    limited = assemble_context(Store(), 's', [document(row)], 'Dogs rest?', [], c)
+    assert not limited['evidence']
+    assert limited['context_decisions'][0]['reason'] == 'depth'
+
+    c['search']['max_context_depth'] = load_config(
+        ROOT / 'config/retrieval-multilingual.json')['search']['max_context_depth']
+    result = assemble_context(Store(), 's', [document(row)], 'Dogs rest?', [], c)
+    assert {e['id'] for e in result['evidence']} == set(by_id)
+    assert not result['warnings']
+
+    c['search']['max_context_evidence'] = 6
+    limited = assemble_context(Store(), 's', [document(row)], 'Dogs rest?', [], c)
+    assert not limited['evidence']
+    assert limited['context_decisions'][0]['reason'] == 'count'
+
+
 def test_headings_are_scope_context_independent_of_question_language(tmp_path):
     value, c = context(tmp_path)
     heading = {**value['evidence'][0], 'id': 'ev:heading', 'element_kind': 'heading', 'label': 'E9', 'text': 'Rest policy'}

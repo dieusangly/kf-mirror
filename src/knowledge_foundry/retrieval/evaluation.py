@@ -6,6 +6,7 @@ import unicodedata
 from haystack.core.errors import PipelineRuntimeError
 
 from knowledge_foundry.retrieval.answering import generate
+from knowledge_foundry.structural_chunks import stable_hash
 
 
 class SnapshotEvaluationStore:
@@ -81,6 +82,10 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                                  'hit': bool(matches), 'matched_evidence_ids': matches,
                                  'text_anchor_hit': matches_anchors(result['evidence'], case),
                                  'passage_ids': result['passage_ids'],
+                                 'navigation_ids': result.get('navigation_ids'),
+                                 'resolution': result.get('resolution'),
+                                 'context_decisions': result.get('context_decisions'),
+                                 'evidence_ids': [e['id'] for e in result['evidence']],
                                  'query': result['query'], 'history_used': result.get('history_used'),
                                  'warnings': result['warnings'],
                                  'embedding_usage': result['embedding_usage'],
@@ -92,6 +97,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                         answer = list(generate(config, result['payload'], result['evidence']))[-1]['answer']
                         answer['snapshot_id'] = snapshot['id']
                         row['excerpts'] = {'status': answer['status'], 'text': answer['text'],
+                            'warnings': answer['warnings'],
                             'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
                             'text_anchor_hit': matches_anchors(answer['citations'], case),
                             'citation_audit': audit_answer(answer, assistant.store)}
@@ -114,6 +120,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                                 if check_excerpts and anchored else None,
                             'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None})
     return {'snapshot_id': snapshot['id'], 'top_k': assistant.config['search']['top_k'],
+            'configuration': copy.deepcopy(assistant.config), 'cases_sha256': stable_hash(cases),
             'label_status': 'draft smoke locators; source/page overlap is not semantic relevance',
             'sequential': sequential,
             'answer_support': 'unscored; exact text anchors and page overlap do not establish semantic support',

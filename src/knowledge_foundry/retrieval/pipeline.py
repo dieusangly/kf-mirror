@@ -48,10 +48,10 @@ class EvidenceResolver:
     def __init__(self, store, snapshot, config):
         self.store, self.snapshot, self.config = store, snapshot, config
 
-    @component.output_types(documents=list[Document], navigation=list[Document])
+    @component.output_types(documents=list[Document], navigation=list[Document], telemetry=dict)
     def run(self, documents: list[Document], query: str, source_ids: list[str] | None = None,
             document_ids: list[str] | None = None):
-        resolved, seen = [], set()
+        resolved, seen, expansions = [], set(), []
         for doc in documents:
             rows = ([doc] if doc.meta['kind'] == 'passage' else
                     [document(r) for r in self.store.supporting_passages(
@@ -59,11 +59,14 @@ class EvidenceResolver:
                         doc.meta['original'].get('chunk_ids', doc.meta['original'].get('original_chunk_ids', [])),
                         query, self.config['search']['top_k'], self.snapshot['identity']['language'],
                         source_ids, document_ids)])
+            expansions.append({'navigation_id': doc.id, 'passage_ids': [r.id for r in rows]})
             for passage in rows:
                 if passage.id not in seen:
                     seen.add(passage.id)
                     resolved.append(passage)
-        return {'documents': resolved[:self.config['search']['top_k']], 'navigation': documents}
+        limit = self.config['search']['top_k']
+        return {'documents': resolved[:limit], 'navigation': documents,
+                'telemetry': {'expansions': expansions, 'discarded_passage_ids': [d.id for d in resolved[limit:]]}}
 
 
 @component

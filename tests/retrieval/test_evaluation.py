@@ -15,6 +15,12 @@ def test_page_overlap_and_resolved_citations_do_not_imply_answer_support(store, 
     assert report['metrics'][0]['text_anchor_hits'] == 0
     assert report['metrics'][0]['excerpt_anchor_hits'] == 0
     assert report['rows'][1]['excerpts']['citation_audit']['citation_resolution_rate'] == 1
+    row = report['rows'][1]
+    assert row['navigation_ids'] and row['resolution']['expansions']
+    assert row['evidence_ids'] and row['context_decisions']
+    assert 'warnings' in row['excerpts']
+    assert report['configuration'] == config
+    assert report['configuration'] is not config and report['cases_sha256']
     unrun = evaluate(assistant, 'animals', cases[1:], methods=('keyword',))
     assert unrun['metrics'][0]['excerpt_anchor_hits'] is None
 
@@ -88,3 +94,38 @@ def test_explicit_unpublished_read_preserves_active_snapshot(store, published):
         store.snapshot('animals', ready)
     with pytest.raises(ValueError, match='absent from this corpus'):
         store.evaluation_snapshot('other-corpus', ready)
+
+
+def test_resolution_trace_distinguishes_unresolved_records_and_global_truncation(tmp_path):
+    import copy
+    from knowledge_foundry.retrieval.pipeline import EvidenceResolver, document
+    from rag_fixtures import config, projection
+
+    records, _, _ = projection()
+    passages = [r for r in records if r['kind'] == 'passage'][:3]
+    claim = next(r for r in records if r['kind'] == 'claim')
+    other = copy.deepcopy(claim)
+    other['id'] = 'claim:other'
+    c = config(tmp_path)
+    c['search']['top_k'] = 2
+
+    class Store:
+        def supporting_passages(self, sid, evidence, chunks, query, limit, language, sources, docs):
+            return passages[:2] if evidence else passages[2:]
+
+    other['evidence_ids'] = []
+    resolver = EvidenceResolver(Store(), {'id': 'snapshot', 'identity': {'language': 'english'}}, c)
+    result = resolver.run([document(claim), document(other)], 'Dogs rest')
+    assert [d.id for d in result['documents']] == [r['id'] for r in passages[:2]]
+    assert result['telemetry']['discarded_passage_ids'] == [passages[2]['id']]
+    assert result['telemetry']['expansions'][1]['navigation_id'] == other['id']
+    assert result['telemetry']['expansions'][1]['passage_ids'] == [passages[2]['id']]
+
+    class MissingStore(Store):
+        def supporting_passages(self, *args):
+            return []
+
+    missing = EvidenceResolver(MissingStore(), resolver.snapshot, c).run([document(claim)], 'Dogs rest')
+    assert missing['documents'] == []
+    assert missing['telemetry']['expansions'] == [{'navigation_id': claim['id'], 'passage_ids': []}]
+    assert missing['telemetry']['discarded_passage_ids'] == []

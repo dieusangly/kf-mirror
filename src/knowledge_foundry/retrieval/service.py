@@ -84,6 +84,7 @@ class DocumentAssistant:
         return {**context, 'snapshot_id': snapshot['id'],
                 'passage_ids': [d.id for d in output['resolve']['documents']],
                 'navigation_ids': [d.id for d in output['retrieve']['documents']],
+                'resolution': output['resolve']['telemetry'],
                 'method': method, 'mode': mode, 'query': query, 'history_used': bool(history),
                 'source_ids': source_ids,
                 'ranking': output['rank']['telemetry'], 'query_rewrite': rewritten['telemetry'], 'embedding_usage': embedding_usage, 'latency_seconds': round(time.monotonic() - started, 3)}
