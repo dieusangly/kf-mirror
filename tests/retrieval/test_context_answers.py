@@ -1,11 +1,15 @@
-
+import copy
 import json
+from contextlib import nullcontext
+from types import SimpleNamespace
 
 import pytest
 
 from knowledge_foundry.retrieval.answering import generate, request_payload, request_tokens, validate_answer
+from knowledge_foundry.retrieval.config import ROOT, load_config
 from knowledge_foundry.retrieval.context import assemble_context
 from knowledge_foundry.retrieval.pipeline import document
+from knowledge_foundry.storage.postgres import PostgresStore
 from rag_fixtures import config, projection
 
 
@@ -75,7 +79,6 @@ def test_no_evidence_never_calls_the_model(tmp_path):
 
 
 def test_large_span_does_not_discard_a_focused_span_in_the_same_passage(tmp_path):
-    import copy
     records, evidence, _ = projection()
     target = next(r for r in records if r['text'].startswith('Dogs must'))
     oversized = copy.deepcopy(evidence[0])
@@ -96,7 +99,6 @@ def test_large_span_does_not_discard_a_focused_span_in_the_same_passage(tmp_path
 
 
 def test_list_clauses_and_output_context_are_never_partially_quoted(tmp_path):
-    import copy
     records, evidence, _ = projection()
     rows = copy.deepcopy(evidence[:2])
     for e in rows:
@@ -124,8 +126,64 @@ def test_list_clauses_and_output_context_are_never_partially_quoted(tmp_path):
     assert any('output token budget' in w for w in answer['warnings'])
 
 
+@pytest.mark.parametrize('parent_kind', ['heading', 'paragraph'])
+def test_section_scope_does_not_expand_like_a_list_introduction(tmp_path, parent_kind):
+    records, evidence, _ = projection()
+    template = evidence[0]
+
+    def span(key, kind, text, context_ids):
+        value = copy.deepcopy(template)
+        value.update(id=key, element_kind=kind, text=text, context_ids=context_ids)
+        value['reference'].update(element_id='el:' + key, span={'start': 0, 'end': len(text)})
+        return value
+
+    parent = span('parent', parent_kind, 'Definitions:', [])
+    # Independent definitions can share a heading without forming one atomic list.
+    clauses = [span(f'clause:{i:02}', 'list_item', f'Definition {i}.', [parent['id']]) for i in range(49)]
+    by_id = {e['id']: e for e in [parent, *clauses]}
+
+    class Store(PostgresStore):
+        def __init__(self):
+            self.sibling_queries = []
+
+        def evidence(self, sid, ids):
+            return {k: copy.deepcopy(by_id[k]) for k in ids}
+
+        def rank_evidence(self, sid, query, rows):
+            return rows
+
+        def connection(self):
+            return nullcontext(self)
+
+        def execute(self, sql, params):
+            self.sibling_queries.append(params)
+            return SimpleNamespace(fetchall=lambda: [
+                {'payload': copy.deepcopy(e)} for e in clauses[:params[-1]]])
+
+    record = copy.deepcopy(records[0])
+    record['evidence_ids'] = [clauses[-1]['id']]
+    c = config(tmp_path)
+    c['search']['max_context_evidence'] = 48
+    store = Store()
+    result = assemble_context(store, 'snapshot', [document(record)], 'Definition 48?', [], c)
+    if parent_kind == 'heading':
+        assert {e['id'] for e in result['evidence']} == {parent['id'], clauses[-1]['id']}
+        assert next(e for e in result['evidence'] if e['id'] == parent['id'])['is_context']
+        assert not result['warnings'] and not store.sibling_queries
+        answer = list(generate(c, result['payload'], result['evidence']))[-1]['answer']
+        assert [e['id'] for e in answer['citations']] == [clauses[-1]['id']]
+    else:
+        # An actual paragraph introduction must still expand and enforce atomic admission.
+        assert not result['evidence']
+        assert result['context_decisions'][0]['reason'] == 'list_count'
+        assert store.sibling_queries == [('snapshot', parent['document']['id'], parent['id'], 49)]
+        c['search']['max_context_evidence'] = 50
+        result = assemble_context(store, 'snapshot', [document(record)], 'Definition 48?', [], c)
+        assert {e['id'] for e in result['evidence']} == set(by_id)
+        assert not result['warnings']
+
+
 def test_depth_limit_excludes_incomplete_governing_context(tmp_path):
-    import copy
     records, evidence, _ = projection()
     row = next(r for r in records if r['text'].startswith('Dogs must'))
     seed = next(e for e in evidence if e['id'] == row['evidence_ids'][0])
@@ -151,9 +209,6 @@ def test_depth_limit_excludes_incomplete_governing_context(tmp_path):
 
 
 def test_pilot_depth_admits_complete_heading_chain_and_preserves_count_limit(tmp_path):
-    import copy
-    from knowledge_foundry.retrieval.config import ROOT, load_config
-
     records, evidence, _ = projection()
     row = next(r for r in records if r['text'].startswith('Dogs must'))
     seed = next(e for e in evidence if e['id'] == row['evidence_ids'][0])

@@ -221,8 +221,9 @@ class PostgresStore:
         parents = self.evidence(snapshot_id, sorted({k for seed in seeds for k in seed['context_ids']}))
         groups, memberships = {}, {}
         for seed in seeds:
+            # A shared section heading supplies scope, not an atomic list introduction.
             governing = [parents[k] for k in seed['context_ids'] if k in parents
-                         and parents[k]['element_kind'] in {'heading', 'paragraph'}]
+                         and parents[k]['element_kind'] == 'paragraph']
             if len(governing) == 1:
                 memberships[seed['id']] = (seed['document']['id'], governing[0]['id'])
         with self.connection() as conn:
