@@ -6,7 +6,7 @@
   "summaries": "config/summaries.json",
   "taxonomy": "config/topics-v1.json",
   "retrieval": "config/retrieval-multilingual.json",
-  "retrieval_cases": "tests/fixtures/retrieval-expanded-development.json",
+  "retrieval_cases": "tests/fixtures/retrieval-evaluation-123q.json",
   "retrieval_acceptance": null,
   "sample_per_document": 12,
   "reviewers": {

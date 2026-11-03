@@ -30,7 +30,7 @@ def corpus(tmp_path):
     return tmp_path, manifest, config
 
 
-def test_saved_corpus_and_development_cases_have_consistent_scope():
+def test_saved_corpus_and_evaluation_cases_have_consistent_scope():
     root = Path(__file__).resolve().parents[1]
     manifest = json.loads((root / 'data/manifest.json').read_text())
     result = readiness(root / 'config/pipeline.json')
@@ -47,16 +47,18 @@ def test_saved_corpus_and_development_cases_have_consistent_scope():
     assert entries['P']['requires_source_ids'] == [entries['PANN24']['source_id']]
     assert not entries['P'].get('accepted_missing_dependencies')
     assert not result['accepted_limitations']
-    cases = json.loads((root / 'tests/fixtures/retrieval-expanded-development.json').read_text())
+    workflow = json.loads((root / 'config/workflow.json').read_text())
+    assert workflow['retrieval_cases'] == 'tests/fixtures/retrieval-evaluation-123q.json'
+    cases = json.loads((root / workflow['retrieval_cases']).read_text())
+    assert len(cases) == len({c['id'] for c in cases}) == 123
     assert {c['source_id'] for c in cases} == {e['source_id'] for e in entries.values()}
-    assert all(c['label_status'] in {'development_unreviewed', 'source_reviewed'} for c in cases)
+    assert all(c['label_status'] in {'synthetic_unreviewed', 'source_reviewed'} for c in cases)
     reviewed = {c['id'] for c in cases if c['label_status'] == 'source_reviewed'}
     if reviewed:
-        config = json.loads((root / 'config/workflow.json').read_text())
-        acceptance = json.loads((root / config['retrieval_acceptance']).read_text())
+        acceptance = json.loads((root / workflow['retrieval_acceptance']).read_text())
         assert acceptance['status'] == 'reviewed' and acceptance['reviewer']
         assert acceptance['manifest_sha256'] == hashlib.sha256((root / 'data/manifest.json').read_bytes()).hexdigest()
-        assert acceptance['cases_sha256'] == hashlib.sha256((root / config['retrieval_cases']).read_bytes()).hexdigest()
+        assert acceptance['cases_sha256'] == hashlib.sha256((root / workflow['retrieval_cases']).read_bytes()).hexdigest()
         assert reviewed <= set(acceptance['case_ids'])
 
 

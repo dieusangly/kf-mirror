@@ -4,6 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.request import Request, urlopen
 
 from knowledge_foundry.semantic_clusters import normalized
@@ -13,14 +14,20 @@ from knowledge_foundry.structural_chunks import stable_hash
 def atomic_json(path, value, *, indent=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix('.tmp')
-    with temporary.open('w', encoding='utf-8') as handle:
-        json.dump(value, handle, ensure_ascii=False, sort_keys=True, indent=indent)
-        if indent is not None:
-            handle.write('\n')
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                prefix='.' + path.name + '.', suffix='.tmp', delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, indent=indent)
+            if indent is not None:
+                handle.write('\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def token_count(text, encoding='cl100k_base'):

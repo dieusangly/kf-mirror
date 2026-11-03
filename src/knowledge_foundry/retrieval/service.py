@@ -57,11 +57,14 @@ class DocumentAssistant:
         vector, embedding_usage = None, None
         warnings = []
         if method in {'vector', 'combined'}:
-            coverage = self.store.vector_coverage(snapshot['id']).get(mode, {'records': 0, 'vectors': 0})
-            if not coverage['vectors']:
-                raise ValueError('selected retrieval mode has no vectors; use keyword or reimport with --embed-missing')
-            if coverage['vectors'] < coverage['records']:
-                warnings.append(f"Only {coverage['vectors']}/{coverage['records']} {mode} records have vectors; vector coverage is incomplete.")
+            all_coverage = self.store.vector_coverage(snapshot['id'])
+            kinds = ('passage', 'claim') if mode == 'passage-and-claim' else (mode,)
+            for kind in kinds:
+                coverage = all_coverage.get(kind, {'records': 0, 'vectors': 0})
+                if not coverage['vectors']:
+                    raise ValueError('selected retrieval mode has no vectors; use keyword or reimport with --embed-missing')
+                if coverage['vectors'] < coverage['records']:
+                    warnings.append(f"Only {coverage['vectors']}/{coverage['records']} {kind} records have vectors; vector coverage is incomplete.")
             if snapshot['embedding_profile'] != profile(config['embedding']):
                 raise ValueError('query embedding model/dimensions/preprocessing differ from snapshot')
             adapter = EmbeddingAdapter(config['embedding'], ROOT / config['cache_dir'], self.embedding_fixture,

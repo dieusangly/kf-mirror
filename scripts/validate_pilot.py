@@ -69,6 +69,19 @@ def scope_regressions(elements, hierarchy, documents, regressions):
     return results
 
 
+def anchor_regressions(elements, chunks, documents, cases):
+    results = []
+    covered_elements = {ref['element_id'] for chunk in chunks for ref in chunk['evidence'] if 'span' in ref}
+    for case in cases:
+        matched = []
+        for reference in case.get('grounding') or [case]:
+            for anchor in reference['text_anchors']:
+                found = passage_elements(elements, reference['source_id'], anchor, documents, reference.get('pages'))
+                matched.append(any(element['id'] in covered_elements for element in found))
+        results.append({'id': case['id'], 'anchors_checked': len(matched), 'pass': all(matched)})
+    return results
+
+
 def load_run_ingestion(run_dir):
     """Pin shared source bytes independently of a dated provider run."""
     run = Path(run_dir).resolve()
@@ -109,18 +122,10 @@ def validate(run_dir):
     elements = {e['id']: e for e in bundle['elements']}
     hierarchy = {r['element_id']: r for r in json.loads((structured / 'document-hierarchy.json').read_text())}
     regressions = json.loads((ROOT / 'tests/fixtures/structuring-pilot-regressions.json').read_text())
-    cases = json.loads((ROOT / 'tests/fixtures/retrieval-expanded-development.json').read_text())
+    cases = json.loads((ROOT / 'tests/fixtures/retrieval-evaluation-123q.json').read_text())
     documents = {d['id']: d for d in bundle['documents']}
     scope_results = scope_regressions(elements, hierarchy, documents, regressions)
-    anchor_results = []
-    for case in cases:
-        matched = []
-        for anchor in case['text_anchors']:
-            found = passage_elements(elements, case['source_id'], anchor, documents, case.get('pages'))
-            covered = [c['id'] for c in bundle['chunks'] if any(r['element_id'] in {e['id'] for e in found}
-                                                              and 'span' in r for r in c['evidence'])]
-            matched.append(bool(covered))
-        anchor_results.append({'id': case['id'], 'anchors_checked': len(matched), 'pass': all(matched)})
+    anchor_results = anchor_regressions(elements, bundle['chunks'], documents, cases)
     rows = [json.loads(line) for line in (structured / 'structural-chunks.jsonl').read_text().splitlines()]
     passed = audit['gate'] == 'pass' and all(case['pass'] for case in anchor_results + scope_results)
     return {'status': 'pass' if passed else 'fail', 'documents': 13, 'pdf_documents': pdf_documents, 'pdf_pages': pdf_pages,

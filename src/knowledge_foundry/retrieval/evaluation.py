@@ -1,11 +1,15 @@
 """Separate retrieval smoke metrics from mechanical answer and support checks."""
 import copy
+import math
 import time
 import unicodedata
+from contextlib import ExitStack
 
 from haystack.core.errors import PipelineRuntimeError
 
+from knowledge_foundry.concurrency import run_bounded, validate_workers
 from knowledge_foundry.retrieval.answering import generate
+from knowledge_foundry.retrieval.checkpoint import EvaluationCheckpoint
 from knowledge_foundry.structural_chunks import stable_hash
 
 
@@ -118,53 +122,114 @@ def compact_row(row):
     return compact
 
 
+def retrieval_cost(result):
+    """Sum retrieval stages once; absent stages are free, unpriced ones unknown."""
+    stages = [result.get(key) for key in ('embedding_usage', 'query_rewrite', 'ranking')]
+    costs = [stage.get('estimated_cost_usd') for stage in stages if stage is not None]
+    return None if any(cost is None for cost in costs) else sum(costs, 0.)
+
+
+def performance_metrics(rows):
+    latencies = sorted(row['latency_seconds'] for row in rows)
+    costs = [row['estimated_cost_usd'] for row in rows if row['estimated_cost_usd'] is not None]
+    return {'mean_latency_seconds': sum(latencies) / len(latencies) if latencies else None,
+            'p95_latency_seconds': latencies[math.ceil(.95 * len(latencies)) - 1] if latencies else None,
+            'costed_cases': len(costs),
+            'estimated_cost_usd': sum(costs, 0.) if rows and len(costs) == len(rows) else None}
+
+
+def evaluate_case(assistant, corpus, snapshot, case, mode, method, history, check_excerpts, trace):
+    started = time.monotonic()
+    try:
+        result = assistant.retrieve(corpus, case['question'], snapshot_id=snapshot['id'], method=method, mode=mode,
+                                    history=history)
+        matches = []
+        for e in result['evidence']:
+            if not matches_locator(e, case) or e['is_context']:
+                continue
+            matches.append(e['id'])
+        row = {'id': case['id'], 'mode': mode, 'method': method,
+               'hit': bool(matches), 'matched_evidence_ids': matches,
+               'text_anchor_hit': matches_anchors(result['evidence'], case),
+               'retrieved_evidence_coverage': evidence_coverage(result['evidence'], case),
+               'passage_ids': result['passage_ids'],
+               'navigation_ids': result.get('navigation_ids'),
+               'resolution': result.get('resolution'),
+               'context_decisions': result.get('context_decisions'),
+               'evidence_ids': [e['id'] for e in result['evidence']],
+               'query': result['query'], 'history_used': result.get('history_used'),
+               'warnings': result['warnings'],
+               'embedding_usage': result['embedding_usage'],
+               'query_rewrite': result.get('query_rewrite'), 'ranking': result.get('ranking'),
+               'estimated_cost_usd': retrieval_cost(result),
+               'latency_seconds': round(time.monotonic() - started, 3)}
+        if check_excerpts:
+            config = copy.deepcopy(assistant.config)
+            config['answer']['provider'] = 'extractive'
+            answer = list(generate(config, result['payload'], result['evidence']))[-1]['answer']
+            answer['snapshot_id'] = snapshot['id']
+            row['excerpts'] = {'status': answer['status'], 'text': answer['text'],
+                'warnings': answer['warnings'],
+                'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
+                'text_anchor_hit': matches_anchors(answer['citations'], case),
+                'evidence_coverage': evidence_coverage(answer['citations'], case),
+                'citation_audit': audit_answer(answer, assistant.store)}
+        return row if trace else compact_row(row)
+    except (ValueError, PipelineRuntimeError) as exc:
+        return {'id': case['id'], 'mode': mode, 'method': method, 'error': str(exc)}
+
+
 def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combined'),
-             modes=('passage',), snapshot_id=None, sequential=False, check_excerpts=False, trace=False):
+             modes=('passage',), snapshot_id=None, sequential=False, check_excerpts=False, trace=False,
+             workers=1, checkpoint_path=None, resume=False, on_progress=None):
+    validate_workers(workers)
+    if sequential and workers != 1:
+        raise ValueError('conversation-sequence evaluation requires workers=1')
+    if resume and checkpoint_path is None:
+        raise ValueError('resume requires an evaluation checkpoint path')
     snapshot = assistant.store.snapshot(corpus, snapshot_id)
-    rows = []
+    methods, modes = list(methods), list(modes)
+    jobs = []
     for mode in modes:
         for method in methods:
             history = []
             for case in cases:
-                started = time.monotonic()
-                try:
-                    result = assistant.retrieve(corpus, case['question'], snapshot_id=snapshot['id'], method=method, mode=mode,
-                                                history=case.get('history', history if sequential else []))
-                    matches = []
-                    for e in result['evidence']:
-                        if not matches_locator(e, case) or e['is_context']:
-                            continue
-                        matches.append(e['id'])
-                    row = {'id': case['id'], 'mode': mode, 'method': method,
-                                 'hit': bool(matches), 'matched_evidence_ids': matches,
-                                 'text_anchor_hit': matches_anchors(result['evidence'], case),
-                                 'retrieved_evidence_coverage': evidence_coverage(result['evidence'], case),
-                                 'passage_ids': result['passage_ids'],
-                                 'navigation_ids': result.get('navigation_ids'),
-                                 'resolution': result.get('resolution'),
-                                 'context_decisions': result.get('context_decisions'),
-                                 'evidence_ids': [e['id'] for e in result['evidence']],
-                                 'query': result['query'], 'history_used': result.get('history_used'),
-                                 'warnings': result['warnings'],
-                                 'embedding_usage': result['embedding_usage'],
-                                 'query_rewrite': result.get('query_rewrite'), 'ranking': result.get('ranking'),
-                                 'latency_seconds': round(time.monotonic() - started, 3)}
-                    if check_excerpts:
-                        config = copy.deepcopy(assistant.config)
-                        config['answer']['provider'] = 'extractive'
-                        answer = list(generate(config, result['payload'], result['evidence']))[-1]['answer']
-                        answer['snapshot_id'] = snapshot['id']
-                        row['excerpts'] = {'status': answer['status'], 'text': answer['text'],
-                            'warnings': answer['warnings'],
-                            'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
-                            'text_anchor_hit': matches_anchors(answer['citations'], case),
-                            'evidence_coverage': evidence_coverage(answer['citations'], case),
-                            'citation_audit': audit_answer(answer, assistant.store)}
-                    rows.append(row if trace else compact_row(row))
-                except (ValueError, PipelineRuntimeError) as exc:
-                    rows.append({'id': case['id'], 'mode': mode, 'method': method, 'error': str(exc)})
+                jobs.append((mode, method, case, list(case.get('history', history if sequential else []))))
                 if sequential:
                     history.append(case['question'])
+    identity = {'corpus': corpus, 'snapshot_id': snapshot['id'], 'configuration': assistant.config,
+                'cases_sha256': stable_hash(cases), 'methods': methods, 'modes': modes,
+                'sequential': sequential, 'check_excerpts': check_excerpts, 'trace': trace}
+    with ExitStack() as resources:
+        checkpoint = (resources.enter_context(EvaluationCheckpoint(checkpoint_path, identity, resume))
+                      if checkpoint_path is not None else None)
+        saved = checkpoint.load() if resume else {}
+        for index, row in saved.items():
+            if not 0 <= index < len(jobs):
+                raise ValueError('evaluation checkpoint contains an unexpected case')
+            mode, method, case, _ = jobs[index]
+            if (row.get('id'), row.get('mode'), row.get('method')) != (case['id'], mode, method):
+                raise ValueError('evaluation checkpoint case does not match its inputs')
+        results = {index: row for index, row in saved.items() if 'error' not in row}
+        if on_progress:
+            on_progress(len(results), len(jobs), None)
+
+        def run(item):
+            index, job = item
+            mode, method, case, history = job
+            return index, evaluate_case(assistant, corpus, snapshot, case, mode, method, history, check_excerpts, trace)
+
+        def record(result):
+            index, row = result
+            if checkpoint:
+                checkpoint.save(index, row)
+            results[index] = row
+            if on_progress:
+                on_progress(len(results), len(jobs), row)
+
+        remaining = ((index, job) for index, job in enumerate(jobs) if index not in results)
+        run_bounded(run, remaining, workers, record)
+        rows = [results[index] for index in range(len(jobs))]
     metrics = []
     for mode in modes:
         for method in methods:
@@ -178,11 +243,12 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                             'excerpt_anchor_hits': sum(r['excerpts']['text_anchor_hit'] for r in anchored)
                                 if check_excerpts and anchored else None,
                             'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None,
+                            **performance_metrics(completed),
                             **coverage_metrics(completed, 'retrieved'),
                             **coverage_metrics(completed if check_excerpts else [], 'extractive', excerpts=True)})
     return {'snapshot_id': snapshot['id'], 'top_k': assistant.config['search']['top_k'],
             'configuration': copy.deepcopy(assistant.config), 'cases_sha256': stable_hash(cases),
-            'trace': trace,
+            'trace': trace, 'workers': workers, 'resumed_cases': sum('error' not in r for r in saved.values()),
             'label_status': 'draft smoke locators; source/page overlap is not semantic relevance',
             'sequential': sequential,
             'answer_support': 'unscored; exact text anchors and page overlap do not establish semantic support',

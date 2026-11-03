@@ -13,7 +13,7 @@ Accepted structural chunks feed semantic clustering, then independent branches:
 | Reasoning training (prospective) | Curate questions, evidence, checked conclusions and verifiable steps. | Supply context maps; verify against underlying evidence. |
 
 The 13-document Docling pilot has accepted structure, generated claims/summaries
-and a [retrieval evaluation](../artifacts/20261028-docling-aml-cft-01/retrieval-evaluation/retrieval-report.json).
+and a [123-question retrieval evaluation](retrieval-evaluation-123q-20261103.md).
 Its [claim-review exception](../artifacts/20261028-docling-aml-cft-01/claim-review/acceptance-exception.json)
 retains failed review findings and does not authorize a downstream gate bypass
 or publication. Retrieval checks do not certify answer quality.

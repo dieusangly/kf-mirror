@@ -36,5 +36,6 @@ source bytes/editions require ingestion. Keep caches outside dated runs.
 | [Pipeline commands](aml-cft-pipeline.md) | Run the 13-document AML/CFT pilot. |
 | [Providers](providers.md) | Configure engines and implement adapters. |
 | [Benchmarks](benchmarks.md) | Compare retained runs, quality gates and limitations. |
+| [Retrieval evaluation](retrieval-evaluation-123q-20261103.md) | Compare methods and modes on 123 unreviewed questions. |
 | [State of the art](state-of-the-art.md) | Survey relevant projects and approaches. |
 | [Downstream uses](downstream-uses.md) | Claims, summaries, retrieval and training constraints. |

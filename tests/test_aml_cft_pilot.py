@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.validate_pilot import load_run_ingestion, validate, passage_elements, scope_regressions
+from scripts.validate_pilot import anchor_regressions, load_run_ingestion, validate, passage_elements, scope_regressions
 
 ROOT = Path(__file__).resolve().parents[1]
 PILOT = ROOT / 'artifacts/20261027-docling-aml-cft-01'
@@ -27,6 +27,34 @@ def test_provider_independent_passages_keep_source_page_and_order_boundaries():
     assert scope_regressions(elements, hierarchy, documents, cases)[0]['pass']
     cases[0]['text'] = 'Missing definition'
     assert not scope_regressions(elements, hierarchy, documents, cases)[0]['pass']
+
+
+@pytest.mark.parametrize('missing', [None, 'source', 'page', 'text', 'chunk_span'])
+def test_anchor_regressions_require_each_grounding_in_covered_source_elements(missing):
+    documents = {'first': {'source_id': 'src:first'}, 'second': {'source_id': 'src:second'}}
+    elements = {
+        'a': {'id': 'a', 'document_id': 'first', 'ordinal': 0,
+              'text': 'Primary requirement.', 'location': {'page': 1}},
+        'b': {'id': 'b', 'document_id': 'second', 'ordinal': 0,
+              'text': 'Required counterpart.', 'location': {'page': 2}},
+    }
+    chunks = [{'evidence': [{'element_id': key, 'span': {'start': 0, 'end': len(element['text'])}}]}
+              for key, element in elements.items()]
+    first = {'source_id': 'src:first', 'pages': [1], 'text_anchors': ['Primary requirement']}
+    second = {'source_id': 'src:second', 'pages': [2], 'text_anchors': ['Required counterpart']}
+    if missing == 'source':
+        second['source_id'] = 'src:first'
+    elif missing == 'page':
+        second['pages'] = [1]
+    elif missing == 'text':
+        elements['b']['text'] = 'Unrelated requirement.'
+    elif missing == 'chunk_span':
+        chunks[1]['evidence'][0].pop('span')
+    cases = [{**first, 'id': 'legacy'}, {**first, 'id': 'empty-grounding', 'grounding': []},
+             {**first, 'id': 'multi', 'grounding': [first, second]}]
+    results = anchor_regressions(elements, chunks, documents, cases)
+    assert results[:2] == [{'id': key, 'anchors_checked': 1, 'pass': True} for key in ('legacy', 'empty-grounding')]
+    assert results[2] == {'id': 'multi', 'anchors_checked': 2, 'pass': missing is None}
 
 
 def test_pilot_scope_and_regression_sources_are_exactly_the_active_thirteen():

@@ -5,12 +5,43 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from knowledge_foundry.embeddings import EmbeddingAdapter, validate_response
+from knowledge_foundry.embeddings import EmbeddingAdapter, atomic_json, validate_response
 from knowledge_foundry.structural_chunks import stable_hash
 from claim_fixtures import fixture_settings
 
 
 class EmbeddingTests(unittest.TestCase):
+    def test_concurrent_atomic_cache_writes_use_distinct_temporary_files(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import os
+        import threading
+
+        barrier = threading.Barrier(2)
+        sources, replace = [], os.replace
+
+        def synchronized_replace(source, destination):
+            sources.append(source)
+            barrier.wait(timeout=5)
+            replace(source, destination)
+
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / 'shared.json'
+            values = [{'writer': i, 'text': str(i) * 10000} for i in range(2)]
+            with patch('knowledge_foundry.embeddings.os.replace', synchronized_replace), ThreadPoolExecutor(2) as executor:
+                list(executor.map(lambda value: atomic_json(path, value), values))
+            self.assertEqual(len(set(sources)), 2)
+            self.assertIn(json.loads(path.read_text()), values)
+            self.assertEqual(list(Path(name).glob('*.tmp')), [])
+
+    def test_failed_atomic_write_preserves_previous_cache_and_cleans_temporary_file(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / 'cached.json'
+            atomic_json(path, {'valid': True})
+            with self.assertRaises(TypeError):
+                atomic_json(path, {'invalid': {1, 2}})
+            self.assertEqual(json.loads(path.read_text()), {'valid': True})
+            self.assertEqual(list(Path(name).glob('*.tmp')), [])
+
     def test_response_indices_dimensions_and_values(self):
         good = {'data': [{'index': 1, 'embedding': [0, 1]}, {'index': 0, 'embedding': [1, 0]}]}
         self.assertEqual(validate_response(good, 2, 2), [[1, 0], [0, 1]])

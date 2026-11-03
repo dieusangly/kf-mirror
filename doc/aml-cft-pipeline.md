@@ -215,17 +215,60 @@ mkdir -p "$RUN/indexing"
 INDEX_SNAPSHOT_ID=$(.venv/bin/python -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot_id"])' "$RUN/indexing/import.json")
 ```
 
-Check retrieval against the ready, unpublished snapshot and inspect the report
-before publication. Vector/combined search can make paid query-embedding calls:
+Evaluate the 123 development questions against the ready, unpublished snapshot
+before publication. This compares all methods/modes with reranking enabled;
+vector/combined search can make paid query-embedding calls:
 
 ```sh
-mkdir -p "$RUN/retrieval-evaluation"
-.venv/bin/python scripts/evaluate_retrieval.py --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" --snapshot-id "$INDEX_SNAPSHOT_ID" --unpublished --cases tests/fixtures/retrieval-expanded-development.json --methods keyword vector combined --modes passage claim summary --no-rerank --check-excerpts --output "$RUN/retrieval-evaluation/retrieval-report.json"
+.venv/bin/python scripts/evaluate_retrieval.py \
+  --corpus "$CORPUS" --config "$KF_RETRIEVAL_CONFIG" \
+  --snapshot-id "$INDEX_SNAPSHOT_ID" --unpublished \
+  --cases tests/fixtures/retrieval-evaluation-123q.json \
+  --methods keyword vector combined \
+  --modes passage claim summary passage-and-claim \
+  --workers 4 --check-excerpts --trace \
+  --output "$RUN/retrieval-evaluation/123q-20261103/retrieval-report-rerank-four-modes.json"
 ```
 
-Reports retain metrics, per-question results, usage, costs and warnings by default.
-Add `--trace` for candidate and evidence IDs, passage expansions, context decisions
-and excerpt text. `--check-excerpts` runs the same checks in either format.
+The retained [evaluation](retrieval-evaluation-123q-20261103.md) links the complete
+report and checkpoint in `123q-20261103/`. The dataset retains its stable `V2-…`
+question IDs and synthetic, unreviewed labels.
+
+`--workers` defaults to 1; `--sequence` requires 1. Progress goes to stderr
+(`--quiet` suppresses it). Each finished case is saved in a checkpoint directory
+beside the report, replacing its suffix with `.checkpoint`; override with
+`--checkpoint DIR`. Repeat the same command with `--resume` to skip successes
+and retry errors. Snapshot, cases, configuration and evaluation options must match;
+worker count may change. In-flight calls without a saved result may repeat.
+Existing checkpoints require `--resume` or a new path. Reports record `workers`
+and `resumed_cases`; concurrent latency includes contention from other cases.
+
+Reports retain metrics, per-question results, usage, costs and warnings. `--trace`
+adds candidate/evidence IDs, passage expansions, context decisions and excerpt
+text. `--check-excerpts` runs the same checks in either format.
+
+Use `--mode passage-and-claim` for queries, `--modes passage-and-claim` for
+evaluation, or set `search.mode` to `"passage-and-claim"` in
+[retrieval.json](../config/retrieval.json). Keep `search.rerank: true` and
+`answer.provider: "openai"` for shared LLM ranking.
+Both branches search concurrently using one query embedding and the same filters.
+Vector/combined methods require vectors for both record types. Keyword and
+`--no-rerank` comparisons remain available.
+
+Each branch fetches at most `candidate_k` records; the merged pool contains at
+most `candidate_k` unique record IDs, alternating passages and claims in branch
+rank order. Passages receive the extra slot for odd budgets; a sparse branch's
+unused slots go to the other branch. One ranking call admits complete candidates
+within the input/output token budgets and selects at most `top_k` records.
+Without ranking, the merged pool is also limited to `top_k`. Shared evidence
+does not collapse distinct navigation records; resolution deduplicates supporting
+passages before the existing citation and context assembly steps.
+
+Rows include total retrieval `estimated_cost_usd` for query embedding, rewriting
+and ranking. Method/mode metrics add `mean_latency_seconds`, nearest-rank
+`p95_latency_seconds`, `costed_cases` and total `estimated_cost_usd` over completed
+questions. An unpriced stage makes the question's cost unknown; a total is null
+unless every completed question has a known cost. Answer generation is excluded.
 
 Evidence coverage requires every entry in `grounding`, falling back to the
 top-level reference when absent or empty. Each requires its source, any listed
@@ -250,10 +293,9 @@ Without excerpt checks, extractive counts are zero and rates/hits are null;
 rates/hits are also null when no questions complete. Existing `hit`,
 `text_anchor_hit` and excerpt anchor metrics keep their top-level semantics.
 
-Coverage measures mechanical reference recovery, without establishing semantic
-completeness or entailment. It does not validate document versions, original
-hashes, bounding boxes or exact source spans. Results depend on the supplied
-labels, which remain synthetic and unreviewed in the v2 fixture.
+Coverage measures mechanical reference recovery, not semantic completeness or
+entailment. It does not validate document versions, original hashes, bounding
+boxes or exact source spans.
 
 Publication explicitly selects the snapshot available to the assistant; it does
 not approve every claim or summary:

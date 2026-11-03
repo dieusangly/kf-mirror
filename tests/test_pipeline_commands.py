@@ -211,7 +211,7 @@ def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources,
     command('evaluate_retrieval.py', *evaluation_args, env=env)
     assert all(m['text_anchor_hits'] == 1 for m in json.loads(evaluation.read_text())['metrics'])
     write_json(cases, [{'id': 'oversized', 'question': 'word ' * 2000, 'source_id': 'src:equipment'}])
-    command('evaluate_retrieval.py', *evaluation_args, env=env, expected=1)
+    command('evaluate_retrieval.py', *evaluation_args, '--checkpoint', root / 'rag-errors.checkpoint', env=env, expected=1)
     assert all('error' in r for r in json.loads(evaluation.read_text())['rows'])
     assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in frozen.items())
 

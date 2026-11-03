@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
-from knowledge_foundry.retrieval.config import load_config
+from knowledge_foundry.retrieval.config import MODES, load_config
 from knowledge_foundry.retrieval.evaluation import audit_answer
 from knowledge_foundry.retrieval.service import DocumentAssistant
 from knowledge_foundry.storage.postgres import PostgresStore
@@ -20,7 +20,7 @@ def main(argv=None):
     parser.add_argument('--snapshot-id')
     parser.add_argument('--config', type=Path)
     parser.add_argument('--method', choices=['keyword', 'vector', 'combined'])
-    parser.add_argument('--mode', choices=['passage', 'claim', 'summary'])
+    parser.add_argument('--mode', choices=MODES)
     parser.add_argument('--source-id', action='append')
     parser.add_argument('--document-id', action='append')
     parser.add_argument('--retrieve-only', action='store_true')

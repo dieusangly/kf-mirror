@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
+MODES = ('passage', 'claim', 'summary', 'passage-and-claim')
 
 
 def load_config(path=None):
@@ -10,7 +11,7 @@ def load_config(path=None):
     value = json.loads(path.read_text())
     if value['search']['method'] not in {'keyword', 'vector', 'combined'}:
         raise ValueError('invalid retrieval method')
-    if value['search']['mode'] not in {'passage', 'claim', 'summary'}:
+    if value['search']['mode'] not in MODES:
         raise ValueError('invalid retrieval mode')
     for key in ('top_k', 'candidate_k', 'max_context_evidence', 'max_context_depth'):
         if type(value['search'][key]) is not int or value['search'][key] < 1:

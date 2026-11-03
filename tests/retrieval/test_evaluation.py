@@ -8,6 +8,73 @@ from knowledge_foundry.retrieval.evaluation import (
 from knowledge_foundry.retrieval.service import DocumentAssistant
 
 
+def outcomes(metrics):
+    return [{k: v for k, v in row.items() if not k.endswith('latency_seconds')} for row in metrics]
+
+
+def test_mixed_evaluation_reports_anchors_multi_document_coverage_latency_and_cost(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from rag_fixtures import config
+
+    first = {'id': 'a', 'source': {'id': 'one'}, 'location': {'page': 1},
+             'text': 'First anchor', 'is_context': False}
+    second = {'id': 'b', 'source': {'id': 'two'}, 'location': {'page': 2},
+              'text': 'Second anchor', 'is_context': False}
+
+    class Store:
+        def snapshot(self, *args):
+            return {'id': 'snapshot'}
+
+    class Assistant:
+        store = Store()
+
+        def __init__(self):
+            self.config = config(tmp_path)
+
+        def retrieve(self, corpus, question, **options):
+            assert options['mode'] == 'passage-and-claim' and options['method'] == 'vector'
+            if question == 'error':
+                raise ValueError('fixture failure')
+            return {'evidence': [first, second] if question == 'both' else [first],
+                    'passage_ids': ['p'], 'query': question, 'warnings': [],
+                    'embedding_usage': {'estimated_cost_usd': .01},
+                    'query_rewrite': {'estimated_cost_usd': .02},
+                    'ranking': {'estimated_cost_usd': .03}}
+
+    case = {'source_id': 'one', 'pages': [1], 'text_anchors': ['First anchor'],
+            'grounding': [{'source_id': 'one', 'pages': [1], 'text_anchors': ['First anchor']},
+                          {'source_id': 'two', 'pages': [2], 'text_anchors': ['Second anchor']}]}
+    cases = [{**case, 'id': question, 'question': question} for question in ['both', 'partial', 'error']]
+    original = copy.deepcopy(cases)
+    ticks = iter([0., .5, 1., 2.5, 3.])
+    monkeypatch.setattr('knowledge_foundry.retrieval.evaluation.time', SimpleNamespace(monotonic=lambda: next(ticks)))
+    result = evaluate(Assistant(), 'fixture', cases, modes=('passage-and-claim',), methods=('vector',))
+    metrics = result['metrics'][0]
+    assert metrics['completed'] == 2 and metrics['cases'] == 3
+    assert metrics['text_anchor_hits'] == 2
+    assert metrics['retrieved_grounding_coverage'] == .75
+    assert metrics['retrieved_all_groundings_hit_rate'] == .5
+    assert result['rows'][0]['retrieved_evidence_coverage']['all_groundings_hit']
+    assert not result['rows'][1]['retrieved_evidence_coverage']['all_groundings_hit']
+    assert metrics['mean_latency_seconds'] == 1. and metrics['p95_latency_seconds'] == 1.5
+    assert metrics['costed_cases'] == 2 and metrics['estimated_cost_usd'] == pytest.approx(.12)
+    assert result['rows'][0]['estimated_cost_usd'] == pytest.approx(.06)
+    assert 'error' in result['rows'][2] and cases == original
+
+
+def test_evaluation_does_not_report_unknown_costs_as_free():
+    from knowledge_foundry.retrieval.evaluation import performance_metrics, retrieval_cost
+
+    assert retrieval_cost({}) == 0.
+    assert retrieval_cost({'ranking': {'estimated_cost_usd': None}}) is None
+    assert retrieval_cost({'embedding_usage': {'estimated_cost_usd': .01}, 'ranking': {}}) is None
+    metrics = performance_metrics([{'latency_seconds': 1., 'estimated_cost_usd': .01},
+                                   {'latency_seconds': 2., 'estimated_cost_usd': None}])
+    assert metrics['costed_cases'] == 1 and metrics['estimated_cost_usd'] is None
+    empty = performance_metrics([])
+    assert empty['mean_latency_seconds'] is empty['p95_latency_seconds'] is empty['estimated_cost_usd'] is None
+
+
 def test_page_overlap_and_resolved_citations_do_not_imply_answer_support(store, published):
     config, snapshot = published
     source = store.snapshot('animals')['identity']['sources'][0]['id']
@@ -30,7 +97,7 @@ def test_page_overlap_and_resolved_citations_do_not_imply_answer_support(store, 
     assert report['configuration'] == config
     assert report['configuration'] is not config and report['cases_sha256']
     traced = evaluate(assistant, 'animals', cases, methods=('keyword',), check_excerpts=True, trace=True)
-    assert traced['trace'] is True and traced['metrics'] == report['metrics']
+    assert traced['trace'] is True and outcomes(traced['metrics']) == outcomes(report['metrics'])
     assert traced['rows'][0] == report['rows'][0]
     traced_row = traced['rows'][1]
     assert traced_row['navigation_ids'] and traced_row['resolution']['expansions']
@@ -60,7 +127,8 @@ def test_anchor_typography_equivalence_preserves_words_and_accents():
 
 
 @pytest.mark.parametrize('trace', [False, True])
-def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path, monkeypatch, trace):
+@pytest.mark.parametrize('mode', ['passage', 'passage-and-claim'])
+def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path, monkeypatch, trace, mode):
     import json
     from scripts.evaluate_retrieval import main
     config, sid = published
@@ -75,7 +143,7 @@ def test_cli_can_compare_search_without_ranking_calls(store, published, tmp_path
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
     monkeypatch.setattr('knowledge_foundry.retrieval.ranking.openai_stream', forbidden)
     result = main(['--corpus', 'animals', '--snapshot-id', sid, '--config', str(cfg), '--cases', str(cases),
-                   '--methods', 'keyword', '--no-rerank', '--check-excerpts', '--output', str(output)]
+                   '--methods', 'keyword', '--modes', mode, '--no-rerank', '--check-excerpts', '--output', str(output)]
                   + (['--trace'] if trace else []))
     assert result['metrics'][0]['hits'] == 1 and result['rows'][0]['ranking'] is None
     assert result['trace'] is trace
@@ -121,7 +189,7 @@ def test_compact_and_trace_reports_preserve_rank_usage_warnings_and_metrics(tmp_
               'text_anchors': ['Dogs must rest']}]
     compact = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True)
     traced = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True, trace=True)
-    assert compact['metrics'] == traced['metrics']
+    assert outcomes(compact['metrics']) == outcomes(traced['metrics'])
     assert compact['rows'][0]['text_anchor_hit'] is True
     compact_row, traced_row = compact['rows'][0], traced['rows'][0]
     assert compact_row['warnings'] == traced_row['warnings'] == result['warnings']
@@ -238,11 +306,11 @@ def test_grounding_coverage_legacy_optional_locators_and_text_boundaries():
     assert evidence_coverage([], {'source_id': 's'})['coverage'] == 0
 
 
-def test_v2_fixture_all_groundings_are_required_without_running_retrieval():
+def test_123q_fixture_all_groundings_are_required_without_running_retrieval():
     import json
     from pathlib import Path
 
-    cases = json.loads((Path(__file__).parents[1] / 'fixtures/retrieval-expanded-development-v2.json').read_text())
+    cases = json.loads((Path(__file__).parents[1] / 'fixtures/retrieval-evaluation-123q.json').read_text())
     multi = [c for c in cases if len(c['grounding']) > 1]
     assert multi
     for case in multi:
@@ -292,7 +360,7 @@ def test_retrieved_and_extractive_coverage_diverge_when_output_budget_omits_evid
     original = copy.deepcopy((cases, selected, c))
     compact = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True)
     traced = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True, trace=True)
-    assert compact['metrics'] == traced['metrics']
+    assert outcomes(compact['metrics']) == outcomes(traced['metrics'])
     row, metrics = compact['rows'][0], compact['metrics'][0]
     assert row['hit'] and row['text_anchor_hit'] and row['excerpts']['text_anchor_hit']
     assert row['retrieved_evidence_coverage']['all_groundings_hit']

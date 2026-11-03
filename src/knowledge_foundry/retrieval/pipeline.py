@@ -1,4 +1,6 @@
 """Haystack pipeline for scoped retrieval, provenance resolution and context."""
+from concurrent.futures import ThreadPoolExecutor
+
 from haystack import Document, Pipeline, component
 
 from knowledge_foundry.retrieval.context import assemble_context
@@ -12,6 +14,29 @@ def document(row):
                           **row['metadata']})
 
 
+def balanced_candidates(branches, limit):
+    """Alternate unique record IDs, giving unused slots to the other branch.
+
+    Keep claims and passages sharing evidence: they are distinct navigation
+    records. The resolver deduplicates their supporting passages afterward.
+    """
+    pending = [iter(rows) for rows in branches]
+    rows, seen = [], set()
+    while pending and len(rows) < limit:
+        remaining = []
+        for branch in pending:
+            for row in branch:
+                if row['id'] not in seen:
+                    seen.add(row['id'])
+                    rows.append(row)
+                    remaining.append(branch)
+                    break
+            if len(rows) == limit:
+                break
+        pending = remaining
+    return rows
+
+
 @component
 class SnapshotRetriever:
     def __init__(self, store, snapshot, config):
@@ -23,8 +48,22 @@ class SnapshotRetriever:
         search = dict(self.config['search'])
         if enabled(self.config):
             search['top_k'] = search['candidate_k']
-        rows = self.store.search(self.snapshot, query, mode, method, search, vector,
-                                 source_ids, document_ids)
+        if mode == 'passage-and-claim':
+            # Each bounded reservoir permits backfilling a sparse branch; only
+            # candidate_k unique records enter the shared ranking stage.
+            search['top_k'] = search['candidate_k']
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(self.store.search, self.snapshot, query, kind, method,
+                                           dict(search), vector, source_ids, document_ids)
+                           for kind in ('passage', 'claim')]
+                branches = [future.result() for future in futures]
+            limit = search['candidate_k']
+            if not enabled(self.config):
+                limit = min(limit, self.config['search']['top_k'])
+            rows = balanced_candidates(branches, limit)
+        else:
+            rows = self.store.search(self.snapshot, query, mode, method, search, vector,
+                                     source_ids, document_ids)
         docs = [document(r) for r in rows]
         titles = {s['id']: s['title'] for s in self.snapshot['identity'].get('sources', [])}
         for doc in docs:
