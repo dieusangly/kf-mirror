@@ -34,23 +34,12 @@ class SnapshotRetriever:
 
 @component
 class CandidateRanker:
-    def __init__(self, config, stream=None, *, store=None, snapshot=None):
+    def __init__(self, config, stream=None):
         self.config, self.stream = config, stream
-        self.store, self.snapshot = store, snapshot
 
     @component.output_types(documents=list[Document], telemetry=dict | None)
-    def run(self, documents: list[Document], query: str, source_ids: list[str] | None = None,
-            document_ids: list[str] | None = None):
-        def previews(doc):
-            original = doc.meta['original']
-            return self.store.supporting_passages(
-                self.snapshot['id'], doc.meta['evidence_ids'],
-                original.get('chunk_ids', original.get('original_chunk_ids', [])),
-                query, self.config['search']['top_k'], self.snapshot['identity']['language'],
-                source_ids, document_ids)
-        selected, telemetry = rank_candidates(
-            documents, query, self.config, self.stream,
-            passage_preview_loader=previews if self.store is not None else None)
+    def run(self, documents: list[Document], query: str):
+        selected, telemetry = rank_candidates(documents, query, self.config, self.stream)
         return {'documents': selected, 'telemetry': telemetry}
 
 
@@ -95,7 +84,7 @@ class ContextAssembler:
 def retrieval_pipeline(store, snapshot, config, ranking_stream=None):
     pipeline = Pipeline()
     pipeline.add_component('retrieve', SnapshotRetriever(store, snapshot, config))
-    pipeline.add_component('rank', CandidateRanker(config, ranking_stream, store=store, snapshot=snapshot))
+    pipeline.add_component('rank', CandidateRanker(config, ranking_stream))
     pipeline.add_component('resolve', EvidenceResolver(store, snapshot, config))
     pipeline.add_component('context', ContextAssembler(store, snapshot, config))
     pipeline.connect('retrieve.documents', 'rank.documents')

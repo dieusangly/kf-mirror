@@ -71,7 +71,7 @@ class DocumentAssistant:
         pipeline = retrieval_pipeline(self.store, snapshot, config, self.ranking_stream)
         filters = {'source_ids': source_ids, 'document_ids': document_ids}
         output = pipeline.run({'retrieve': {'query': query, 'method': method, 'mode': mode, 'vector': vector, **filters},
-                               'rank': {'query': query, **filters},
+                               'rank': {'query': query},
                                'resolve': {'query': query, **filters},
                                'context': {'question': query, 'query': query, 'history': [], **filters}},
                               include_outputs_from={'retrieve', 'rank', 'resolve'})

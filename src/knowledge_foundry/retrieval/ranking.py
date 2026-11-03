@@ -17,40 +17,7 @@ def enabled(config):
     return config['search'].get('rerank', False) and config['answer']['provider'] == 'openai'
 
 
-def add_claim_previews(candidates, admitted, payload, question, config, loader):
-    """Spend only spare request capacity on complete, provenance-resolved passages."""
-    limit = config['search']['top_k']
-    baseline_tokens = request_tokens(payload, config)
-    previews = {}
-    for index, doc in enumerate(admitted):
-        if doc.meta['kind'] == 'claim':
-            rows = loader(doc)[:limit]
-            previews[index] = list({r['id']: {'id': r['id'], 'text': r['text'],
-                                            'source_ids': r['source_ids'], 'document_ids': r['document_ids']}
-                                    for r in rows}.values())
-    added = 0
-    # Give each claim a first passage before considering its further passages.
-    for position in range(limit):
-        for index, passages in previews.items():
-            if position >= len(passages):
-                continue
-            trial = list(candidates)
-            trial[index] = {**candidates[index], 'supporting_passages': [
-                *candidates[index].get('supporting_passages', []), passages[position]]}
-            payload['input'] = json.dumps({'question': question, 'maximum_results': limit,
-                                           'candidates': trial}, ensure_ascii=False)
-            if request_tokens(payload, config) <= config['budget']['input_tokens']:
-                candidates = trial
-                added += 1
-    payload['input'] = json.dumps({'question': question, 'maximum_results': limit,
-                                   'candidates': candidates}, ensure_ascii=False)
-    return {'version': 'claim-passage-previews-v1', 'candidates_considered': len(previews),
-            'candidates_with_previews': sum(bool(r.get('supporting_passages')) for r in candidates),
-            'passages_added': added, 'passages_omitted': sum(len(p) for p in previews.values()) - added,
-            'request_input_tokens_added': request_tokens(payload, config) - baseline_tokens}
-
-
-def rank_candidates(documents, question, config, stream=None, *, passage_preview_loader=None):
+def rank_candidates(documents, question, config, stream=None):
     started = time.monotonic()
     limit = config['search']['top_k']
     if not enabled(config) or not documents:
@@ -74,10 +41,6 @@ def rank_candidates(documents, question, config, stream=None, *, passage_preview
         raise ValueError('ranking prompt/question exceed the complete request budget')
     if not admitted:
         raise ValueError('no complete search candidate fits the ranking request budget; narrow the query or increase its budget')
-    preview_telemetry = {}
-    if passage_preview_loader is not None and any(d.meta['kind'] == 'claim' for d in admitted):
-        preview_telemetry['claim_previews'] = add_claim_previews(
-            candidates, admitted, payload, question, config, passage_preview_loader)
     text, usage, model = '', {}, config['answer']['model']
     for event in (stream or openai_stream)(payload, config):
         if event['type'] == 'delta':
@@ -97,4 +60,4 @@ def rank_candidates(documents, question, config, stream=None, *, passage_preview
         'candidates_received': len(documents), 'candidates_admitted': len(admitted), 'selected': len(indices),
         'candidate_ids': [d.id for d in documents], 'admitted_ids': [d.id for d in admitted],
         'selected_ids': [admitted[i].id for i in indices],
-        'prompt_version': 'rag-rank-v1', 'prompt_sha256': stable_hash(PROMPT), **preview_telemetry}
+        'prompt_version': 'rag-rank-v1', 'prompt_sha256': stable_hash(PROMPT)}
