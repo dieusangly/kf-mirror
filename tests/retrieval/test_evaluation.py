@@ -2,7 +2,9 @@ import copy
 
 import pytest
 
-from knowledge_foundry.retrieval.evaluation import evaluate, matches_anchors
+from knowledge_foundry.retrieval.evaluation import (
+    SnapshotEvaluationStore, coverage_metrics, evaluate, evidence_coverage, matches_anchors,
+)
 from knowledge_foundry.retrieval.service import DocumentAssistant
 
 
@@ -134,7 +136,6 @@ def test_compact_and_trace_reports_preserve_rank_usage_warnings_and_metrics(tmp_
 
 
 def test_unpublished_evaluation_is_scoped_and_never_publishes():
-    from knowledge_foundry.retrieval.evaluation import SnapshotEvaluationStore
     class Store:
         def evaluation_snapshot(self, corpus, snapshot_id):
             return {'id': snapshot_id, 'status': 'ready'}
@@ -196,3 +197,132 @@ def test_resolution_trace_distinguishes_unresolved_records_and_global_truncation
     assert missing['documents'] == []
     assert missing['telemetry']['expansions'] == [{'navigation_id': claim['id'], 'passage_ids': []}]
     assert missing['telemetry']['discarded_passage_ids'] == []
+
+
+def test_grounding_coverage_requires_every_reference_and_anchor():
+    first = {'id': 'one', 'source': {'id': 'a'}, 'location': {'page': 2},
+             'text': 'First anchor.', 'is_context': False}
+    second = {'id': 'two', 'source': {'id': 'b'}, 'location': {'page': 3},
+              'text': 'Second anchor.', 'is_context': True}
+    case = {'source_id': 'a', 'pages': [2], 'text_anchors': ['First anchor'],
+            'grounding': [{'source_id': 'a', 'pages': [2], 'text_anchors': ['First anchor']},
+                          {'source_id': 'b', 'pages': [3], 'text_anchors': ['Second anchor']}]}
+    partial = evidence_coverage([first], case)
+    assert partial['coverage'] == .5 and not partial['all_groundings_hit']
+    assert partial['groundings'][1]['missing_text_anchors'] == ['Second anchor']
+    assert not partial['groundings'][1]['locator_hit']
+    assert evidence_coverage([first, second], case)['all_groundings_hit']
+    for wrong in [{**second, 'source': {'id': 'a'}},
+                  {**second, 'location': {'page': 4}},
+                  {**second, 'text': 'Something else.'}]:
+        assert evidence_coverage([first, wrong], case)['coverage'] == .5
+    # Two anchors at the same source/page remain separate requirements.
+    same_page = copy.deepcopy(case)
+    same_page['grounding'][1].update(source_id='a', pages=[2])
+    assert not evidence_coverage([first], same_page)['all_groundings_hit']
+    assert evidence_coverage([first, {**second, 'source': {'id': 'a'},
+                                    'location': {'page': 2}}], same_page)['all_groundings_hit']
+
+
+def test_grounding_coverage_legacy_optional_locators_and_text_boundaries():
+    evidence = [{'id': 'one', 'source': {'id': 's'}, 'location': {}, 'text': "L'e\u0301le\u0300ve"},
+                {'id': 'two', 'source': {'id': 's'}, 'location': {}, 'text': 'présente son certificat'}]
+    case = {'source_id': 's', 'pages': [], 'text_anchors': ['L’élève', 'présente son certificat']}
+    assert evidence_coverage(evidence, case)['all_groundings_hit']
+    assert evidence_coverage(evidence, {**case, 'grounding': []}) == evidence_coverage(evidence, case)
+    assert not evidence_coverage(evidence, {**case, 'text_anchors': ['élève présente']})['all_groundings_hit']
+    assert not evidence_coverage(evidence, {**case, 'text_anchors': ['eleve']})['all_groundings_hit']
+    assert not evidence_coverage(evidence, {**case, 'evidence_ids': ['absent']})['all_groundings_hit']
+    unanchored = evidence_coverage(evidence, {'source_id': 's'})
+    assert unanchored['all_groundings_hit'] and unanchored['groundings'][0]['text_anchor_hit'] is None
+    assert evidence_coverage([], {'source_id': 's'})['coverage'] == 0
+
+
+def test_v2_fixture_all_groundings_are_required_without_running_retrieval():
+    import json
+    from pathlib import Path
+
+    cases = json.loads((Path(__file__).parents[1] / 'fixtures/retrieval-expanded-development-v2.json').read_text())
+    multi = [c for c in cases if len(c['grounding']) > 1]
+    assert multi
+    for case in multi:
+        evidence = [{'id': str(i), 'source': {'id': g['source_id']},
+                     'location': {'page': g['pages'][0] if g['pages'] else None},
+                     'text': g['passage_text']} for i, g in enumerate(case['grounding'])]
+        assert evidence_coverage(evidence, case)['all_groundings_hit'], case['id']
+        assert not evidence_coverage(evidence[:1], case)['all_groundings_hit'], case['id']
+
+
+def test_retrieved_and_extractive_coverage_diverge_when_output_budget_omits_evidence(tmp_path):
+    from knowledge_foundry.embeddings import token_count
+    from knowledge_foundry.retrieval.answering import request_payload
+    from rag_fixtures import config, projection
+
+    c = config(tmp_path)
+    _, evidence, _ = projection()
+    first = copy.deepcopy(next(e for e in evidence if e['text'].startswith('Dogs must')))
+    first.update(is_context=False, label='E1', context_ids=[], retrieval_passage='p1', retrieval_rank=0)
+    second = copy.deepcopy(first)
+    second.update(id='second', label='E2', source={**first['source'], 'id': 'other'},
+                  text='Second required evidence. ' * 30, retrieval_passage='p2', retrieval_rank=1)
+    selected = [first, second]
+    c['budget']['output_tokens'] = token_count(first['text'] + ' [E1]', c['budget']['tokenizer']) + 1
+
+    class Store:
+        def snapshot(self, corpus, sid):
+            return {'id': 'snapshot'}
+
+        def evidence(self, sid, ids):
+            return {e['id']: e for e in selected if e['id'] in ids}
+
+    class Assistant:
+        config, store = c, Store()
+
+        def retrieve(self, corpus, question, **kwargs):
+            if not question:
+                raise ValueError('empty question')
+            return {'evidence': selected, 'payload': request_payload(c, question, [], selected),
+                    'passage_ids': ['p1', 'p2'], 'query': question, 'warnings': [], 'embedding_usage': None}
+
+    case = {'id': 'multi', 'question': 'Both?', 'source_id': first['source']['id'],
+            'text_anchors': ['Dogs must'],
+            'grounding': [{'source_id': first['source']['id'], 'text_anchors': ['Dogs must']},
+                          {'source_id': 'other', 'text_anchors': ['Second required evidence.']}]}
+    cases = [case, {**case, 'id': 'error', 'question': ''}]
+    original = copy.deepcopy((cases, selected, c))
+    compact = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True)
+    traced = evaluate(Assistant(), 'animals', cases, methods=('keyword',), check_excerpts=True, trace=True)
+    assert compact['metrics'] == traced['metrics']
+    row, metrics = compact['rows'][0], compact['metrics'][0]
+    assert row['hit'] and row['text_anchor_hit'] and row['excerpts']['text_anchor_hit']
+    assert row['retrieved_evidence_coverage']['all_groundings_hit']
+    assert row['excerpts']['evidence_coverage']['coverage'] == .5
+    assert row['excerpts']['warnings']
+    assert metrics['cases'] == 2 and metrics['completed'] == 1
+    assert metrics['retrieved_coverage_cases'] == metrics['extractive_coverage_cases'] == 1
+    assert metrics['retrieved_required_groundings'] == metrics['extractive_required_groundings'] == 2
+    assert metrics['retrieved_covered_groundings'] == 2 and metrics['extractive_covered_groundings'] == 1
+    assert metrics['retrieved_grounding_coverage'] == metrics['retrieved_all_groundings_hit_rate'] == 1
+    assert metrics['extractive_grounding_coverage'] == .5
+    assert metrics['extractive_all_groundings_hits'] == metrics['extractive_all_groundings_hit_rate'] == 0
+    assert row['retrieved_evidence_coverage'] == traced['rows'][0]['retrieved_evidence_coverage']
+    assert row['excerpts']['evidence_coverage'] == traced['rows'][0]['excerpts']['evidence_coverage']
+    unrun = evaluate(Assistant(), 'animals', cases, methods=('keyword',))['metrics'][0]
+    assert unrun['extractive_coverage_cases'] == 0 and unrun['extractive_grounding_coverage'] is None
+    failed = evaluate(Assistant(), 'animals', cases[1:], methods=('keyword',), check_excerpts=True)['metrics'][0]
+    assert failed['retrieved_coverage_cases'] == 0 and failed['retrieved_all_groundings_hit_rate'] is None
+    assert (cases, selected, c) == original
+
+
+def test_coverage_aggregation_distinguishes_groundings_from_questions():
+    evidence = [{'id': 'one', 'source': {'id': 'a'}, 'location': {'page': 1}, 'text': 'Anchor'}]
+    single = {'source_id': 'a', 'text_anchors': ['Anchor']}
+    multi = {**single, 'grounding': [single, {'source_id': 'b', 'text_anchors': ['Other']}]}
+    rows = [{'retrieved_evidence_coverage': evidence_coverage(evidence, c)} for c in [single, multi]]
+    metrics = coverage_metrics(rows, 'retrieved')
+    assert metrics['retrieved_coverage_cases'] == 2
+    assert metrics['retrieved_required_groundings'] == 3
+    assert metrics['retrieved_covered_groundings'] == 2
+    assert metrics['retrieved_grounding_coverage'] == pytest.approx(2 / 3)
+    assert metrics['retrieved_all_groundings_hits'] == 1
+    assert metrics['retrieved_all_groundings_hit_rate'] == .5

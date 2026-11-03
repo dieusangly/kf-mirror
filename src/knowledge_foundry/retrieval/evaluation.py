@@ -31,6 +31,11 @@ def matches_locator(evidence, case):
             and (not case.get('evidence_ids') or evidence['id'] in case['evidence_ids']))
 
 
+def normalized_anchor_text(value):
+    return unicodedata.normalize('NFC', ' '.join(value.lower().split())).translate(
+        str.maketrans({'’': "'", '‘': "'"}))
+
+
 def matches_anchors(evidence, case):
     """Typography-normalized text checks complement locators, not entailment.
 
@@ -40,11 +45,50 @@ def matches_anchors(evidence, case):
     """
     if not case.get('text_anchors'):
         return None
-    def normalized(value):
-        return unicodedata.normalize('NFC', ' '.join(value.lower().split())).translate(
-            str.maketrans({'’': "'", '‘': "'"}))
-    text = normalized(' '.join(e['text'] for e in evidence if matches_locator(e, case)))
-    return all(normalized(anchor) in text for anchor in case['text_anchors'])
+    text = normalized_anchor_text(' '.join(e['text'] for e in evidence if matches_locator(e, case)))
+    return all(normalized_anchor_text(anchor) in text for anchor in case['text_anchors'])
+
+
+def evidence_coverage(evidence, case):
+    """Require each grounding's locator and every anchor in located evidence.
+
+    Context is part of the retrieved evidence supplied to the answerer. Anchors
+    may occur in different elements, but cannot span artificially joined text.
+    Empty/missing grounding lists use the legacy top-level reference.
+    """
+    groundings = []
+    for index, reference in enumerate(case.get('grounding') or [case]):
+        located = [e for e in evidence if matches_locator(e, reference)]
+        texts = [normalized_anchor_text(e['text']) for e in located]
+        anchors = reference.get('text_anchors') or []
+        missing = [a for a in anchors if not any(normalized_anchor_text(a) in t for t in texts)]
+        groundings.append({'index': index, 'source_id': reference['source_id'],
+                           'pages': reference.get('pages', []),
+                           'evidence_ids': reference.get('evidence_ids', []),
+                           'text_anchors': anchors, 'locator_hit': bool(located),
+                           'text_anchor_hit': not missing if anchors else None,
+                           'missing_text_anchors': missing,
+                           'covered': bool(located) and not missing})
+    covered = sum(g['covered'] for g in groundings)
+    required = len(groundings)
+    return {'required_groundings': required, 'covered_groundings': covered,
+            'coverage': covered / required,
+            'all_groundings_hit': covered == required, 'groundings': groundings}
+
+
+def coverage_metrics(rows, prefix, *, excerpts=False):
+    results = [r['excerpts']['evidence_coverage'] if excerpts else r['retrieved_evidence_coverage']
+               for r in rows]
+    required = sum(r['required_groundings'] for r in results)
+    covered = sum(r['covered_groundings'] for r in results)
+    hits = sum(r['all_groundings_hit'] for r in results)
+    cases = len(results)
+    return {f'{prefix}_coverage_cases': cases,
+            f'{prefix}_required_groundings': required,
+            f'{prefix}_covered_groundings': covered,
+            f'{prefix}_grounding_coverage': covered / required if required else None,
+            f'{prefix}_all_groundings_hits': hits if cases else None,
+            f'{prefix}_all_groundings_hit_rate': hits / cases if cases else None}
 
 
 def audit_answer(answer, store):
@@ -94,6 +138,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                     row = {'id': case['id'], 'mode': mode, 'method': method,
                                  'hit': bool(matches), 'matched_evidence_ids': matches,
                                  'text_anchor_hit': matches_anchors(result['evidence'], case),
+                                 'retrieved_evidence_coverage': evidence_coverage(result['evidence'], case),
                                  'passage_ids': result['passage_ids'],
                                  'navigation_ids': result.get('navigation_ids'),
                                  'resolution': result.get('resolution'),
@@ -113,6 +158,7 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                             'warnings': answer['warnings'],
                             'locator_hit': any(matches_locator(e, case) for e in answer['citations']),
                             'text_anchor_hit': matches_anchors(answer['citations'], case),
+                            'evidence_coverage': evidence_coverage(answer['citations'], case),
                             'citation_audit': audit_answer(answer, assistant.store)}
                     rows.append(row if trace else compact_row(row))
                 except (ValueError, PipelineRuntimeError) as exc:
@@ -131,7 +177,9 @@ def evaluate(assistant, corpus, cases, *, methods=('keyword', 'vector', 'combine
                             'text_anchor_hits': sum(r['text_anchor_hit'] for r in anchored) if anchored else None,
                             'excerpt_anchor_hits': sum(r['excerpts']['text_anchor_hit'] for r in anchored)
                                 if check_excerpts and anchored else None,
-                            'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None})
+                            'hit_rate': sum(r['hit'] for r in completed) / len(completed) if completed else None,
+                            **coverage_metrics(completed, 'retrieved'),
+                            **coverage_metrics(completed if check_excerpts else [], 'extractive', excerpts=True)})
     return {'snapshot_id': snapshot['id'], 'top_k': assistant.config['search']['top_k'],
             'configuration': copy.deepcopy(assistant.config), 'cases_sha256': stable_hash(cases),
             'trace': trace,

@@ -227,6 +227,34 @@ Reports retain metrics, per-question results, usage, costs and warnings by defau
 Add `--trace` for candidate and evidence IDs, passage expansions, context decisions
 and excerpt text. `--check-excerpts` runs the same checks in either format.
 
+Evidence coverage requires every entry in `grounding`, falling back to the
+top-level reference when absent or empty. Each requires its source, any listed
+page (empty means unrestricted), an allowed evidence ID if specified, and all
+text anchors. Anchors normalize Unicode composition, case, whitespace and
+apostrophes. Each must occur within one matching element; different anchors may
+use different elements, and evidence may satisfy multiple groundings.
+
+Rows retain `retrieved_evidence_coverage` and, with `--check-excerpts`,
+`excerpts.evidence_coverage`, in both compact and trace reports. These contain
+required/covered counts, fractional `coverage`, conjunctive `all_groundings_hit`,
+and per-grounding locator/anchor results with missing anchors. Retrieved coverage
+includes context supplied to the answerer; extractive coverage uses retained
+citations, so output-budget omissions can reduce it.
+
+For each method/mode, `retrieved_*` and `extractive_*` metrics report
+`coverage_cases`, `required_groundings`, `covered_groundings`,
+`grounding_coverage` (covered / required across completed questions),
+`all_groundings_hits`, and `all_groundings_hit_rate` (fully covered / completed
+questions). Errors are excluded; inspect `completed`, `cases` and error rows.
+Without excerpt checks, extractive counts are zero and rates/hits are null;
+rates/hits are also null when no questions complete. Existing `hit`,
+`text_anchor_hit` and excerpt anchor metrics keep their top-level semantics.
+
+Coverage measures mechanical reference recovery, without establishing semantic
+completeness or entailment. It does not validate document versions, original
+hashes, bounding boxes or exact source spans. Results depend on the supplied
+labels, which remain synthetic and unreviewed in the v2 fixture.
+
 Publication explicitly selects the snapshot available to the assistant; it does
 not approve every claim or summary:
 
