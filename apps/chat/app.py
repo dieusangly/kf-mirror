@@ -10,7 +10,7 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
-from knowledge_foundry.retrieval.config import corpora, load_config
+from knowledge_foundry.retrieval.config import MODES, corpora, load_config
 from knowledge_foundry.retrieval.provenance import graph_path
 from knowledge_foundry.retrieval.service import DocumentAssistant
 from knowledge_foundry.storage.postgres import PostgresStore
@@ -85,7 +85,10 @@ def main():
     st.set_page_config(page_title='Knowledge Foundry · Document assistant', page_icon='📚', layout='wide')
     st.title('Document assistant')
     st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
-    config = load_config(os.environ.get('KF_RETRIEVAL_CONFIG'))
+    config_path = os.environ.get('KF_RETRIEVAL_CONFIG')
+    config = load_config(config_path)
+    if not config_path:
+        config['search'].update(method='vector', mode='passage-and-claim')
     if config['answer']['provider'] == 'openai' and not os.environ.get('OPENAI_API_KEY'):
         config['answer']['provider'] = 'extractive'
         config['search']['method'] = 'keyword'
@@ -114,8 +117,11 @@ def main():
     method = st.sidebar.selectbox('Search', ['keyword', 'vector', 'combined'],
         index=['keyword', 'vector', 'combined'].index(config['search']['method']),
         help='Vector and combined search use query embeddings and require OPENAI_API_KEY.')
-    mode = st.sidebar.selectbox('Retrieve via', ['passage', 'claim', 'summary'])
-    coverage = store.vector_coverage(selected_id).get(mode, {'records': 0, 'vectors': 0})
+    mode = st.sidebar.selectbox('Retrieve via', MODES, index=MODES.index(config['search']['mode']))
+    all_coverage = store.vector_coverage(selected_id)
+    kinds = ('passage', 'claim') if mode == 'passage-and-claim' else (mode,)
+    coverage = {key: sum(all_coverage.get(kind, {}).get(key, 0) for kind in kinds)
+                for key in ('records', 'vectors')}
     st.sidebar.caption(f"{mode.title()}: {coverage['records']} records · {coverage['vectors']} with vectors")
     if method != 'keyword' and coverage['vectors'] < coverage['records']:
         st.sidebar.warning('Vector coverage is incomplete. Reimport with --embed-missing, or use keyword search.')

@@ -1,9 +1,11 @@
 """Rendered Streamlit interactions backed by the isolated real database."""
+import copy
 import json
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
-from knowledge_foundry.retrieval.config import ROOT
+from knowledge_foundry.retrieval.config import MODES, ROOT
 
 
 def test_chat_history_reset_feedback_and_source_panel(store, published, tmp_path, monkeypatch):
@@ -82,14 +84,19 @@ def test_inventory_button_uses_metadata_without_models(store, published, tmp_pat
     assert not any('No supporting citations' in i.value for i in app.info)
 
 
-def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, monkeypatch):
+@pytest.mark.parametrize('custom_config', [False, True])
+def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, monkeypatch, custom_config):
     c, _ = published
     c['answer']['provider'] = 'openai'
     c['search']['method'] = 'vector'
     path = tmp_path / 'retrieval.json'
     path.write_text(json.dumps(c))
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
+    if custom_config:
+        monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
+    else:
+        monkeypatch.delenv('KF_RETRIEVAL_CONFIG', raising=False)
+        monkeypatch.setattr('knowledge_foundry.retrieval.config.load_config', lambda path=None: copy.deepcopy(c))
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
     app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
     assert not app.exception
@@ -99,3 +106,59 @@ def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, 
     app.chat_input[0].set_value('exercise').run()
     assert not app.exception
     assert any('Dogs must rest' in item.value for item in app.code)
+
+
+def test_chat_defaults_to_vector_and_passage_and_claim(store, published, monkeypatch):
+    config, snapshot_id = published
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.delenv('KF_RETRIEVAL_CONFIG', raising=False)
+    monkeypatch.setattr('knowledge_foundry.retrieval.config.load_config', lambda path=None: copy.deepcopy(config))
+    monkeypatch.setattr('knowledge_foundry.embeddings.EmbeddingAdapter._request',
+        lambda self, texts: {'data': [{'index': i, 'embedding': [1., 0., 0.]} for i in range(len(texts))],
+                             'usage': {'prompt_tokens': 0}})
+    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    assert not app.exception
+    assert next(s for s in app.sidebar.selectbox if s.label == 'Search').value == 'vector'
+    mode = next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via')
+    assert mode.options == list(MODES)
+    assert mode.value == 'passage-and-claim'
+    coverage = store.vector_coverage(snapshot_id)
+    records = sum(coverage[k]['records'] for k in ('passage', 'claim'))
+    assert any(c.value == f'Passage-And-Claim: {records} records · {records} with vectors'
+               for c in app.sidebar.caption)
+    assert not app.sidebar.warning
+    app.chat_input[0].set_value('exercise').run()
+    assert not app.exception
+    assert any('Dogs must rest' in c.value for c in app.code)
+    session_id = next(s for s in app.sidebar.selectbox if s.label == 'Conversation history').value
+    history = store.history(session_id, app.query_params['chat_token'], snapshot_id)
+    retrieval = history[-1]['payload']['retrieval']
+    assert retrieval['method'] == 'vector'
+    assert retrieval['mode'] == 'passage-and-claim'
+    mode = next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via')
+    mode.select('claim').run()
+    assert not app.exception
+    assert any(c.value == 'Claim: 1 records · 1 with vectors' for c in app.sidebar.caption)
+
+
+@pytest.mark.parametrize('kind', ['passage', 'claim'])
+def test_mixed_mode_warns_when_either_branch_has_incomplete_vector_coverage(
+        store, published, tmp_path, monkeypatch, kind):
+    config, snapshot_id = published
+    config['search'].update(method='vector', mode='passage-and-claim')
+    path = tmp_path / 'retrieval.json'
+    path.write_text(json.dumps(config))
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
+    with store.connection() as conn:
+        conn.execute('UPDATE kf_records SET vector_id=NULL WHERE snapshot_id=%s AND kind=%s',
+                     (snapshot_id, kind))
+    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    assert not app.exception
+    assert next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via').value == 'passage-and-claim'
+    coverage = store.vector_coverage(snapshot_id)
+    records = sum(coverage[k]['records'] for k in ('passage', 'claim'))
+    vectors = sum(coverage[k]['vectors'] for k in ('passage', 'claim'))
+    assert any(c.value == f'Passage-And-Claim: {records} records · {vectors} with vectors'
+               for c in app.sidebar.caption)
+    assert any('Vector coverage is incomplete' in w.value for w in app.sidebar.warning)
