@@ -1,0 +1,359 @@
+{
+  "sources": [
+    {
+      "schema_version": "1.0.0",
+      "id": "src:cmf-L561-2-2",
+      "version": "LEGIARTI000033517537",
+      "uri": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
+      "title": "Code monétaire et financier, article L. 561-2-2",
+      "class": "versioned legal article",
+      "format": "html"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:reasoning-demo",
+      "version": "1",
+      "uri": "urn:kf:demo:case",
+      "title": "Synthetic AML/CFT case",
+      "class": "synthetic test scenario",
+      "format": "markdown"
+    }
+  ],
+  "documents": [
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "source_id": "src:cmf-L561-2-2",
+      "source_version": "LEGIARTI000033517537",
+      "content_sha256": "384dc6261a71c435c9508ac04d1cf4ecbb78a67b5c260db770fe43930dca96ed",
+      "media_type": "text/html",
+      "retrieved_on": "2026-10-05"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+      "source_id": "src:reasoning-demo",
+      "source_version": "1",
+      "content_sha256": "2adf55fc8d08de47d0ad2a18c217706ce0882930c181f22273f7aee8f8163bdb",
+      "media_type": "text/markdown",
+      "retrieved_on": "2026-11-04"
+    }
+  ],
+  "elements": [
+    {
+      "schema_version": "1.0.0",
+      "id": "el:db3b6e79358f68e2cd12475be30fce88b9eed28dc45a6c00ee63ae1d7a387272",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "locator_key": "html:LEGIARTI000033517537:reasoning-p1",
+      "revision": "075b85cd4285be179282ab6c8853ceacdf0579c0303f265a32b10200c0453b29",
+      "kind": "paragraph",
+      "ordinal": 0,
+      "text": "Pour l'application du présent chapitre, le bénéficiaire effectif est la ou les personnes physiques :",
+      "location": {
+        "format": "html",
+        "article_id": "LEGIARTI000033517537",
+        "selector": "div.content.fr-mb-6v.fr-text--md > p:nth-of-type(1)"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:d68a40fbe401c58ff8be1050aaa81f3358277e27be3c33cc3ad73a2ccbc434e3",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "locator_key": "html:LEGIARTI000033517537:reasoning-p3",
+      "revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
+      "kind": "paragraph",
+      "ordinal": 1,
+      "text": "1° Soit qui contrôlent en dernier lieu, directement ou indirectement, le client ;",
+      "location": {
+        "format": "html",
+        "article_id": "LEGIARTI000033517537",
+        "selector": "div.content.fr-mb-6v.fr-text--md > p:nth-of-type(3)"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:df121088eba02460d4a011a4487ebe536e7ca3a56529610c21366398515340bc",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "locator_key": "html:LEGIARTI000033517537:reasoning-p5",
+      "revision": "91981e14606e8090f84f825e59105cf389b80a00294d9864a881ee1bdab92fad",
+      "kind": "paragraph",
+      "ordinal": 2,
+      "text": "2° Soit pour laquelle une opération est exécutée ou une activité exercée.",
+      "location": {
+        "format": "html",
+        "article_id": "LEGIARTI000033517537",
+        "selector": "div.content.fr-mb-6v.fr-text--md > p:nth-of-type(5)"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:f67d0069971e4f46ef54ee79120fb3bb717d4f41c1bebe40b5d121cc45730f71",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "locator_key": "html:LEGIARTI000033517537:reasoning-p7",
+      "revision": "683d3539de5e1f61d0b721213024009476a608e1cbecd056947c41f33e4fdc2b",
+      "kind": "paragraph",
+      "ordinal": 3,
+      "text": "Un décret en Conseil d'Etat précise la définition et les modalités de détermination du bénéficiaire effectif.",
+      "location": {
+        "format": "html",
+        "article_id": "LEGIARTI000033517537",
+        "selector": "div.content.fr-mb-6v.fr-text--md > p:nth-of-type(7)"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:ab20549f33da9c48112c44c9cfebb79ff99b73ccc464b58ddb1de4f02a584a41",
+      "document_id": "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+      "locator_key": "markdown:scenario",
+      "revision": "27de7636d0cb74bced0ee0ff89ee5a30a19f145d35e2d14364359d088cb2ee82",
+      "kind": "paragraph",
+      "ordinal": 0,
+      "text": "# Synthetic AML/CFT case\n\nAlice and Bob are natural persons. Alice ultimately controls Demo Client.\nAn operation for Demo Client is executed for Bob. For this example only,\nDemo Client is within the cited chapter and the decree-dependent determination\nrequirements are explicitly assumed satisfied for both people.\nThese are stipulated test facts, not findings about real people or compliance.\n",
+      "location": {
+        "format": "markdown",
+        "heading_path": [
+          "Synthetic AML/CFT case"
+        ],
+        "line_start": 1,
+        "line_end": 7
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "schema_version": "1.0.0",
+      "id": "chunk:4dcf5daf0834b15cf46eeae0ed06e58310ec0cf8a5b59e6bbbce20438b1759d2",
+      "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "build_id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "chunker_version": "manual-reviewed-subset-v1",
+      "sequence": 0,
+      "text": "Pour l'application du présent chapitre, le bénéficiaire effectif est la ou les personnes physiques :\n\n1° Soit qui contrôlent en dernier lieu, directement ou indirectement, le client ;\n\n2° Soit pour laquelle une opération est exécutée ou une activité exercée.\n\nUn décret en Conseil d'Etat précise la définition et les modalités de détermination du bénéficiaire effectif.",
+      "evidence": [
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:db3b6e79358f68e2cd12475be30fce88b9eed28dc45a6c00ee63ae1d7a387272",
+          "element_revision": "075b85cd4285be179282ab6c8853ceacdf0579c0303f265a32b10200c0453b29",
+          "span": {
+            "start": 0,
+            "end": 100
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:d68a40fbe401c58ff8be1050aaa81f3358277e27be3c33cc3ad73a2ccbc434e3",
+          "element_revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
+          "span": {
+            "start": 0,
+            "end": 81
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:df121088eba02460d4a011a4487ebe536e7ca3a56529610c21366398515340bc",
+          "element_revision": "91981e14606e8090f84f825e59105cf389b80a00294d9864a881ee1bdab92fad",
+          "span": {
+            "start": 0,
+            "end": 73
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:f67d0069971e4f46ef54ee79120fb3bb717d4f41c1bebe40b5d121cc45730f71",
+          "element_revision": "683d3539de5e1f61d0b721213024009476a608e1cbecd056947c41f33e4fdc2b",
+          "span": {
+            "start": 0,
+            "end": 109
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "chunk:40e2342d6e7027e259cf10c766804d3ae4f23737cec7f536c9c5cee5446d9e50",
+      "document_id": "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+      "build_id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "chunker_version": "manual-reviewed-subset-v1",
+      "sequence": 0,
+      "text": "# Synthetic AML/CFT case\n\nAlice and Bob are natural persons. Alice ultimately controls Demo Client.\nAn operation for Demo Client is executed for Bob. For this example only,\nDemo Client is within the cited chapter and the decree-dependent determination\nrequirements are explicitly assumed satisfied for both people.\nThese are stipulated test facts, not findings about real people or compliance.\n",
+      "evidence": [
+        {
+          "source_id": "src:reasoning-demo",
+          "document_id": "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+          "element_id": "el:ab20549f33da9c48112c44c9cfebb79ff99b73ccc464b58ddb1de4f02a584a41",
+          "element_revision": "27de7636d0cb74bced0ee0ff89ee5a30a19f145d35e2d14364359d088cb2ee82",
+          "span": {
+            "start": 0,
+            "end": 394
+          }
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:da7578ab81da15f4a77477a018ecf67fbcd1e139724b9e9452d853c5f8598902",
+      "build_id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "chunk_ids": [
+        "chunk:4dcf5daf0834b15cf46eeae0ed06e58310ec0cf8a5b59e6bbbce20438b1759d2"
+      ],
+      "text": "Within the chapter's scope, article L. 561-2-2 clause 1 refers to natural persons who ultimately control the client, directly or indirectly; a decree specifies the definition and determination requirements.",
+      "evidence": [
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:db3b6e79358f68e2cd12475be30fce88b9eed28dc45a6c00ee63ae1d7a387272",
+          "element_revision": "075b85cd4285be179282ab6c8853ceacdf0579c0303f265a32b10200c0453b29",
+          "span": {
+            "start": 0,
+            "end": 100
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:d68a40fbe401c58ff8be1050aaa81f3358277e27be3c33cc3ad73a2ccbc434e3",
+          "element_revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
+          "span": {
+            "start": 0,
+            "end": 81
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:df121088eba02460d4a011a4487ebe536e7ca3a56529610c21366398515340bc",
+          "element_revision": "91981e14606e8090f84f825e59105cf389b80a00294d9864a881ee1bdab92fad",
+          "span": {
+            "start": 0,
+            "end": 73
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:f67d0069971e4f46ef54ee79120fb3bb717d4f41c1bebe40b5d121cc45730f71",
+          "element_revision": "683d3539de5e1f61d0b721213024009476a608e1cbecd056947c41f33e4fdc2b",
+          "span": {
+            "start": 0,
+            "end": 109
+          }
+        }
+      ],
+      "grounding_review_status": "verified",
+      "generation": {
+        "method": "manual",
+        "version": "reasoning-subset-v1"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:52c0c221e0ef3f14b1ccce9555c7918ce2d37ac6587fd5b5837cf1a4eb58ed36",
+      "build_id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "chunk_ids": [
+        "chunk:4dcf5daf0834b15cf46eeae0ed06e58310ec0cf8a5b59e6bbbce20438b1759d2"
+      ],
+      "text": "Within the chapter's scope, article L. 561-2-2 clause 2 refers to natural persons for whom an operation is executed or an activity exercised; a decree specifies the definition and determination requirements.",
+      "evidence": [
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:db3b6e79358f68e2cd12475be30fce88b9eed28dc45a6c00ee63ae1d7a387272",
+          "element_revision": "075b85cd4285be179282ab6c8853ceacdf0579c0303f265a32b10200c0453b29",
+          "span": {
+            "start": 0,
+            "end": 100
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:d68a40fbe401c58ff8be1050aaa81f3358277e27be3c33cc3ad73a2ccbc434e3",
+          "element_revision": "22dae7eae071665d53c08698b32611ab173ae948841ec875c4c722df341f1097",
+          "span": {
+            "start": 0,
+            "end": 81
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:df121088eba02460d4a011a4487ebe536e7ca3a56529610c21366398515340bc",
+          "element_revision": "91981e14606e8090f84f825e59105cf389b80a00294d9864a881ee1bdab92fad",
+          "span": {
+            "start": 0,
+            "end": 73
+          }
+        },
+        {
+          "source_id": "src:cmf-L561-2-2",
+          "document_id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+          "element_id": "el:f67d0069971e4f46ef54ee79120fb3bb717d4f41c1bebe40b5d121cc45730f71",
+          "element_revision": "683d3539de5e1f61d0b721213024009476a608e1cbecd056947c41f33e4fdc2b",
+          "span": {
+            "start": 0,
+            "end": 109
+          }
+        }
+      ],
+      "grounding_review_status": "verified",
+      "generation": {
+        "method": "manual",
+        "version": "reasoning-subset-v1"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:3401d625ed076b71a3f29b4ae70e9698e4dfb8e4996309393864df8fbb39c5a9",
+      "build_id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "chunk_ids": [
+        "chunk:40e2342d6e7027e259cf10c766804d3ae4f23737cec7f536c9c5cee5446d9e50"
+      ],
+      "text": "# Synthetic AML/CFT case\n\nAlice and Bob are natural persons. Alice ultimately controls Demo Client.\nAn operation for Demo Client is executed for Bob. For this example only,\nDemo Client is within the cited chapter and the decree-dependent determination\nrequirements are explicitly assumed satisfied for both people.\nThese are stipulated test facts, not findings about real people or compliance.\n",
+      "evidence": [
+        {
+          "source_id": "src:reasoning-demo",
+          "document_id": "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+          "element_id": "el:ab20549f33da9c48112c44c9cfebb79ff99b73ccc464b58ddb1de4f02a584a41",
+          "element_revision": "27de7636d0cb74bced0ee0ff89ee5a30a19f145d35e2d14364359d088cb2ee82",
+          "span": {
+            "start": 0,
+            "end": 394
+          }
+        }
+      ],
+      "grounding_review_status": "verified",
+      "generation": {
+        "method": "manual",
+        "version": "reasoning-subset-v1"
+      }
+    }
+  ],
+  "builds": [
+    {
+      "schema_version": "1.0.0",
+      "id": "build:be1fa67be115ae1a50e572443316139891b7f6cb4fd471959a6f0893aba802c0",
+      "pipeline_version": "reasoning-demo-v1",
+      "config_sha256": "09f763609bd15f9be8905098dfeccc9607073fd1b4dd74a2cbb9ded3ce9460c8",
+      "input_document_ids": [
+        "doc:2ba08cdda9d0bb0fa3186693864bc26543a80dbb5b2457e1d247b05f98583d14",
+        "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb"
+      ],
+      "output_chunk_ids": [
+        "chunk:4dcf5daf0834b15cf46eeae0ed06e58310ec0cf8a5b59e6bbbce20438b1759d2",
+        "chunk:40e2342d6e7027e259cf10c766804d3ae4f23737cec7f536c9c5cee5446d9e50"
+      ],
+      "output_claim_ids": [
+        "claim:da7578ab81da15f4a77477a018ecf67fbcd1e139724b9e9452d853c5f8598902",
+        "claim:52c0c221e0ef3f14b1ccce9555c7918ce2d37ac6587fd5b5837cf1a4eb58ed36",
+        "claim:3401d625ed076b71a3f29b4ae70e9698e4dfb8e4996309393864df8fbb39c5a9"
+      ],
+      "status": "complete"
+    }
+  ],
+  "schema_version": "1.0.0"
+}

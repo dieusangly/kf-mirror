@@ -1,0 +1,87 @@
+Review the draft formalizations of Knowledge Foundry's aml-cft-pilot-13 in a fresh
+Codex session. Read AGENTS.md, .agents/AGENTS.md, doc/reasoning-engine.md,
+schemas/reasoning-mapping-schema-v1.0.0.json,
+src/knowledge_foundry/reasoning/adapter.py, scripts/validate_artifact_examples.py,
+and src/knowledge_foundry/prompts/agent_prompt_claim_formalization_generation first.
+
+Scope and authorization
+- This is source-grounding and semantic review, not generation or repair.
+  Complete the review end to end, saving judgments and progress regularly.
+  This instruction authorizes new review artifacts under REVIEW only. Do not
+  modify the frozen drafts, vocabulary, source inputs, schemas or product code.
+  Do not commit, publish, regenerate claims or launch other agents/models/APIs.
+- Treat the generator's text and confidence as untrusted proposals. Base judgments
+  on source evidence, not on another model's explanation or successful parsing.
+
+Inputs
+RUN = artifacts/20261028-docling-aml-cft-01
+FORMALIZATIONS = artifacts/20261028-docling-aml-cft-01/formalization-v1
+REVIEW = artifacts/20261028-docling-aml-cft-01/formalization-v1-review
+- FORMALIZATIONS/{manifest.json,input-bundle.json,candidate-claim-links.jsonl,
+  vocabulary.json,coverage.jsonl,notes.jsonl,batches/batch-NNN.json}.
+- Original candidates, evidence context, source documents and prior findings
+  named in the frozen manifest; resolve originals through data/manifest.json.
+If generation used another run directory, resolve its actual manifest and record
+that exact path; do not review a mixture of revisions or assume files exist.
+Record actual reviewer/model/reasoning settings and times; unknown settings stay
+null. A model recommendation is not evidence of the model actually running.
+
+1. Freeze and validate the review scope
+- Verify manifest hashes, the complete candidate inventory, the input bundle's
+  evidence lineage, candidate-to-claim links and vocabulary/batch dependencies.
+  Use check_claim_evidence for the topic-free export and the mapping JSON schema
+  for draft batches. Independently recompute claim/bundle/content hashes.
+- Record missing/stale inputs or invalid artifacts as findings. Do not repair
+  them or force schema/review gates to pass. Continue reviewing unaffected items
+  whose source identity can still be established; affected items remain blocked.
+- Inspect every mapping and every candidate disposition. Sampling alone cannot
+  grant corpus or batch acceptance. Excluded, ambiguous and unsupported items
+  need review too, so missed obligations are not hidden as exclusions.
+
+2. Inspect original sources and formalizations
+- For each claim, separately assess grounding against exact source passages,
+  governing context, source version and qualifications. Inspect PDF text and
+  rendered layout when reviewing PDF evidence; record actual page locations.
+  Do not infer that an unreviewed claim is grounded because its formalization
+  looks plausible. Preserve prior findings and locate evidence for any revision.
+- Assess each fact/rule: logical strength, relationship direction, variables,
+  class versus individual, obligation versus actual behavior, jurisdiction,
+  effective dates, conditions, exceptions and positive clearance requirements.
+  An apparently reasonable rule is not enough; it must preserve the source's
+  meaning. Do not approve unsupported decree conditions or invented case facts.
+- Check consistency of vocabulary across batches and documents. Synonyms do not
+  automatically denote the same concept. Different editions or jurisdictions
+  need explicit scope; report conflicts without inventing legal precedence.
+- For supported rules, document a qualifying case, a failed-condition case,
+  missing-evidence behavior and any exception case. Keep invented test cases
+  explicitly synthetic and separate from regulatory or customer assertions.
+- Schema success and a deduction certificate cannot establish that a rule is
+  legally faithful. The existing engine accepts only reviewed mappings grounded
+  in verified claims; do not mark draft inputs verified just to execute tests.
+- Use pass/fail/pending. Pending requires a concrete inspection blocker and the
+  attempted checks; ambiguity or unsupported representation can be a substantive
+  finding. Never mark original/layout inspection true unless it was performed.
+
+3. Save findings and hand off for repair or acceptance work
+- Write review.json keyed by candidate ID, claim ID, batch and mapping ID, with
+  independent grounding, formalization, scope and vocabulary judgments, located
+  notes, inspection records and reviewer identity. Bind it to input/manifest hashes.
+- Write findings.jsonl with stable finding IDs, severity (critical/major/minor),
+  affected IDs, category, exact source/location, violated requirement, proposed
+  repair direction, status and any dependencies on other batches/vocabulary.
+  Do not silently fix the draft or overwrite older findings.
+- Write report.json with total/reviewed/passed/failed/pending counts by dimension
+  and document, checked exclusions, automatic-check results, unresolved blockers
+  and affected-batch lists. Save a precise resume checkpoint if incomplete.
+- An entry is only eligible for later acceptance when grounding and all semantic
+  dimensions pass. A batch with unresolved failing or pending entries is not
+  accepted. Do not invent a score threshold that averages away defects.
+- Leave generated artifacts draft and immutable. This session records decisions;
+  it does not promote artifacts, merge batches into an executable corpus, change
+  original claim statuses or claim that a runtime import is implemented.
+- Report whether repair is needed, the exact frozen files/findings to give the
+  repair session, and which items require fresh review after correction. Repair
+  never grants acceptance; changes to shared terms require reviewing dependents.
+
+A separate session provides fresh context, not guaranteed model independence.
+Report uncertainty and incomplete coverage candidly.

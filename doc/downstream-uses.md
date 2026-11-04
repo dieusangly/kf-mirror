@@ -20,8 +20,9 @@ or publication. Retrieval checks do not certify answer quality.
 
 - Citations resolve to original evidence; summaries are not primary claim evidence.
   Shared topics/similarity do not establish agreement or legal applicability.
-- The graph tracks artifact/evidence provenance; domain entity/relation extraction
-  needs additional implementation and validation.
+- The graph tracks artifact/evidence provenance. The optional [reasoning engine](reasoning-engine.md)
+  adds explicitly reviewed facts/rules; automatic domain entity/relation extraction
+  remains unimplemented.
 - Training requires target-level review, source versions/rights and document-family
   splits before deriving overlapping chunks or summary ancestors. Run acceptance
   does not approve every claim; summaries have no independent fidelity gate.

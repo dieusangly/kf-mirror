@@ -1,5 +1,6 @@
 """Validate artifact bundles with jsonschema and cross-record checks."""
 
+import copy
 import hashlib
 import json
 import sys
@@ -65,8 +66,40 @@ def check_manifest():
 
 def check(bundle):
     Draft202012Validator(SCHEMA, format_checker=FormatChecker()).validate(bundle)
+    _check_records(bundle, include_topics=True)
+
+
+def check_claim_evidence(bundle):
+    """Validate reasoning inputs without consuming classification or synthesis.
+
+    Accept both the existing full artifact bundle and an export containing only
+    claims, evidence lineage and builds. Keep the normal pipeline check strict.
+    """
+    require(isinstance(bundle, dict), 'claim evidence bundle must be an object')
+    schema = copy.deepcopy(SCHEMA)
+    schema['required'].remove('topics')
+    schema['properties'].pop('topics')
+    view = {k: v for k, v in bundle.items() if k not in {'topics', 'summaries'}}
+    for collection, definition, ignored in (
+            ('claims', 'claim', {'topic_id', 'classification_review_status', 'classification'}),
+            ('builds', 'build', {'output_topic_ids'})):
+        spec = schema['$defs'][definition]
+        spec['required'] = [k for k in spec['required'] if k not in ignored]
+        for key in ignored:
+            spec['properties'].pop(key)
+        if isinstance(bundle.get(collection), list):
+            view[collection] = [{k: v for k, v in row.items() if k not in ignored}
+                                if isinstance(row, dict) else row for row in bundle[collection]]
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(view)
+    _check_records(view, include_topics=False)
+
+
+def _check_records(bundle, *, include_topics):
     records = {}
-    for name in ("sources", "documents", "elements", "chunks", "claims", "topics", "builds"):
+    names = ("sources", "documents", "elements", "chunks", "claims", "builds")
+    if include_topics:
+        names += ("topics",)
+    for name in names:
         ids = [(record["id"], record["version"]) for record in bundle[name]] if name == "sources" else [record["id"] for record in bundle[name]]
         require(len(ids) == len(set(ids)), f"duplicate {name} ID")
         records[name] = dict(zip(ids, bundle[name]))
@@ -98,7 +131,8 @@ def check(bundle):
 
     for claim in bundle["claims"]:
         require(claim["build_id"] in records["builds"], "claim build missing")
-        require(claim["topic_id"] in records["topics"], "claim topic missing")
+        if include_topics:
+            require(claim["topic_id"] in records["topics"], "claim topic missing")
         chunks = [records["chunks"].get(chunk_id) for chunk_id in claim["chunk_ids"]]
         require(all(chunks), "claim chunk missing")
         claim_build = records["builds"][claim["build_id"]]
@@ -113,7 +147,7 @@ def check(bundle):
         expected = "claim:" + digest(claim["build_id"] + "\n" + canonical_evidence(claim["evidence"]) + "\n" + claim["text"])
         require(claim["id"] == expected, "claim ID mismatch")
 
-    for topic in bundle["topics"]:
+    for topic in bundle.get("topics", []):
         require(topic["id"].startswith("topic:") and len(topic["id"]) > len("topic:"), "topic ID must start with topic:")
         require(topic["build_id"] in records["builds"], "topic build missing")
         claims = [records["claims"].get(claim_id) for claim_id in topic["claim_ids"]]
@@ -133,8 +167,9 @@ def check(bundle):
         require(outputs == set(build["output_chunk_ids"]), "build output mismatch")
         claim_outputs = {claim["id"] for claim in bundle["claims"] if claim["build_id"] == build["id"]}
         require(claim_outputs == set(build["output_claim_ids"]), "build claim output mismatch")
-        topic_outputs = {topic["id"] for topic in bundle["topics"] if topic["build_id"] == build["id"]}
-        require(topic_outputs == set(build["output_topic_ids"]), "build topic output mismatch")
+        if include_topics:
+            topic_outputs = {topic["id"] for topic in bundle["topics"] if topic["build_id"] == build["id"]}
+            require(topic_outputs == set(build["output_topic_ids"]), "build topic output mismatch")
         require(all(chunk["document_id"] in inputs for chunk in bundle["chunks"] if chunk["build_id"] == build["id"]), "chunk outside build inputs")
 
 

@@ -16,6 +16,13 @@ psycopg[binary]==3.3.6
 pgvector==0.5.1
 streamlit==1.66.0
 
+# Reasoning. MIT; Open Ontologies Python subproject 0.5.0 at this exact commit.
+open-ontologies-lite[shacl] @ git+https://github.com/fabio-rovai/open-ontologies.git@c7fd75f9491253c56e4d4f408ceac179de343e48#subdirectory=python
+pyoxigraph==0.5.13
+pyshacl==0.40.2
+rdflib==7.6.0
+owlrl==7.6.2
+
 # Tests and browser validation
 pytest>=8,<10
 playwright==1.64.0

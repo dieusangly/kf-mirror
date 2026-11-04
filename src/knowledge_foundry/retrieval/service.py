@@ -31,15 +31,22 @@ def inventory_answer(documents):
 
 
 class DocumentAssistant:
-    def __init__(self, store, config=None, *, embedding_fixture=None, answer_stream=None, query_stream=None, ranking_stream=None):
+    def __init__(self, store, config=None, *, embedding_fixture=None, answer_stream=None, query_stream=None, ranking_stream=None,
+                 reasoning_engine=None):
         self.store, self.config = store, config or load_config()
         self.embedding_fixture, self.answer_stream = embedding_fixture, answer_stream
         self.query_stream, self.ranking_stream = query_stream, ranking_stream
+        self.reasoning_engine = reasoning_engine
+        if self.reasoning_engine is None and self.config.get('reasoning', {}).get('enabled'):
+            from knowledge_foundry.reasoning.retrieval import configured_engine
+            self.reasoning_engine = configured_engine(self.config)
 
     def retrieve(self, corpus, question, *, snapshot_id=None, history=None, method=None,
-                 mode=None, source_ids=None, document_ids=None, route_inventory=False):
+                 mode=None, source_ids=None, document_ids=None, route_inventory=False, reasoning_goal=None):
         started = time.monotonic()
         config = self.config
+        if reasoning_goal is not None and self.reasoning_engine is None:
+            raise ValueError('reasoning_goal requires an explicitly configured reasoning engine')
         method, mode = method or config['search']['method'], mode or config['search']['mode']
         if not question.strip() or token_count(question, config['budget']['tokenizer']) > config['budget']['max_question_tokens']:
             raise ValueError('question is empty or exceeds the configured question budget')
@@ -48,7 +55,8 @@ class DocumentAssistant:
         history = list(history or [])[-turns:] if turns else []
         while history and token_count('\n'.join(history), config['budget']['tokenizer']) > config['budget']['history_tokens']:
             history.pop(0)
-        rewritten = rewrite_query(config, question, history, self.query_stream, route_inventory=route_inventory)
+        rewritten = rewrite_query(config, question, history, self.query_stream,
+                                  route_inventory=route_inventory and reasoning_goal is None)
         query, history = rewritten['query'], rewritten['history']
         if rewritten['intent'] == 'document_inventory':
             return {'intent': 'document_inventory', 'documents': inventory(snapshot, source_ids, document_ids),
@@ -79,6 +87,11 @@ class DocumentAssistant:
                                'context': {'question': query, 'query': query, 'history': [], **filters}},
                               include_outputs_from={'retrieve', 'rank', 'resolve'})
         context = output['context']['context']
+        if reasoning_goal is not None:
+            from knowledge_foundry.reasoning.retrieval import attach_reasoning
+            context = attach_reasoning(self.reasoning_engine, reasoning_goal, context, store=self.store,
+                                       snapshot=snapshot, documents=output['resolve']['documents'], question=query,
+                                       history=[], config=config, source_ids=source_ids, document_ids=document_ids)
         context['warnings'].extend(rewritten['warnings'])
         context['warnings'].extend(warnings)
         ranking = output['rank']['telemetry']
@@ -101,6 +114,8 @@ class DocumentAssistant:
         history = [m['content'] for m in messages if m['role'] == 'user']
         if intent not in {None, 'document_inventory'}:
             raise ValueError('invalid request intent')
+        if intent == 'document_inventory' and options.get('reasoning_goal') is not None:
+            raise ValueError('document_inventory and reasoning_goal are mutually exclusive')
         if intent == 'document_inventory':
             if not question.strip() or token_count(question, self.config['budget']['tokenizer']) > self.config['budget']['max_question_tokens']:
                 raise ValueError('question is empty or exceeds the configured question budget')
@@ -112,6 +127,12 @@ class DocumentAssistant:
         events = ([{'type': 'answer', 'answer': inventory_answer(retrieved['documents'])}]
                   if retrieved.get('intent') == 'document_inventory' else
                   generate(self.config, retrieved['payload'], retrieved['evidence'], self.answer_stream))
+        if retrieved.get('reasoning', {}).get('status') not in {None, 'asserted', 'inferred'}:
+            from knowledge_foundry.retrieval.answering import INSUFFICIENT
+            events = [{'type': 'answer', 'answer': {
+                'text': INSUFFICIENT, 'status': 'insufficient', 'citations': [],
+                'warnings': ['Symbolic answer withheld: ' + retrieved['reasoning']['status']],
+                'telemetry': {'model': 'reasoning-gate-v1', 'estimated_cost_usd': 0.}}}]
         for event in events:
             if event['type'] != 'answer':
                 yield event

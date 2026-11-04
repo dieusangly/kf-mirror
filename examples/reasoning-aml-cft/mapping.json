@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0.0",
+  "bundle_sha256": "c816f6b81742fd575ca8448f82e8a73cda229889e7dda6c025dd7a7c821fdd3a",
+  "mappings": [
+    {
+      "id": "ultimate-control",
+      "claim_id": "claim:da7578ab81da15f4a77477a018ecf67fbcd1e139724b9e9452d853c5f8598902",
+      "claim_sha256": "a174adca892f3a1061787d72a246a8ffb9dbed8222b11509589ba72d932f3850",
+      "jurisdiction": "FR",
+      "valid_from": "2016-12-03",
+      "valid_until": null,
+      "conditions": [
+        [
+          "?client",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          "https://knowledge-foundry.local/ontology/ChapterApplies"
+        ],
+        [
+          "?person",
+          "https://knowledge-foundry.local/ontology/determinationRequirementsMetFor",
+          "?client"
+        ]
+      ],
+      "exceptions": [],
+      "facts": [],
+      "rules": [
+        {
+          "body": [
+            [
+              "?person",
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+              "https://knowledge-foundry.local/ontology/NaturalPerson"
+            ],
+            [
+              "?person",
+              "https://knowledge-foundry.local/ontology/ultimatelyControls",
+              "?client"
+            ]
+          ],
+          "head": [
+            "?person",
+            "https://knowledge-foundry.local/ontology/beneficialOwnerOf",
+            "?client"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operation-for",
+      "claim_id": "claim:52c0c221e0ef3f14b1ccce9555c7918ce2d37ac6587fd5b5837cf1a4eb58ed36",
+      "claim_sha256": "dd2edd96e7b834351e840484fc0357d9ddc6902a51015da6a1dda22e7da73a5b",
+      "jurisdiction": "FR",
+      "valid_from": "2016-12-03",
+      "valid_until": null,
+      "conditions": [
+        [
+          "?client",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          "https://knowledge-foundry.local/ontology/ChapterApplies"
+        ],
+        [
+          "?person",
+          "https://knowledge-foundry.local/ontology/determinationRequirementsMetFor",
+          "?client"
+        ]
+      ],
+      "exceptions": [],
+      "facts": [],
+      "rules": [
+        {
+          "body": [
+            [
+              "?person",
+              "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+              "https://knowledge-foundry.local/ontology/NaturalPerson"
+            ],
+            [
+              "?person",
+              "https://knowledge-foundry.local/ontology/operationExecutedFor",
+              "?client"
+            ]
+          ],
+          "head": [
+            "?person",
+            "https://knowledge-foundry.local/ontology/beneficialOwnerOf",
+            "?client"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "case-assumptions",
+      "claim_id": "claim:3401d625ed076b71a3f29b4ae70e9698e4dfb8e4996309393864df8fbb39c5a9",
+      "claim_sha256": "06aaed078bbaf183fbb5f22ad2efa79df2b66c6b34abd3f666bb4ad1a4a9e1a2",
+      "jurisdiction": "FR",
+      "valid_from": "2016-12-03",
+      "valid_until": null,
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:demo:Alice",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          "https://knowledge-foundry.local/ontology/NaturalPerson"
+        ],
+        [
+          "urn:kf:demo:Bob",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          "https://knowledge-foundry.local/ontology/NaturalPerson"
+        ],
+        [
+          "urn:kf:demo:Alice",
+          "https://knowledge-foundry.local/ontology/ultimatelyControls",
+          "urn:kf:demo:Client"
+        ],
+        [
+          "urn:kf:demo:Bob",
+          "https://knowledge-foundry.local/ontology/operationExecutedFor",
+          "urn:kf:demo:Client"
+        ],
+        [
+          "urn:kf:demo:Client",
+          "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          "https://knowledge-foundry.local/ontology/ChapterApplies"
+        ],
+        [
+          "urn:kf:demo:Alice",
+          "https://knowledge-foundry.local/ontology/determinationRequirementsMetFor",
+          "urn:kf:demo:Client"
+        ],
+        [
+          "urn:kf:demo:Bob",
+          "https://knowledge-foundry.local/ontology/determinationRequirementsMetFor",
+          "urn:kf:demo:Client"
+        ]
+      ],
+      "rules": []
+    }
+  ],
+  "review": {
+    "status": "verified",
+    "content_sha256": "637e655b17c78e0085d493f62ca45f8508085ff8666087a2758095d7a819457c",
+    "reviewer": {
+      "kind": "agent",
+      "name": "Codex"
+    },
+    "reviewed_at": "2026-11-04T12:17:36+01:00",
+    "notes": "Reviewed the saved L1 HTML article body (all four substantive paragraphs), chapter scope, natural-person restriction, both alternatives, decree qualification and captured edition text; checked against exact source spans. Both regulatory claims fit beneficial ownership. Mapping requires explicit chapter and decree-dependent clearance facts, without interpreting the decree. The separate scenario.md source is a stipulated synthetic case, reviewed against its own text; it is not regulatory evidence or real-world customer data. This manual subset does not approve or modify the failed generated corpus. No present-day legal applicability determination. Classification/topic metadata was subsequently removed from the input export; bindings were refreshed without changing claim text, evidence, facts, rules, scope or conditions."
+  }
+}

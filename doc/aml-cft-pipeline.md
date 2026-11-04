@@ -3,6 +3,9 @@
 Run from the repository root. The pilot selects 13 originals in
 `data/manifest.json` (11 PDFs / 801 pages, two HTML articles).
 Results belong in [benchmarks](benchmarks.md); adapter details in [providers](providers.md).
+For the separate reviewed semantic subset and symbolic assistant API, see
+[Reasoning Engine](reasoning-engine.md). A passing sampled corpus review alone
+does not mark individual claims verified or authorize semantic mappings.
 
 ## 1. Install and select inputs
 
