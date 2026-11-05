@@ -1,0 +1,282 @@
+{
+  "frozen_input": "artifacts/20261028-docling-aml-cft-01/formalization-v1/input-bundle.json",
+  "frozen_input_sha256": "28c331def27b1b1d981dc140750bb7f8f1074cd425c0d5d645a2cd671a980d07",
+  "frozen_manifest_sha256": "061753ce8eba842bf999ed14831f244082cc65fac57e702c283af0ad60a4f5a2",
+  "proposal_sha256": "ff55c27312bed745f3efdbe4a30089709783507f7c4b74be8964605cb3cac103",
+  "catalogue_sha256": "5c762241c763e293ac8ab958d2310a6019040d77ce8d58feb46158a30f733287",
+  "purpose": "Three source-described questions; no corpus promotion. Original claims remain draft. Acceptance requires independently saved grounding and formalization passes.",
+  "accepted_at": "2026-11-05T13:44:32.946851+00:00",
+  "original_claims": [
+    {
+      "schema_version": "1.0.0",
+      "text": "Dans la guidance du Comité de Bâle sur la gestion des risques de blanchiment et de financement du terrorisme, un « client » désigne toute personne physique ou morale, ou construction juridique, qui entre en relation d’affaires avec une banque ou réalise avec elle une opération financière occasionnelle ; le devoir de vigilance devrait aussi s’appliquer aux personnes agissant pour le compte des clients et aux bénéficiaires effectifs, ces derniers étant les personnes physiques qui possèdent ou contrôlent ultimement un client, une personne physique pour le compte de laquelle une opération est effectuée, ou les personnes exerçant le contrôle effectif ultime sur une personne ou construction juridique.",
+      "evidence": [
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:c8b043c1c89cf9b0f7e3abffba5266fc4e96e54519ad224dc56fde6644218df0",
+          "element_revision": "e628ac92483fca8e979417bf287c5f2bed5475d8a7053a05368eba39e7660c44",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 464,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:84522d2ef0d9d31895e928fadd6787303aee26e224736844b33e59bf11c5aec5",
+          "element_revision": "31a6896daa18e849d5797606f51a06021aaa871bbc82202604994a21e37e2c5d",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 86,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:8855e4e34a1f8c5fd0dc4889895a121bbdd6a91a575d2a526abbcd6640cd9df5",
+          "element_revision": "f024fc8c1cd7f6453385dc25357b2ea24fe7100f91d609f48dfbe33112f22b07",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 445,
+            "start": 0
+          }
+        }
+      ],
+      "chunk_ids": [
+        "chunk:bea12d3846d9a2c24418cd72d487691006360cd75dc55db68cfa1eefd1e2aada",
+        "chunk:0219d1e9617b791e3f6da77db2bc4b43cf77cfcc4f4a15bb826d417a0278bdb9",
+        "chunk:f1272727ba2a4cef1e3781e3d5acfaaa4c684db26db05cc4e4017832c14d801a"
+      ],
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      },
+      "grounding_review_status": "draft",
+      "build_id": "build:15106351b2e8fcef42a16b8ae130405f135b60aa7ece71c62a144c57ba8c2eb6",
+      "id": "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a"
+    },
+    {
+      "schema_version": "1.0.0",
+      "text": "Dans ce cas, Madame Z souhaite acquérir un nouveau bien immobilier par l’intermédiaire d’une société civile immobilière (SCI) ; l’acquisition doit être financée en partie par la vente de l’un de ses biens et en partie par un prêt, pour lequel elle dépose une demande auprès de sa banque comprenant notamment l’estimation du bien mis en vente et sa dernière déclaration d’IFI.",
+      "evidence": [
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+          "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 15,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+          "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 60,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:a5df4ebd343e7884be4339f22b3b6e812c49d2d99619af762bf8d8fead6c1d97",
+          "element_revision": "1a2e7fdd6eefd5b1b020baca7d4008c52cea973412bfdbad91ce4e6db1f48af1",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 330,
+            "start": 0
+          }
+        }
+      ],
+      "chunk_ids": [
+        "chunk:33e6235741d2d353b9fd601e5c79f4a0bc1cf3f60964f5e040697beacd8b1e0a",
+        "chunk:c804492dd74c925ddd9930176dbe61de47e3820ea86d28975c937c5d40b28ec8",
+        "chunk:bf315635aac04048dd7b47058bc8c61dc739023667a1cb6126ee6c7c62cb9a88"
+      ],
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      },
+      "grounding_review_status": "draft",
+      "build_id": "build:15106351b2e8fcef42a16b8ae130405f135b60aa7ece71c62a144c57ba8c2eb6",
+      "id": "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2",
+      "build_id": "build:9550d96ba4a83c77b1c393146c6a1376d0bba2aed4fc042896e3a265de1993d2",
+      "chunk_ids": [
+        "chunk:77f0d4e418b07b24c61b5e0ae6d988f9e708123f543e484b1aee518609370e57"
+      ],
+      "text": "La communication systématique d’informations (COSI) à Tracfin ne dispense pas l’organisme financier d’effectuer une déclaration de soupçon et ne l’exonère pas de sa responsabilité.",
+      "evidence": [
+        {
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:bbce92cc13294ab66c6eb50b03f13ab044ee2e91372fe5398db8ceda5318a89d",
+          "element_revision": "3948db0884769cfec19bcfca4f057dd0365712dd7b621bbd347354642ec00cf2",
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "span": {
+            "end": 479,
+            "start": 0
+          }
+        }
+      ],
+      "grounding_review_status": "draft",
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      }
+    }
+  ],
+  "proposal_mappings": [
+    {
+      "id": "pilot-v2-009",
+      "claim_id": "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2",
+      "claim_sha256": "4dc3ce17449db5154f21b1ab23613ff460655f7a115b85ba7bf06177c5736a1e",
+      "jurisdiction": "FR",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+          "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+          "urn:kf:pilot:acpr-tracfin:2025-04:SuspiciousTransactionReportingWhenApplicable"
+        ],
+        [
+          "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+          "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+          "urn:kf:pilot:acpr-tracfin:2025-04:Liability"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+              "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+              "urn:kf:pilot:acpr-tracfin:2025-04:SuspiciousTransactionReportingWhenApplicable"
+            ],
+            [
+              "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+              "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+              "urn:kf:pilot:acpr-tracfin:2025-04:Liability"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+            "urn:kf:pilot:acpr-tracfin:2025-04:hasSourceDescribedProfile",
+            "urn:kf:pilot:acpr-tracfin:2025-04:NoReportingOrLiabilityExemption"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pilot-v2-023",
+      "claim_id": "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a",
+      "claim_sha256": "d0f7bb0ab3d65f7fb5338a183565608888915b19d40f90dd15e0996e6ca28a16",
+      "jurisdiction": "BCBS",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:Customers"
+        ],
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:PersonsActingForCustomers"
+        ],
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:BeneficialOwners"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+              "urn:kf:pilot:basel:2020-07:recommendedTarget",
+              "urn:kf:pilot:basel:2020-07:PersonsActingForCustomers"
+            ],
+            [
+              "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+              "urn:kf:pilot:basel:2020-07:recommendedTarget",
+              "urn:kf:pilot:basel:2020-07:BeneficialOwners"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+            "urn:kf:pilot:basel:2020-07:extendsToBoth",
+            "urn:kf:pilot:basel:2020-07:RepresentativesAndBeneficialOwners"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pilot-v2-013",
+      "claim_id": "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346",
+      "claim_sha256": "54b828c78517221d66986cbc371b712508d9328c72ebf580cd8710f1e74e5ab6",
+      "jurisdiction": "FR",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimate"
+        ],
+        [
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LatestIFIReturn"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimate"
+            ],
+            [
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LatestIFIReturn"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+            "urn:kf:pilot:tracfin:2025-09-29:case3:hasSourceDescribedAttachments",
+            "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimateAndLatestIFIReturn"
+          ]
+        }
+      ]
+    }
+  ],
+  "grounding_review_sha256": "8c7bab66689c1b2e6a20897b63070a5cb6580480e7dabea0ed0c8625d7a9705a",
+  "formalization_review_sha256": "7c5d626641d4001fbfcf88178f46cf06c4feea696ee5f6de8430f863f23ea3d3",
+  "lineage_policy": "Keep original IDs, source versions, spans, chunk content and build inputs. Restrict build output inventories to the accepted export. Import only exact reviewed claim evidence, not remaining chunk content or document metadata needed for build identity.",
+  "catalogue_projection": {
+    "reviewed_input": "../proposals/reviewed-catalogue.json",
+    "policy": "Retain exactly the enabled individually reviewed entries, unchanged."
+  }
+}

@@ -1,0 +1,368 @@
+{
+  "schema_version": "1.0.0",
+  "review_kind": "independent bounded source grounding",
+  "reviewer": {
+    "kind": "agent",
+    "name": "Codex /root/grounding_review",
+    "model": null,
+    "reasoning_settings": null
+  },
+  "reviewed_at": "2026-11-05T13:40:45.445235+00:00",
+  "independence": "Separate review agent from the implementation and original claim generation contexts. Model-level independence is not established; no paid model API was called.",
+  "frozen_input_sha256": "28c331def27b1b1d981dc140750bb7f8f1074cd425c0d5d645a2cd671a980d07",
+  "frozen_bundle_stable_hash": "c71833851175ca0699ca832d157f8d2506aaec72b046995dbbb8da8595dd0e26",
+  "input_bindings": {
+    "artifacts/20261028-docling-aml-cft-01/formalization-v1/manifest.json": "061753ce8eba842bf999ed14831f244082cc65fac57e702c283af0ad60a4f5a2",
+    "artifacts/20261028-docling-aml-cft-01/formalization-v1/input-bundle.json": "28c331def27b1b1d981dc140750bb7f8f1074cd425c0d5d645a2cd671a980d07",
+    "artifacts/20261028-docling-aml-cft-01/formalization-v1/candidate-claim-links.jsonl": "362636559f80b08d5fae164a825ff052068fb62d00d7c33c705f78a1fb7a0a3e",
+    "artifacts/20261028-docling-aml-cft-01/formalization-v1/coverage.jsonl": "2ae40d737aeae17284e7a4a2801b72dbb14d1da4855bc0d8a9589682c47071c9",
+    "artifacts/20261028-docling-aml-cft-01/formalization-v1/prior-findings.json": "04132a70517966c29c97f6ecb3c3772e6ff9512b4d3052980f4b3f926992f53b",
+    "data/manifest.json": "d47de97bbde079b8ec608ada2a8918da3a34eafcfe0173bf6f814d49dd59ab9a",
+    "tests/fixtures/retrieval-evaluation-123q.json": "51030065214e17061f6c48c8095e3289cede3484fb06d41e6c0b0efd28534a21"
+  },
+  "prior_findings": {
+    "frozen_prior_gate": "fail",
+    "selected_candidate_specific_findings": [],
+    "handling": "The prior corpus/sample review failure and its unrelated findings remain unchanged. No selected candidate ID occurred in the frozen prior findings. Existing requires_review dispositions for these three entries were inspected and their cautions incorporated; grounding pass does not grant formalization or corpus acceptance."
+  },
+  "judgments": [
+    {
+      "question_id": "V2-009",
+      "candidate_id": "candidate:f457383daf8ddc93e6a6af2eb31e40d0dcc094caa1e453528899055a59859e81",
+      "candidate_sha256": "913bd517361b6d7eecde9a701357175c777883ad58c2bfc9e1a47a64db754561",
+      "claim_id": "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2",
+      "claim_sha256": "4dc3ce17449db5154f21b1ab23613ff460655f7a115b85ba7bf06177c5736a1e",
+      "grounding": "pass",
+      "original_status": "draft",
+      "original_disposition": "requires_review",
+      "original_claim_text": "La communication systématique d’informations (COSI) à Tracfin ne dispense pas l’organisme financier d’effectuer une déclaration de soupçon et ne l’exonère pas de sa responsabilité.",
+      "source_id": "src:acpr-tracfin-joint-guidelines",
+      "source_version": "2025-04",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "original_path": "data/A-20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "original_sha256": "a1eae0e3d31d648b330c0e273d6ff524459a26e849bde7b69345b681bb74b4c0",
+      "evidence": [
+        {
+          "reference": {
+            "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+            "element_id": "el:bbce92cc13294ab66c6eb50b03f13ab044ee2e91372fe5398db8ceda5318a89d",
+            "element_revision": "3948db0884769cfec19bcfca4f057dd0365712dd7b621bbd347354642ec00cf2",
+            "source_id": "src:acpr-tracfin-joint-guidelines",
+            "span": {
+              "end": 479,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 49,
+            "label": "194.",
+            "bbox": [
+              57.624,
+              111.02287999999999,
+              537.8391199999992,
+              189.20496707182315
+            ]
+          },
+          "locator_key": "pdf:p49:block-2",
+          "exact_text": "194. L'article L. 561-15-1 prévoit la communication systématique d'informations (COSI) à Tracfin relatives à des opérations identifiées comme présentant un risque élevé de blanchiment ou de financement du terrorisme en raison du pays ou du territoire d'origine ou de destination des fonds, de la nature des opérations en cause ou des structures juridiques impliquées dans ces opérations. Les COSI n'entraînent pas de dispense de DS et ne sont pas exonératoires de responsabilité."
+        }
+      ],
+      "inspection": {
+        "original_text_inspected": true,
+        "original_rendered_layout_inspected": true,
+        "full_pdf_pages": [
+          49
+        ],
+        "text_extraction_tool": "pdftotext -layout",
+        "layout_tool": "pdftoppm -scale-to 1500 -singlefile -png",
+        "render_sha256": "662eb41bdf503735d7e830b809343519fd78fc37e44372e6e01f49d397cbf4c9",
+        "text_extraction_sha256": "bed143acfc74e36bec69970683c0d1b98a9cac50d10b4045ee340a06d465303b",
+        "source_hash_matches_manifest_and_document": true,
+        "claim_and_evidence_hashes_match_frozen_links": true
+      },
+      "notes": "PDF p49, section V, paragraph 194 explicitly states that COSI neither dispenses with a suspicious transaction report nor exonerates responsibility. Paragraph 195 on the same rendered page confirms DS remains required where applicable for the same flow; it distinguishes suspicion-based DS from objective COSI criteria. The claim accurately paraphrases paragraph 194 without asserting actual institutional liability or a DS requirement for every COSI.",
+      "boundaries": [
+        "The negative legal consequence is explicit source text, not an inference from missing facts.",
+        "Do not infer that every COSI requires a DS, that a particular institution is liable, or that source-capture date proves current legal effectiveness."
+      ],
+      "findings": [
+        {
+          "id": "grounding-V2-009-scope",
+          "code": "COSI_SCOPE",
+          "severity": "minor",
+          "status": "informational",
+          "location": "PDF p49 paragraphs 194-195",
+          "requirement": "Preserve non-dispensation versus actual liability and conditional DS.",
+          "finding": "Grounding passes. Executable views must report source assertions and retain where-applicable DS qualifications; they cannot assert an actual violation from filing COSI."
+        }
+      ]
+    },
+    {
+      "question_id": "V2-023",
+      "candidate_id": "candidate:891ad8726e502382fc568ff4f55350c0c3286b8b10909afb9d6f9fac2ff22574",
+      "candidate_sha256": "c4c9ce98eb9e1ef54ece9e2921a32b3789c67f529fdf5449d722732df5681b3e",
+      "claim_id": "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a",
+      "claim_sha256": "d0f7bb0ab3d65f7fb5338a183565608888915b19d40f90dd15e0996e6ca28a16",
+      "grounding": "pass",
+      "original_status": "draft",
+      "original_disposition": "requires_review",
+      "original_claim_text": "Dans la guidance du Comité de Bâle sur la gestion des risques de blanchiment et de financement du terrorisme, un « client » désigne toute personne physique ou morale, ou construction juridique, qui entre en relation d’affaires avec une banque ou réalise avec elle une opération financière occasionnelle ; le devoir de vigilance devrait aussi s’appliquer aux personnes agissant pour le compte des clients et aux bénéficiaires effectifs, ces derniers étant les personnes physiques qui possèdent ou contrôlent ultimement un client, une personne physique pour le compte de laquelle une opération est effectuée, ou les personnes exerçant le contrôle effectif ultime sur une personne ou construction juridique.",
+      "source_id": "src:bcbs-aml-cft-risk-management-2020",
+      "source_version": "2014-01-revised-2020-07",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "original_path": "data/BASEL20-bcbs-aml-cft-risk-management-2020.pdf",
+      "original_sha256": "1cc3c40c9de0e5d1272f4b86a11a7babd4847b1083ed30d0bc0bac14117bf1a6",
+      "evidence": [
+        {
+          "reference": {
+            "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+            "element_id": "el:c8b043c1c89cf9b0f7e3abffba5266fc4e96e54519ad224dc56fde6644218df0",
+            "element_revision": "e628ac92483fca8e979417bf287c5f2bed5475d8a7053a05368eba39e7660c44",
+            "source_id": "src:bcbs-aml-cft-risk-management-2020",
+            "span": {
+              "end": 464,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 12,
+            "label": "35.",
+            "bbox": [
+              56.63123999999999,
+              147.22799999999995,
+              518.6824080000002,
+              209.6841409553158
+            ]
+          },
+          "locator_key": "pdf:p12:block-3",
+          "exact_text": "35. For the purposes of this guidance, a customer refers, in accordance with the FATF Recommendation 10, to any person 22 who enters into a business relationship or carries out an occasional financial transaction with the bank. The customer due diligence should be applied not only to customers but also to persons acting on their behalf and beneficial owners. 23 In accordance with the FATF standards, banks should identify customers and verify their identity. 24"
+        },
+        {
+          "reference": {
+            "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+            "element_id": "el:84522d2ef0d9d31895e928fadd6787303aee26e224736844b33e59bf11c5aec5",
+            "element_revision": "31a6896daa18e849d5797606f51a06021aaa871bbc82202604994a21e37e2c5d",
+            "source_id": "src:bcbs-aml-cft-risk-management-2020",
+            "span": {
+              "end": 86,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 12,
+            "label": "block 7",
+            "bbox": [
+              56.64,
+              642.7919999999999,
+              362.70324,
+              651.1020554699537
+            ]
+          },
+          "locator_key": "pdf:p12:block-7",
+          "exact_text": "22 \"Person\" in this context refers to natural and legal persons or legal arrangements."
+        },
+        {
+          "reference": {
+            "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+            "element_id": "el:8855e4e34a1f8c5fd0dc4889895a121bbdd6a91a575d2a526abbcd6640cd9df5",
+            "element_revision": "f024fc8c1cd7f6453385dc25357b2ea24fe7100f91d609f48dfbe33112f22b07",
+            "source_id": "src:bcbs-aml-cft-risk-management-2020",
+            "span": {
+              "end": 445,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 12,
+            "label": "block 8",
+            "bbox": [
+              56.64,
+              659.352,
+              518.8094880000007,
+              699.5728154699538
+            ]
+          },
+          "locator_key": "pdf:p12:block-8",
+          "exact_text": "23 The term \"beneficial owner\" is used in this guidance paper consistently with the definition and clarifications provided by the FATF standards. As a reminder, the FATF defines a \"beneficial owner\" as the natural person(s) who ultimately owns or controls a customer and/or natural person on whose behalf a transaction is being conducted. It also includes those persons who exercise ultimate effective control over a legal person or arrangement."
+        }
+      ],
+      "inspection": {
+        "original_text_inspected": true,
+        "original_rendered_layout_inspected": true,
+        "full_pdf_pages": [
+          12
+        ],
+        "text_extraction_tool": "pdftotext -layout",
+        "layout_tool": "pdftoppm -scale-to 1500 -singlefile -png",
+        "render_sha256": "937572bd7f69869c6f6bfda213640d65a79a161d4b770d735ad5d7b659393f2d",
+        "text_extraction_sha256": "7a278a030c66198541e841afa5bd6950a6cfcfdad571e9151172e70c3e8c06f7",
+        "source_hash_matches_manifest_and_document": true,
+        "claim_and_evidence_hashes_match_frozen_links": true
+      },
+      "notes": "PDF p12 (printed p8), section 3, paragraph 35 supports the source-specific customer definition and recommendation that CDD also applies to persons acting on customers behalf and beneficial owners. Footnote 22 includes natural/legal persons and legal arrangements; footnote 23 supplies the FATF natural-person ultimate ownership/control/on-behalf alternatives. All three cited elements match the original page and layout. Paragraphs 36-37 confirm representative and beneficial-owner identification context. Footnote 24 qualifies the separate identify/verify requirement by a country risk assessment and limited proven-low-risk exemption. This claim does not assert that separate requirement and does not conflict with its exception.",
+      "boundaries": [
+        "The recommendation uses should and remains Basel guidance, not an unconditional directly applicable national obligation.",
+        "The claim evidence contains paragraph 35 and notes 22-23; note 24 was inspected as governing context for the separate identification/verification sentence. Any executable answer about that sentence must additionally retain note 24.",
+        "No customer facts, agency relationship or beneficial-ownership determination are established for a real person."
+      ],
+      "findings": [
+        {
+          "id": "grounding-V2-023-scope",
+          "code": "BASEL_SOURCE_SCOPE",
+          "severity": "minor",
+          "status": "informational",
+          "location": "PDF p12/printed p8 paragraph 35 and footnotes 22-24",
+          "requirement": "Preserve recommendation modality, FATF meaning and country low-risk qualification for separate identification/verification.",
+          "finding": "Grounding passes for the complete claim and bounded CDD-scope question. It does not license unconditional identify/verify rules or reuse of a different legal definition."
+        }
+      ]
+    },
+    {
+      "question_id": "V2-013",
+      "candidate_id": "candidate:8c1817870163f0f3b57b94d2542bba2aabdcd4647aff0d54711898bd62a1b626",
+      "candidate_sha256": "b6c4b12524ba0719b869ff9078bd4fc2efd457687f150d1b580738b9098be0f4",
+      "claim_id": "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346",
+      "claim_sha256": "54b828c78517221d66986cbc371b712508d9328c72ebf580cd8710f1e74e5ab6",
+      "grounding": "pass",
+      "original_status": "draft",
+      "original_disposition": "requires_review",
+      "original_claim_text": "Dans ce cas, Madame Z souhaite acquérir un nouveau bien immobilier par l’intermédiaire d’une société civile immobilière (SCI) ; l’acquisition doit être financée en partie par la vente de l’un de ses biens et en partie par un prêt, pour lequel elle dépose une demande auprès de sa banque comprenant notamment l’estimation du bien mis en vente et sa dernière déclaration d’IFI.",
+      "source_id": "src:tracfin-threat-report-tome-3",
+      "source_version": "2025-09-29-tome-3",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "original_path": "data/T-TRACFIN_2024_Tome3_FR_WEB_0.pdf",
+      "original_sha256": "c197fbf3f9825cff39bf9976b97d6062c49d654b2609ba494d42bdfc8b392932",
+      "evidence": [
+        {
+          "reference": {
+            "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+            "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+            "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402",
+            "source_id": "src:tracfin-threat-report-tome-3",
+            "span": {
+              "end": 15,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 18,
+            "label": "block 1",
+            "bbox": [
+              305.7671,
+              92.13940000000002,
+              476.22310000000016,
+              111.52490724637676
+            ]
+          },
+          "locator_key": "pdf:p18:block-1",
+          "exact_text": "Banques privées"
+        },
+        {
+          "reference": {
+            "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+            "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+            "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402",
+            "source_id": "src:tracfin-threat-report-tome-3",
+            "span": {
+              "end": 60,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 18,
+            "label": "block 2",
+            "bbox": [
+              34.0157,
+              130.84730000000002,
+              338.2207,
+              140.54802463768124
+            ]
+          },
+          "locator_key": "pdf:p18:block-2",
+          "exact_text": "Cas n° 3 : Fraude à l'impôt sur la fortune immobilière (IFI)"
+        },
+        {
+          "reference": {
+            "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+            "element_id": "el:a5df4ebd343e7884be4339f22b3b6e812c49d2d99619af762bf8d8fead6c1d97",
+            "element_revision": "1a2e7fdd6eefd5b1b020baca7d4008c52cea973412bfdbad91ce4e6db1f48af1",
+            "source_id": "src:tracfin-threat-report-tome-3",
+            "span": {
+              "end": 330,
+              "start": 0
+            }
+          },
+          "location": {
+            "format": "pdf",
+            "page": 18,
+            "label": "block 7",
+            "bbox": [
+              34.0157,
+              300.66300000000007,
+              476.2208000000004,
+              329.01227536231886
+            ]
+          },
+          "locator_key": "pdf:p18:block-7",
+          "exact_text": "2 Via sa société civile immobilière (SCI), la société Z, Madame Z souhaite acquérir un nouveau bien immobilier, financé en partie par la vente de l'un de ses biens, et en partie par un prêt. Elle dépose une demande de prêt auprès de sa banque, contenant notamment l'estimation du bien mis en vente, et sa dernière déclaration IFI."
+        }
+      ],
+      "inspection": {
+        "original_text_inspected": true,
+        "original_rendered_layout_inspected": true,
+        "full_pdf_pages": [
+          18
+        ],
+        "text_extraction_tool": "pdftotext -layout",
+        "layout_tool": "pdftoppm -scale-to 1500 -singlefile -png",
+        "render_sha256": "4896428c1aaef55126fd7a1ace9a70a07fda74cdacb3017a7f90adfb3ef2f531",
+        "text_extraction_sha256": "e9c97aa23faed6f86fbb0e092a28f77c13946372c5d072c8ebc997da49d7a16b",
+        "source_hash_matches_manifest_and_document": true,
+        "claim_and_evidence_hashes_match_frozen_links": true
+      },
+      "notes": "PDF p18, Banques privees, case n3 Fraude a limpôt sur la fortune immobiliere, numbered step 2 states Madame Z intends to acquire a new property via SCI Z, financed partly by sale and partly by a loan. Her bank loan application contains notamment the property-sale estimate and her latest IFI declaration. The two heading evidence spans locate the case and the full step-2 span provides the asserted facts. The rendered numbered sequence separates this step from the estimate discrepancy at step 3 and later suspicion analysis. The claim preserves intention, mixed proposed financing and non-exhaustive application contents.",
+      "boundaries": [
+        "This is the source-described illustrative case n3; it is not a verified customer dossier.",
+        "Do not turn acquisition intention into completed purchase or the bank application into granted credit.",
+        "The stated documents are non-exhaustive and include the latest IFI declaration, not a general legal checklist for every loan."
+      ],
+      "findings": [
+        {
+          "id": "grounding-V2-013-scope",
+          "code": "CASE_EVENT_SCOPE",
+          "severity": "minor",
+          "status": "informational",
+          "location": "PDF p18 case n3, step 2",
+          "requirement": "Keep source-described event, intention/application modality and notamment qualifier.",
+          "finding": "Grounding passes. Derived views must not imply a completed purchase, approved loan, universal required-document list or independently established facts about a real customer."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "pass": 3,
+    "fail": 0,
+    "pending": 0,
+    "semantic_review_performed": false,
+    "frozen_statuses_changed": false,
+    "corpus_accepted": false
+  },
+  "limitations": [
+    "Only the three specified claim entries were independently reviewed.",
+    "This review verifies support in pinned saved publications, not current legal applicability or truth of source-described case assertions.",
+    "Separate semantic review and validated accepted exports are still required before execution."
+  ],
+  "automatic_checks": {
+    "check_claim_evidence": "passed on frozen input-bundle.json; structural/evidence lineage validation only, not review or acceptance of other entries",
+    "selected_input_manifest_hashes": "input-bundle.json, candidate-claim-links.jsonl, coverage.jsonl and prior-findings.json match frozen manifest output_file_sha256",
+    "selected_claims": "stable hashes match candidate links and coverage; exact span bounds and element revisions verified",
+    "originals": "all three originals match data/manifest.json and document content_sha256"
+  }
+}

@@ -338,6 +338,10 @@ Open `http://localhost:8501` and select the corpus/published snapshot.
 `OPENAI_API_KEY` enables paid answers and vector/combined search; without it,
 the app uses keyword search and exact excerpts.
 
+The sidebar defaults to **Document assistant**. For the separately reviewed pilot
+catalogue, mode histories and additive migration, follow
+[Document and Reasoning assistants](assistants.md).
+
 ## Back up results and PostgreSQL
 
 Keep the selected run directory, `artifacts/ingested/`, and the repository version

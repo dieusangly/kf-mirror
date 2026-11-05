@@ -1,0 +1,1233 @@
+{
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-tracfin-joint-guidelines",
+      "version": "2025-04",
+      "uri": "https://acpr.banque-france.fr/system/files/2025-04/20250423_Lignes_directrices_obligations_Tracfin.pdf",
+      "title": "Lignes directrices conjointes ACPR–Tracfin",
+      "class": "regulatory guidance",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:tracfin-threat-report-tome-3",
+      "version": "2025-09-29-tome-3",
+      "uri": "https://www.economie.gouv.fr/files/files/directions_services/tracfin/media-document/TRACFIN_2024_Tome3_FR_WEB_0.pdf",
+      "title": "Tracfin, rapport 2024–25, tome III",
+      "class": "typology report",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:cmf-L561-2-2",
+      "version": "LEGIARTI000033517537",
+      "uri": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517537",
+      "title": "Code monétaire et financier, article L. 561-2-2",
+      "class": "versioned legal article",
+      "format": "html"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:cmf-L561-6",
+      "version": "LEGIARTI000033517733",
+      "uri": "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033517733",
+      "title": "Code monétaire et financier, article L. 561-6",
+      "class": "versioned legal article",
+      "format": "html"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-ppe-2018",
+      "version": "2018-body",
+      "uri": "https://acpr.banque-france.fr/system/files/import/acpr/media/2018/05/02/20180410_ld_ppe_college.revu_.asb_.post_decretdgtv2presidents.pdf",
+      "title": "ACPR — Personnes politiquement exposées",
+      "class": "regulatory guidance",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:bcbs-aml-cft-risk-management-2020",
+      "version": "2014-01-revised-2020-07",
+      "uri": "https://www.bis.org/publications/202007-guidelines-sound-management-risks-related-money-laundering-and-financing-terrorism-revisions-supervisory.pdf",
+      "title": "Basel Committee — Sound management of risks related to money laundering and financing of terrorism",
+      "class": "international supervisory guidance",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:fr-colb-national-risk-assessment-2023",
+      "version": "2023-01",
+      "uri": "https://www.tresor.economie.gouv.fr/Institutionnel/Niveau2/Pages/58b72725-da59-4fc3-a355-40cea35befab/files/5a1a87e0-2f90-4f4d-b5e8-e7077920cd56",
+      "title": "COLB — Analyse nationale des risques de blanchiment de capitaux et de financement du terrorisme en France",
+      "class": "national risk assessment",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:eu-reg-2024-1624-en",
+      "version": "32024R1624-OJ-en",
+      "uri": "https://eur-lex.europa.eu/eli/reg/2024/1624/oj/eng",
+      "title": "Regulation (EU) 2024/1624 (EN)",
+      "class": "EU legislation",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:eu-reg-2024-1624-fr",
+      "version": "32024R1624-OJ-fr",
+      "uri": "https://eur-lex.europa.eu/eli/reg/2024/1624/oj/fra",
+      "title": "Regulation (EU) 2024/1624 (FR)",
+      "class": "EU legislation",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:eu-reg-2023-1113-en",
+      "version": "32023R1113-OJ-en",
+      "uri": "https://eur-lex.europa.eu/eli/reg/2023/1113/oj/eng",
+      "title": "Regulation (EU) 2023/1113 (EN)",
+      "class": "EU legislation",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-identification-2021",
+      "version": "2021-12-16",
+      "uri": "https://acpr.banque-france.fr/system/files/import/acpr/media/2022/05/11/20220404_lignes_directrices_revisees_relatives_identification_verification_connaissance.pdf",
+      "title": "ACPR — Identification, vérification de l’identité et connaissance de la clientèle",
+      "class": "regulatory guidance",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-dgt-asset-freezing-2026",
+      "version": "2026-03-16",
+      "uri": "https://acpr.banque-france.fr/system/files/2026-03/20260318_lignes_directrices_gel_des_avoirs.pdf",
+      "title": "ACPR–DG Trésor — Mise en œuvre des mesures de gel des avoirs",
+      "class": "regulatory guidance",
+      "format": "pdf"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "src:acpr-ppe-annex-2024",
+      "version": "2024-07",
+      "uri": "https://acpr.banque-france.fr/system/files/import/acpr/medias/documents/20240705_personnes_politiquement_exposees_hr.pdf",
+      "title": "ACPR — Les personnes politiquement exposées, annexe 2024",
+      "class": "regulatory guidance annex",
+      "format": "pdf"
+    }
+  ],
+  "documents": [
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "source_id": "src:acpr-tracfin-joint-guidelines",
+      "source_version": "2025-04",
+      "content_sha256": "a1eae0e3d31d648b330c0e273d6ff524459a26e849bde7b69345b681bb74b4c0",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-05"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "source_id": "src:tracfin-threat-report-tome-3",
+      "source_version": "2025-09-29-tome-3",
+      "content_sha256": "c197fbf3f9825cff39bf9976b97d6062c49d654b2609ba494d42bdfc8b392932",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-05"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+      "source_id": "src:cmf-L561-2-2",
+      "source_version": "LEGIARTI000033517537",
+      "content_sha256": "384dc6261a71c435c9508ac04d1cf4ecbb78a67b5c260db770fe43930dca96ed",
+      "media_type": "text/html",
+      "retrieved_on": "2026-10-05"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:20db8e81528b147f3f622376709e7e40c0c81372b01a390af5aa37d52c7b20ba",
+      "source_id": "src:cmf-L561-6",
+      "source_version": "LEGIARTI000033517733",
+      "content_sha256": "ac924f42ab5c28332721e3b3a4e5540f753051fc3ff3e7ee9fb402ac65b45290",
+      "media_type": "text/html",
+      "retrieved_on": "2026-10-05"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:46bbce62b8dc2c7e83a51828a061fec871ed49141b327339bd731556b5b004f7",
+      "source_id": "src:acpr-ppe-2018",
+      "source_version": "2018-body",
+      "content_sha256": "2be18f91c335d931ce000bacfa55784352bd9179b44a38a2cc3e794680af6024",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "source_id": "src:bcbs-aml-cft-risk-management-2020",
+      "source_version": "2014-01-revised-2020-07",
+      "content_sha256": "1cc3c40c9de0e5d1272f4b86a11a7babd4847b1083ed30d0bc0bac14117bf1a6",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:a5672233569915c7f157df9980e04df3d287410c959ac495faf296161fa4bc68",
+      "source_id": "src:fr-colb-national-risk-assessment-2023",
+      "source_version": "2023-01",
+      "content_sha256": "eb15343d4a20d162e84f6d8782aece96b94e5b18544f9296130f91885da30229",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:1468b2406375d7ac3637485a38846f52238626daeb15a78aabe85613bdbc7ef5",
+      "source_id": "src:eu-reg-2024-1624-en",
+      "source_version": "32024R1624-OJ-en",
+      "content_sha256": "c4024f4c4c1616cc729ed4ec4333274d711324efa9750d3d531bf90770ed8eb6",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:eb1f86a32ff19e2581152bacaa45425ae5b35627011c320ef7d848a653ea2316",
+      "source_id": "src:eu-reg-2024-1624-fr",
+      "source_version": "32024R1624-OJ-fr",
+      "content_sha256": "4bbb0c71486258bea7ed57d4f960485a16f44b68bba73aee410a99cb6e84fc30",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:df4e363a270c48c9e2fb3c4971aa349ccc196b8bd5daedae7ac7cb60876880ae",
+      "source_id": "src:eu-reg-2023-1113-en",
+      "source_version": "32023R1113-OJ-en",
+      "content_sha256": "d7502c011527b67c3e12a221ad74afd6adaf7b2f93171e0f52d101dadbf25527",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-22"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:8d592796f33282bc5329c899275a3f9022919d7d128ff4e71f78d48307be8faa",
+      "source_id": "src:acpr-identification-2021",
+      "source_version": "2021-12-16",
+      "content_sha256": "b8edb7f64fc1dc63d2607c72066d618ed9575ddf2e50677daf219faaa313d2a5",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-26"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:fdf6961cba9dd1f01401ae77940044426a434f29dd242d1ad6c16137723e232b",
+      "source_id": "src:acpr-dgt-asset-freezing-2026",
+      "source_version": "2026-03-16",
+      "content_sha256": "de0a962ed5a83494749ac10f198b70c778bc307439f0cdf54fd99b1c53896051",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-26"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "doc:1dc2f28b12d2d0d2345adb95a308bcf3f67bba5ef24aeac12007481edd478044",
+      "source_id": "src:acpr-ppe-annex-2024",
+      "source_version": "2024-07",
+      "content_sha256": "f8691a7e7273ebddc10eb2f58fc6702ecf9943a1a96af29c496a97ae06488cb7",
+      "media_type": "application/pdf",
+      "retrieved_on": "2026-10-26"
+    }
+  ],
+  "elements": [
+    {
+      "schema_version": "1.0.0",
+      "id": "el:1e4231496b915d17998dfb1cb9d94452ddc66c756bb5244652c4e031c92dd53a",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "locator_key": "pdf:p49:block-1",
+      "revision": "8ed1d180898d6412eaad5f81cf75c1f3ae4c31d9485f5173cc5727b9e748087e",
+      "kind": "heading",
+      "ordinal": 682,
+      "text": "V. LA COMMUNICATION SYSTEMATIQUE D'INFORMATION (COSI) A TRACFIN",
+      "location": {
+        "format": "pdf",
+        "page": 49,
+        "label": "V.",
+        "bbox": [
+          75.624,
+          38.42399999999998,
+          486.44800000000004,
+          69.82713812154691
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:bbce92cc13294ab66c6eb50b03f13ab044ee2e91372fe5398db8ceda5318a89d",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "locator_key": "pdf:p49:block-2",
+      "revision": "3948db0884769cfec19bcfca4f057dd0365712dd7b621bbd347354642ec00cf2",
+      "kind": "list_item",
+      "ordinal": 683,
+      "text": "194. L'article L. 561-15-1 prévoit la communication systématique d'informations (COSI) à Tracfin relatives à des opérations identifiées comme présentant un risque élevé de blanchiment ou de financement du terrorisme en raison du pays ou du territoire d'origine ou de destination des fonds, de la nature des opérations en cause ou des structures juridiques impliquées dans ces opérations. Les COSI n'entraînent pas de dispense de DS et ne sont pas exonératoires de responsabilité.",
+      "location": {
+        "format": "pdf",
+        "page": 49,
+        "label": "194.",
+        "bbox": [
+          57.624,
+          111.02287999999999,
+          537.8391199999992,
+          189.20496707182315
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-1",
+      "revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402",
+      "kind": "heading",
+      "ordinal": 245,
+      "text": "Banques privées",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 1",
+        "bbox": [
+          305.7671,
+          92.13940000000002,
+          476.22310000000016,
+          111.52490724637676
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-2",
+      "revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402",
+      "kind": "heading",
+      "ordinal": 246,
+      "text": "Cas n° 3 : Fraude à l'impôt sur la fortune immobilière (IFI)",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 2",
+        "bbox": [
+          34.0157,
+          130.84730000000002,
+          338.2207,
+          140.54802463768124
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:7a6eb0b4b26c0d7eaac8dfbb1e4ced407566f2fef2655aefa1321e54490dc99e",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-6",
+      "revision": "2536d7675929328d7ea3e397cac6612026980ddb5cb615e257dd95910f0e23d1",
+      "kind": "list_item",
+      "ordinal": 250,
+      "text": "1 Madame Z possède un patrimoine immobilier important, qu'elle estime à 7 M€ dans la déclaration IFI qu'elle transmet à l'administration fiscale.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 6",
+        "bbox": [
+          34.0157,
+          274.9937000000001,
+          476.22500000000014,
+          293.3429753623189
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:a5df4ebd343e7884be4339f22b3b6e812c49d2d99619af762bf8d8fead6c1d97",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-7",
+      "revision": "1a2e7fdd6eefd5b1b020baca7d4008c52cea973412bfdbad91ce4e6db1f48af1",
+      "kind": "list_item",
+      "ordinal": 251,
+      "text": "2 Via sa société civile immobilière (SCI), la société Z, Madame Z souhaite acquérir un nouveau bien immobilier, financé en partie par la vente de l'un de ses biens, et en partie par un prêt. Elle dépose une demande de prêt auprès de sa banque, contenant notamment l'estimation du bien mis en vente, et sa dernière déclaration IFI.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 7",
+        "bbox": [
+          34.0157,
+          300.66300000000007,
+          476.2208000000004,
+          329.01227536231886
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:edbdb5c77aa02a5a54b78481e2d5facfb763c5b4c6a1a41d54190593acd85327",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-8",
+      "revision": "a1d9b8809e4a22f1bf95e88a256ce652dfacf09771c58f7703b4244a14c8cec0",
+      "kind": "list_item",
+      "ordinal": 252,
+      "text": "3 Or, le bien est estimé par l'agent immobilier à un montant trois fois supérieur à celui déclaré par Madame Z auprès de l'administration fiscale.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 8",
+        "bbox": [
+          34.0157,
+          336.3323000000001,
+          476.221,
+          354.6815753623189
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:31d9785dcbbca08105e8c7bcfb662fe1696bf12f4faee978f4ef776f43f17987",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-9",
+      "revision": "5a5a1e4baacdba929f7c75f8c010064f4b68ec0debe048a03c58f714d858be80",
+      "kind": "list_item",
+      "ordinal": 253,
+      "text": "4 Un calcul fondé sur le prix moyen au m 2 et la taille des biens permet de soupçonner une sous-évaluation non seulement du bien mis en vente, mais aussi de l'ensemble du patrimoine immobilier de Madame Z. Celle-ci les estime à des prix largement inférieurs à ceux du marché, notamment en conservant les prix originaux à l'achat ou à la succession malgré les évolutions du marché.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 9",
+        "bbox": [
+          34.0157,
+          362.00160000000005,
+          476.2362000000004,
+          400.35087536231885
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:41674940db3ec933bc0836c6c0d0ba4e36c2d18f81675017c316173efd958e7f",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-10",
+      "revision": "2fc5fcd5b887bdf6b3b4d7a8e01bb2fa4017eee19fc9f44ac3c78b84474edb64",
+      "kind": "list_item",
+      "ordinal": 254,
+      "text": "5 Cette sous-estimation de la valeur vénale des biens a permis à Madame Z de réduire considérablement l'assiette de son IFI pendant des années.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 10",
+        "bbox": [
+          34.0157,
+          407.6709000000001,
+          476.2034000000004,
+          426.0201753623189
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:a3fe90239940eff2e6d92ee94ab9e66c63666ce8f06020a4cfec251dc4d02523",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-11",
+      "revision": "a8059ad6881d4cd3db838d3ba10fc324c79bf8790535733392e699f3c1ac9064",
+      "kind": "heading",
+      "ordinal": 255,
+      "text": "Critères d'alerte",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 11",
+        "bbox": [
+          39.685,
+          468.30590000000007,
+          106.48564999999999,
+          475.80191449275367
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:27168b0ece3c3cfd397f5e7d0115e62064e6704c1a3159ab6dfb9f5f6add7942",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-12",
+      "revision": "635bfc49057f61534c2b998859a230c122d3cd918d1213108f1a5bd2153b896d",
+      "kind": "list_item",
+      "ordinal": 256,
+      "text": "· Malgré un important patrimoine immobilier, le montant de l'IFI du client est relativement faible.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 12",
+        "bbox": [
+          39.685,
+          478.0905,
+          443.51789999999977,
+          491.3078913043479
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:7b148c6b5afdb736b41dbd00e39324e51a5deeed9400d9f6874b015111c7f4ea",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-13",
+      "revision": "2fb02c03640de50e34c709cf7c45c0f0232b19e551d90d798e1e8e852f4fa9d6",
+      "kind": "list_item",
+      "ordinal": 257,
+      "text": "· Société-écran s'interposant entre le bénéficiaire effectif du patrimoine et celui-ci.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 13",
+        "bbox": [
+          39.685,
+          490.00790000000006,
+          385.97119999999995,
+          503.2252913043479
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:a0b5e5d6ae393ac436738bc6096078222d9f7722263ca3c6385c22f230bd6d12",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-14",
+      "revision": "b02617f2bfc45ac27914b7166eb5146051414c44e9e60cade6369978fabd2891",
+      "kind": "list_item",
+      "ordinal": 258,
+      "text": "· La description du bien faite par le client ne correspond pas au prix qu'il indique.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 14",
+        "bbox": [
+          39.685,
+          501.9252,
+          378.4419000000001,
+          515.1425913043479
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:e19dfb80b2693d74fb2b637612841135b68481d2cf5041f45881ea80a754ca93",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-15",
+      "revision": "6cd2d81edbe085dce30b5cb5fec245260e344dd498b7db6dc2520deab442d2ca",
+      "kind": "list_item",
+      "ordinal": 259,
+      "text": "· Le client ne fournit aucun document prouvant son acquittement de l'IFI.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 15",
+        "bbox": [
+          39.685,
+          513.8425000000001,
+          347.9030999999997,
+          527.0598913043478
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:0a91beac169b734540d71d1e1c4850a14a307ef02f50bb45c1a179da8d652d9d",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p18:block-16",
+      "revision": "39739ebabf5153cde1cbce8c20bdc737894946b7603b30d93b959ab299f1b43e",
+      "kind": "list_item",
+      "ordinal": 260,
+      "text": "· Le client refuse de communiquer la composition réelle de son patrimoine immobilier.",
+      "location": {
+        "format": "pdf",
+        "page": 18,
+        "label": "block 16",
+        "bbox": [
+          39.685,
+          525.7598,
+          399.49555,
+          538.9771913043478
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:b3681e6591dd77f2c5b80680269322cca0f28d6754e06838bbc194f2228c57d7",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p19:block-11",
+      "revision": "ea3afb5c6cb01582d7850d5c3d45dae97f0482f784caa121a87b7f2bd484d776",
+      "kind": "heading",
+      "ordinal": 272,
+      "text": "Infraction sous-jacente soupçonnée",
+      "location": {
+        "format": "pdf",
+        "page": 19,
+        "label": "block 11",
+        "bbox": [
+          39.685,
+          525.5649000000001,
+          186.47064999999998,
+          533.0609144927537
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:079b959fa6ea296078a0cbb872d88b5c4439d15411405b91e805ce4732891c5b",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "locator_key": "pdf:p19:block-12",
+      "revision": "be96f4e0fd9b6315878cf0a749c90b6533825250388ca8780280a915d3cb1813",
+      "kind": "paragraph",
+      "ordinal": 273,
+      "text": "Fraude fiscale",
+      "location": {
+        "format": "pdf",
+        "page": 19,
+        "label": "block 12",
+        "bbox": [
+          39.685,
+          538.8995000000001,
+          95.75950000000002,
+          546.3893550724638
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:44b96328d3ab78bb5d586a047a354b1a3bf0d7d54f665701ac19ff884e0cb011",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "locator_key": "pdf:p8:block-1",
+      "revision": "76fd78331a37c72618546c94e5d1b888a53ab42a6d7d2c5c97dfa854446af9c6",
+      "kind": "heading",
+      "ordinal": 112,
+      "text": "II. Essential elements of sound ML/FT risk management",
+      "location": {
+        "format": "pdf",
+        "page": 8,
+        "label": "II.",
+        "bbox": [
+          56.64,
+          76.09199999999998,
+          420.88393200000047,
+          89.03194761171028
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:df7ec181fdd2e2b90a29ba15d00d5fa835f3f034e9431af01131817001338303",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "locator_key": "pdf:p12:block-2",
+      "revision": "501d9d7166f6e89ff1a17e372a530e7de0b23646fae77868a9ef0313749cc24a",
+      "kind": "heading",
+      "ordinal": 149,
+      "text": "3. Customer and beneficial owner identification, verification and risk profiling",
+      "location": {
+        "format": "pdf",
+        "page": 12,
+        "label": "3.",
+        "bbox": [
+          56.64,
+          120.0,
+          489.94799999999987,
+          131.05978428351307
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:c8b043c1c89cf9b0f7e3abffba5266fc4e96e54519ad224dc56fde6644218df0",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "locator_key": "pdf:p12:block-3",
+      "revision": "e628ac92483fca8e979417bf287c5f2bed5475d8a7053a05368eba39e7660c44",
+      "kind": "list_item",
+      "ordinal": 150,
+      "text": "35. For the purposes of this guidance, a customer refers, in accordance with the FATF Recommendation 10, to any person 22 who enters into a business relationship or carries out an occasional financial transaction with the bank. The customer due diligence should be applied not only to customers but also to persons acting on their behalf and beneficial owners. 23 In accordance with the FATF standards, banks should identify customers and verify their identity. 24",
+      "location": {
+        "format": "pdf",
+        "page": 12,
+        "label": "35.",
+        "bbox": [
+          56.63123999999999,
+          147.22799999999995,
+          518.6824080000002,
+          209.6841409553158
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:84522d2ef0d9d31895e928fadd6787303aee26e224736844b33e59bf11c5aec5",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "locator_key": "pdf:p12:block-7",
+      "revision": "31a6896daa18e849d5797606f51a06021aaa871bbc82202604994a21e37e2c5d",
+      "kind": "footnote",
+      "ordinal": 154,
+      "text": "22 \"Person\" in this context refers to natural and legal persons or legal arrangements.",
+      "location": {
+        "format": "pdf",
+        "page": 12,
+        "label": "block 7",
+        "bbox": [
+          56.64,
+          642.7919999999999,
+          362.70324,
+          651.1020554699537
+        ]
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "el:8855e4e34a1f8c5fd0dc4889895a121bbdd6a91a575d2a526abbcd6640cd9df5",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "locator_key": "pdf:p12:block-8",
+      "revision": "f024fc8c1cd7f6453385dc25357b2ea24fe7100f91d609f48dfbe33112f22b07",
+      "kind": "footnote",
+      "ordinal": 155,
+      "text": "23 The term \"beneficial owner\" is used in this guidance paper consistently with the definition and clarifications provided by the FATF standards. As a reminder, the FATF defines a \"beneficial owner\" as the natural person(s) who ultimately owns or controls a customer and/or natural person on whose behalf a transaction is being conducted. It also includes those persons who exercise ultimate effective control over a legal person or arrangement.",
+      "location": {
+        "format": "pdf",
+        "page": 12,
+        "label": "block 8",
+        "bbox": [
+          56.64,
+          659.352,
+          518.8094880000007,
+          699.5728154699538
+        ]
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 362,
+      "text": "V. LA COMMUNICATION SYSTEMATIQUE D'INFORMATION (COSI) A TRACFIN\n\n194. L'article L. 561-15-1 prévoit la communication systématique d'informations (COSI) à Tracfin relatives à des opérations identifiées comme présentant un risque élevé de blanchiment ou de financement du terrorisme en raison du pays ou du territoire d'origine ou de destination des fonds, de la nature des opérations en cause ou des structures juridiques impliquées dans ces opérations. Les COSI n'entraînent pas de dispense de DS et ne sont pas exonératoires de responsabilité.",
+      "evidence": [
+        {
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:1e4231496b915d17998dfb1cb9d94452ddc66c756bb5244652c4e031c92dd53a",
+          "element_revision": "8ed1d180898d6412eaad5f81cf75c1f3ae4c31d9485f5173cc5727b9e748087e",
+          "span": {
+            "start": 0,
+            "end": 63
+          }
+        },
+        {
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:bbce92cc13294ab66c6eb50b03f13ab044ee2e91372fe5398db8ceda5318a89d",
+          "element_revision": "3948db0884769cfec19bcfca4f057dd0365712dd7b621bbd347354642ec00cf2",
+          "span": {
+            "start": 0,
+            "end": 479
+          }
+        }
+      ],
+      "id": "chunk:77f0d4e418b07b24c61b5e0ae6d988f9e708123f543e484b1aee518609370e57"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 37,
+      "text": "Banques privées\n\nCas n° 3 : Fraude à l'impôt sur la fortune immobilière (IFI)\n\n1 Madame Z possède un patrimoine immobilier important, qu'elle estime à 7 M€ dans la déclaration IFI qu'elle transmet à l'administration fiscale.\n\n2 Via sa société civile immobilière (SCI), la société Z, Madame Z souhaite acquérir un nouveau bien immobilier, financé en partie par la vente de l'un de ses biens, et en partie par un prêt. Elle dépose une demande de prêt auprès de sa banque, contenant notamment l'estimation du bien mis en vente, et sa dernière déclaration IFI.\n\n3 Or, le bien est estimé par l'agent immobilier à un montant trois fois supérieur à celui déclaré par Madame Z auprès de l'administration fiscale.\n\n4 Un calcul fondé sur le prix moyen au m 2 et la taille des biens permet de soupçonner une sous-évaluation non seulement du bien mis en vente, mais aussi de l'ensemble du patrimoine immobilier de Madame Z. Celle-ci les estime à des prix largement inférieurs à ceux du marché, notamment en conservant les prix originaux à l'achat ou à la succession malgré les évolutions du marché.\n\n5 Cette sous-estimation de la valeur vénale des biens a permis à Madame Z de réduire considérablement l'assiette de son IFI pendant des années.",
+      "evidence": [
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+          "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+          "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:7a6eb0b4b26c0d7eaac8dfbb1e4ced407566f2fef2655aefa1321e54490dc99e",
+          "element_revision": "2536d7675929328d7ea3e397cac6612026980ddb5cb615e257dd95910f0e23d1",
+          "span": {
+            "start": 0,
+            "end": 145
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:a5df4ebd343e7884be4339f22b3b6e812c49d2d99619af762bf8d8fead6c1d97",
+          "element_revision": "1a2e7fdd6eefd5b1b020baca7d4008c52cea973412bfdbad91ce4e6db1f48af1",
+          "span": {
+            "start": 0,
+            "end": 330
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:edbdb5c77aa02a5a54b78481e2d5facfb763c5b4c6a1a41d54190593acd85327",
+          "element_revision": "a1d9b8809e4a22f1bf95e88a256ce652dfacf09771c58f7703b4244a14c8cec0",
+          "span": {
+            "start": 0,
+            "end": 146
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:31d9785dcbbca08105e8c7bcfb662fe1696bf12f4faee978f4ef776f43f17987",
+          "element_revision": "5a5a1e4baacdba929f7c75f8c010064f4b68ec0debe048a03c58f714d858be80",
+          "span": {
+            "start": 0,
+            "end": 380
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:41674940db3ec933bc0836c6c0d0ba4e36c2d18f81675017c316173efd958e7f",
+          "element_revision": "2fc5fcd5b887bdf6b3b4d7a8e01bb2fa4017eee19fc9f44ac3c78b84474edb64",
+          "span": {
+            "start": 0,
+            "end": 143
+          }
+        }
+      ],
+      "id": "chunk:c804492dd74c925ddd9930176dbe61de47e3820ea86d28975c937c5d40b28ec8"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 38,
+      "text": "Banques privées\n\nCas n° 3 : Fraude à l'impôt sur la fortune immobilière (IFI)\n\nCritères d'alerte\n\n· Malgré un important patrimoine immobilier, le montant de l'IFI du client est relativement faible.\n\n· Société-écran s'interposant entre le bénéficiaire effectif du patrimoine et celui-ci.\n\n· La description du bien faite par le client ne correspond pas au prix qu'il indique.\n\n· Le client ne fournit aucun document prouvant son acquittement de l'IFI.\n\n· Le client refuse de communiquer la composition réelle de son patrimoine immobilier.",
+      "evidence": [
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+          "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+          "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:a3fe90239940eff2e6d92ee94ab9e66c63666ce8f06020a4cfec251dc4d02523",
+          "element_revision": "a8059ad6881d4cd3db838d3ba10fc324c79bf8790535733392e699f3c1ac9064",
+          "span": {
+            "start": 0,
+            "end": 17
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:27168b0ece3c3cfd397f5e7d0115e62064e6704c1a3159ab6dfb9f5f6add7942",
+          "element_revision": "635bfc49057f61534c2b998859a230c122d3cd918d1213108f1a5bd2153b896d",
+          "span": {
+            "start": 0,
+            "end": 99
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:7b148c6b5afdb736b41dbd00e39324e51a5deeed9400d9f6874b015111c7f4ea",
+          "element_revision": "2fb02c03640de50e34c709cf7c45c0f0232b19e551d90d798e1e8e852f4fa9d6",
+          "span": {
+            "start": 0,
+            "end": 87
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:a0b5e5d6ae393ac436738bc6096078222d9f7722263ca3c6385c22f230bd6d12",
+          "element_revision": "b02617f2bfc45ac27914b7166eb5146051414c44e9e60cade6369978fabd2891",
+          "span": {
+            "start": 0,
+            "end": 85
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:e19dfb80b2693d74fb2b637612841135b68481d2cf5041f45881ea80a754ca93",
+          "element_revision": "6cd2d81edbe085dce30b5cb5fec245260e344dd498b7db6dc2520deab442d2ca",
+          "span": {
+            "start": 0,
+            "end": 73
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:0a91beac169b734540d71d1e1c4850a14a307ef02f50bb45c1a179da8d652d9d",
+          "element_revision": "39739ebabf5153cde1cbce8c20bdc737894946b7603b30d93b959ab299f1b43e",
+          "span": {
+            "start": 0,
+            "end": 85
+          }
+        }
+      ],
+      "id": "chunk:bf315635aac04048dd7b47058bc8c61dc739023667a1cb6126ee6c7c62cb9a88"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 40,
+      "text": "Banques privées\n\nCas n° 3 : Fraude à l'impôt sur la fortune immobilière (IFI)\n\nInfraction sous-jacente soupçonnée\n\nFraude fiscale",
+      "evidence": [
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+          "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+          "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402"
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:b3681e6591dd77f2c5b80680269322cca0f28d6754e06838bbc194f2228c57d7",
+          "element_revision": "ea3afb5c6cb01582d7850d5c3d45dae97f0482f784caa121a87b7f2bd484d776",
+          "span": {
+            "start": 0,
+            "end": 34
+          }
+        },
+        {
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:079b959fa6ea296078a0cbb872d88b5c4439d15411405b91e805ce4732891c5b",
+          "element_revision": "be96f4e0fd9b6315878cf0a749c90b6533825250388ca8780280a915d3cb1813",
+          "span": {
+            "start": 0,
+            "end": 14
+          }
+        }
+      ],
+      "id": "chunk:33e6235741d2d353b9fd601e5c79f4a0bc1cf3f60964f5e040697beacd8b1e0a"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 57,
+      "text": "II. Essential elements of sound ML/FT risk management\n\n3. Customer and beneficial owner identification, verification and risk profiling\n\n35. For the purposes of this guidance, a customer refers, in accordance with the FATF Recommendation 10, to any person 22 who enters into a business relationship or carries out an occasional financial transaction with the bank. The customer due diligence should be applied not only to customers but also to persons acting on their behalf and beneficial owners. 23 In accordance with the FATF standards, banks should identify customers and verify their identity. 24",
+      "evidence": [
+        {
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:44b96328d3ab78bb5d586a047a354b1a3bf0d7d54f665701ac19ff884e0cb011",
+          "element_revision": "76fd78331a37c72618546c94e5d1b888a53ab42a6d7d2c5c97dfa854446af9c6"
+        },
+        {
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:df7ec181fdd2e2b90a29ba15d00d5fa835f3f034e9431af01131817001338303",
+          "element_revision": "501d9d7166f6e89ff1a17e372a530e7de0b23646fae77868a9ef0313749cc24a",
+          "span": {
+            "start": 0,
+            "end": 80
+          }
+        },
+        {
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:c8b043c1c89cf9b0f7e3abffba5266fc4e96e54519ad224dc56fde6644218df0",
+          "element_revision": "e628ac92483fca8e979417bf287c5f2bed5475d8a7053a05368eba39e7660c44",
+          "span": {
+            "start": 0,
+            "end": 464
+          }
+        }
+      ],
+      "id": "chunk:bea12d3846d9a2c24418cd72d487691006360cd75dc55db68cfa1eefd1e2aada"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 61,
+      "text": "22 \"Person\" in this context refers to natural and legal persons or legal arrangements.",
+      "evidence": [
+        {
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:84522d2ef0d9d31895e928fadd6787303aee26e224736844b33e59bf11c5aec5",
+          "element_revision": "31a6896daa18e849d5797606f51a06021aaa871bbc82202604994a21e37e2c5d",
+          "span": {
+            "start": 0,
+            "end": 86
+          }
+        }
+      ],
+      "id": "chunk:0219d1e9617b791e3f6da77db2bc4b43cf77cfcc4f4a15bb826d417a0278bdb9"
+    },
+    {
+      "schema_version": "1.0.0",
+      "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+      "build_id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "chunker_version": "structural-v9",
+      "sequence": 62,
+      "text": "23 The term \"beneficial owner\" is used in this guidance paper consistently with the definition and clarifications provided by the FATF standards. As a reminder, the FATF defines a \"beneficial owner\" as the natural person(s) who ultimately owns or controls a customer and/or natural person on whose behalf a transaction is being conducted. It also includes those persons who exercise ultimate effective control over a legal person or arrangement.",
+      "evidence": [
+        {
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:8855e4e34a1f8c5fd0dc4889895a121bbdd6a91a575d2a526abbcd6640cd9df5",
+          "element_revision": "f024fc8c1cd7f6453385dc25357b2ea24fe7100f91d609f48dfbe33112f22b07",
+          "span": {
+            "start": 0,
+            "end": 445
+          }
+        }
+      ],
+      "id": "chunk:f1272727ba2a4cef1e3781e3d5acfaaa4c684db26db05cc4e4017832c14d801a"
+    }
+  ],
+  "builds": [
+    {
+      "schema_version": "1.0.0",
+      "id": "build:bb9189bebf1584888b1a4badcaa5c15b12899b83a82ec52a0ca7cacd25e5ba7e",
+      "pipeline_version": "chunking-v1",
+      "config_sha256": "758eae3d99d0feda68eb1b7b98b30d685c0eea41fd1a1cbf636c861c9c651c89",
+      "input_document_ids": [
+        "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+        "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+        "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+        "doc:20db8e81528b147f3f622376709e7e40c0c81372b01a390af5aa37d52c7b20ba",
+        "doc:46bbce62b8dc2c7e83a51828a061fec871ed49141b327339bd731556b5b004f7",
+        "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+        "doc:a5672233569915c7f157df9980e04df3d287410c959ac495faf296161fa4bc68",
+        "doc:1468b2406375d7ac3637485a38846f52238626daeb15a78aabe85613bdbc7ef5",
+        "doc:eb1f86a32ff19e2581152bacaa45425ae5b35627011c320ef7d848a653ea2316",
+        "doc:df4e363a270c48c9e2fb3c4971aa349ccc196b8bd5daedae7ac7cb60876880ae",
+        "doc:8d592796f33282bc5329c899275a3f9022919d7d128ff4e71f78d48307be8faa",
+        "doc:fdf6961cba9dd1f01401ae77940044426a434f29dd242d1ad6c16137723e232b",
+        "doc:1dc2f28b12d2d0d2345adb95a308bcf3f67bba5ef24aeac12007481edd478044"
+      ],
+      "output_chunk_ids": [
+        "chunk:77f0d4e418b07b24c61b5e0ae6d988f9e708123f543e484b1aee518609370e57",
+        "chunk:c804492dd74c925ddd9930176dbe61de47e3820ea86d28975c937c5d40b28ec8",
+        "chunk:bf315635aac04048dd7b47058bc8c61dc739023667a1cb6126ee6c7c62cb9a88",
+        "chunk:33e6235741d2d353b9fd601e5c79f4a0bc1cf3f60964f5e040697beacd8b1e0a",
+        "chunk:bea12d3846d9a2c24418cd72d487691006360cd75dc55db68cfa1eefd1e2aada",
+        "chunk:0219d1e9617b791e3f6da77db2bc4b43cf77cfcc4f4a15bb826d417a0278bdb9",
+        "chunk:f1272727ba2a4cef1e3781e3d5acfaaa4c684db26db05cc4e4017832c14d801a"
+      ],
+      "output_claim_ids": [],
+      "status": "complete"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "build:9550d96ba4a83c77b1c393146c6a1376d0bba2aed4fc042896e3a265de1993d2",
+      "pipeline_version": "compilation-v14-classification",
+      "config_sha256": "55ff3ebd835d97e48ed88458bd5430d7985b58b8f77d7df203bf767d484bd30e",
+      "input_document_ids": [
+        "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+        "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+        "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+        "doc:20db8e81528b147f3f622376709e7e40c0c81372b01a390af5aa37d52c7b20ba",
+        "doc:46bbce62b8dc2c7e83a51828a061fec871ed49141b327339bd731556b5b004f7",
+        "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+        "doc:a5672233569915c7f157df9980e04df3d287410c959ac495faf296161fa4bc68",
+        "doc:1468b2406375d7ac3637485a38846f52238626daeb15a78aabe85613bdbc7ef5",
+        "doc:eb1f86a32ff19e2581152bacaa45425ae5b35627011c320ef7d848a653ea2316",
+        "doc:df4e363a270c48c9e2fb3c4971aa349ccc196b8bd5daedae7ac7cb60876880ae",
+        "doc:8d592796f33282bc5329c899275a3f9022919d7d128ff4e71f78d48307be8faa",
+        "doc:fdf6961cba9dd1f01401ae77940044426a434f29dd242d1ad6c16137723e232b",
+        "doc:1dc2f28b12d2d0d2345adb95a308bcf3f67bba5ef24aeac12007481edd478044"
+      ],
+      "output_chunk_ids": [],
+      "output_claim_ids": [
+        "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2"
+      ],
+      "status": "complete"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "build:15106351b2e8fcef42a16b8ae130405f135b60aa7ece71c62a144c57ba8c2eb6",
+      "pipeline_version": "formalization-export-v1",
+      "config_sha256": "d919da86ae4ad1e8ae23d5ab92ffdef52499952342ab4d40033f771bd9b74682",
+      "input_document_ids": [
+        "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+        "doc:1468b2406375d7ac3637485a38846f52238626daeb15a78aabe85613bdbc7ef5",
+        "doc:1dc2f28b12d2d0d2345adb95a308bcf3f67bba5ef24aeac12007481edd478044",
+        "doc:20db8e81528b147f3f622376709e7e40c0c81372b01a390af5aa37d52c7b20ba",
+        "doc:46bbce62b8dc2c7e83a51828a061fec871ed49141b327339bd731556b5b004f7",
+        "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+        "doc:4c2d6924bc0d15ca935721b47b86424bfc2079f1610844b69b834a42f39e1ffb",
+        "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+        "doc:8d592796f33282bc5329c899275a3f9022919d7d128ff4e71f78d48307be8faa",
+        "doc:a5672233569915c7f157df9980e04df3d287410c959ac495faf296161fa4bc68",
+        "doc:df4e363a270c48c9e2fb3c4971aa349ccc196b8bd5daedae7ac7cb60876880ae",
+        "doc:eb1f86a32ff19e2581152bacaa45425ae5b35627011c320ef7d848a653ea2316",
+        "doc:fdf6961cba9dd1f01401ae77940044426a434f29dd242d1ad6c16137723e232b"
+      ],
+      "output_chunk_ids": [],
+      "output_claim_ids": [
+        "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a",
+        "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346"
+      ],
+      "status": "complete"
+    }
+  ],
+  "claims": [
+    {
+      "schema_version": "1.0.0",
+      "text": "Dans la guidance du Comité de Bâle sur la gestion des risques de blanchiment et de financement du terrorisme, un « client » désigne toute personne physique ou morale, ou construction juridique, qui entre en relation d’affaires avec une banque ou réalise avec elle une opération financière occasionnelle ; le devoir de vigilance devrait aussi s’appliquer aux personnes agissant pour le compte des clients et aux bénéficiaires effectifs, ces derniers étant les personnes physiques qui possèdent ou contrôlent ultimement un client, une personne physique pour le compte de laquelle une opération est effectuée, ou les personnes exerçant le contrôle effectif ultime sur une personne ou construction juridique.",
+      "evidence": [
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:c8b043c1c89cf9b0f7e3abffba5266fc4e96e54519ad224dc56fde6644218df0",
+          "element_revision": "e628ac92483fca8e979417bf287c5f2bed5475d8a7053a05368eba39e7660c44",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 464,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:84522d2ef0d9d31895e928fadd6787303aee26e224736844b33e59bf11c5aec5",
+          "element_revision": "31a6896daa18e849d5797606f51a06021aaa871bbc82202604994a21e37e2c5d",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 86,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:783c890a4a000998451fbb25682a669c5e754e4b57f2642c348e7b00e470c15d",
+          "element_id": "el:8855e4e34a1f8c5fd0dc4889895a121bbdd6a91a575d2a526abbcd6640cd9df5",
+          "element_revision": "f024fc8c1cd7f6453385dc25357b2ea24fe7100f91d609f48dfbe33112f22b07",
+          "source_id": "src:bcbs-aml-cft-risk-management-2020",
+          "span": {
+            "end": 445,
+            "start": 0
+          }
+        }
+      ],
+      "chunk_ids": [
+        "chunk:bea12d3846d9a2c24418cd72d487691006360cd75dc55db68cfa1eefd1e2aada",
+        "chunk:0219d1e9617b791e3f6da77db2bc4b43cf77cfcc4f4a15bb826d417a0278bdb9",
+        "chunk:f1272727ba2a4cef1e3781e3d5acfaaa4c684db26db05cc4e4017832c14d801a"
+      ],
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      },
+      "grounding_review_status": "verified",
+      "build_id": "build:15106351b2e8fcef42a16b8ae130405f135b60aa7ece71c62a144c57ba8c2eb6",
+      "id": "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a"
+    },
+    {
+      "schema_version": "1.0.0",
+      "text": "Dans ce cas, Madame Z souhaite acquérir un nouveau bien immobilier par l’intermédiaire d’une société civile immobilière (SCI) ; l’acquisition doit être financée en partie par la vente de l’un de ses biens et en partie par un prêt, pour lequel elle dépose une demande auprès de sa banque comprenant notamment l’estimation du bien mis en vente et sa dernière déclaration d’IFI.",
+      "evidence": [
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:83adb778dda6f53a89e99097038669ffafc6d60e0f52e5e6ac0166a63525828f",
+          "element_revision": "c90a7325da015dc649e53eb73dd880cfcddafa64f55f552700f8c01119e17402",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 15,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:c079d963791722ee477acdf7bf92b8d2ada7c27e8a13b599f2ce4729eeb80908",
+          "element_revision": "d89981bcd72b1f3ccecbd601a8349c607997c7f8c39b62a1adf1010d95406402",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 60,
+            "start": 0
+          }
+        },
+        {
+          "document_id": "doc:093ed6a01e20651cca08f74b85d24a7c0282277b05633a288a4970a4414a2b08",
+          "element_id": "el:a5df4ebd343e7884be4339f22b3b6e812c49d2d99619af762bf8d8fead6c1d97",
+          "element_revision": "1a2e7fdd6eefd5b1b020baca7d4008c52cea973412bfdbad91ce4e6db1f48af1",
+          "source_id": "src:tracfin-threat-report-tome-3",
+          "span": {
+            "end": 330,
+            "start": 0
+          }
+        }
+      ],
+      "chunk_ids": [
+        "chunk:33e6235741d2d353b9fd601e5c79f4a0bc1cf3f60964f5e040697beacd8b1e0a",
+        "chunk:c804492dd74c925ddd9930176dbe61de47e3820ea86d28975c937c5d40b28ec8",
+        "chunk:bf315635aac04048dd7b47058bc8c61dc739023667a1cb6126ee6c7c62cb9a88"
+      ],
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      },
+      "grounding_review_status": "verified",
+      "build_id": "build:15106351b2e8fcef42a16b8ae130405f135b60aa7ece71c62a144c57ba8c2eb6",
+      "id": "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2",
+      "build_id": "build:9550d96ba4a83c77b1c393146c6a1376d0bba2aed4fc042896e3a265de1993d2",
+      "chunk_ids": [
+        "chunk:77f0d4e418b07b24c61b5e0ae6d988f9e708123f543e484b1aee518609370e57"
+      ],
+      "text": "La communication systématique d’informations (COSI) à Tracfin ne dispense pas l’organisme financier d’effectuer une déclaration de soupçon et ne l’exonère pas de sa responsabilité.",
+      "evidence": [
+        {
+          "document_id": "doc:485e1794b6e36b1dab07d3b457935bc4f0416e896b7b2bc92e906d0485732790",
+          "element_id": "el:bbce92cc13294ab66c6eb50b03f13ab044ee2e91372fe5398db8ceda5318a89d",
+          "element_revision": "3948db0884769cfec19bcfca4f057dd0365712dd7b621bbd347354642ec00cf2",
+          "source_id": "src:acpr-tracfin-joint-guidelines",
+          "span": {
+            "end": 479,
+            "start": 0
+          }
+        }
+      ],
+      "grounding_review_status": "verified",
+      "generation": {
+        "method": "model",
+        "model_id": "gpt-6-luna",
+        "prompt_sha256": "d0efe953674313e0c31efc8447a18dc0306b19566be3aaf62d74f2607095bc37",
+        "version": "claim-generation-v14"
+      }
+    }
+  ]
+}

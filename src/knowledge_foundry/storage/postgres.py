@@ -281,33 +281,45 @@ class PostgresStore:
             raise ValueError('session token must contain at least 32 characters')
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def new_session(self, snapshot_id, token):
+    @staticmethod
+    def validate_assistant_mode(assistant_mode):
+        if assistant_mode not in {'document', 'reasoning'}:
+            raise ValueError('invalid assistant mode')
+
+    def new_session(self, snapshot_id, token, assistant_mode='document'):
+        self.validate_assistant_mode(assistant_mode)
         sid = str(uuid.uuid4())
         with self.connection() as conn:
             row = conn.execute("SELECT id FROM kf_snapshots WHERE id=%s AND status='published'", (snapshot_id,)).fetchone()
             if not row:
                 raise ValueError('session requires a published snapshot')
-            conn.execute('INSERT INTO kf_sessions(id,owner_hash,snapshot_id) VALUES (%s,%s,%s)', (sid, self.owner_hash(token), snapshot_id))
+            conn.execute('INSERT INTO kf_sessions(id,owner_hash,snapshot_id,assistant_mode) VALUES (%s,%s,%s,%s)', (sid, self.owner_hash(token), snapshot_id, assistant_mode))
         return sid
 
-    def sessions(self, snapshot_id, token):
+    def sessions(self, snapshot_id, token, assistant_mode='document'):
+        self.validate_assistant_mode(assistant_mode)
         with self.connection() as conn:
-            rows = conn.execute('SELECT id,created_at FROM kf_sessions WHERE snapshot_id=%s AND owner_hash=%s ORDER BY created_at DESC', (snapshot_id, self.owner_hash(token))).fetchall()
+            rows = conn.execute('SELECT id,created_at FROM kf_sessions WHERE snapshot_id=%s AND owner_hash=%s AND assistant_mode=%s ORDER BY created_at DESC', (snapshot_id, self.owner_hash(token), assistant_mode)).fetchall()
         return [{**r, 'id': str(r['id'])} for r in rows]
 
-    def history(self, session_id, token, snapshot_id=None):
+    def history(self, session_id, token, snapshot_id=None, assistant_mode=None):
+        if assistant_mode is not None:
+            self.validate_assistant_mode(assistant_mode)
         with self.connection() as conn:
             session = conn.execute('SELECT * FROM kf_sessions WHERE id=%s AND owner_hash=%s', (session_id, self.owner_hash(token))).fetchone()
-            if not session or (snapshot_id and session['snapshot_id'] != snapshot_id):
+            if not session or (snapshot_id and session['snapshot_id'] != snapshot_id) or (
+                    assistant_mode and session['assistant_mode'] != assistant_mode):
                 raise ValueError('conversation is unavailable for this session and snapshot')
             rows = conn.execute('SELECT * FROM kf_messages WHERE session_id=%s ORDER BY sequence', (session_id,)).fetchall()
         return [{**r, 'id': str(r['id']), 'session_id': str(r['session_id'])} for r in rows]
 
-    def save_turn(self, session_id, token, snapshot_id, question, answer):
+    def save_turn(self, session_id, token, snapshot_id, question, answer, assistant_mode=None):
+        if assistant_mode is not None:
+            self.validate_assistant_mode(assistant_mode)
         mid = str(uuid.uuid4())
         with self.connection() as conn:
-            owned = conn.execute('SELECT id FROM kf_sessions WHERE id=%s AND owner_hash=%s AND snapshot_id=%s FOR UPDATE', (session_id, self.owner_hash(token), snapshot_id)).fetchone()
-            if not owned:
+            owned = conn.execute('SELECT id,assistant_mode FROM kf_sessions WHERE id=%s AND owner_hash=%s AND snapshot_id=%s FOR UPDATE', (session_id, self.owner_hash(token), snapshot_id)).fetchone()
+            if not owned or (assistant_mode and owned['assistant_mode'] != assistant_mode):
                 raise ValueError('conversation is unavailable for this session and snapshot')
             conn.execute('INSERT INTO kf_messages(id,session_id,role,content,payload) VALUES (%s,%s,%s,%s,%s)', (str(uuid.uuid4()), session_id, 'user', question, Jsonb({})))
             conn.execute('INSERT INTO kf_messages(id,session_id,role,content,payload) VALUES (%s,%s,%s,%s,%s)', (mid, session_id, 'assistant', answer['text'], Jsonb(answer)))

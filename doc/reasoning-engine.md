@@ -110,6 +110,11 @@ run `.venv/bin/python scripts/reason.py --help`.
 
 ## Assistant integration
 
+The Streamlit app provides **Document assistant** (default retrieval) and
+**Reasoning assistant** (three reviewed AML/CFT source-description questions).
+See [assistant setup and usage](assistants.md) for the accepted subset, separate
+reviews, PostgreSQL import, history migration and proof boundaries.
+
 Pass a completed engine as `DocumentAssistant(..., reasoning_engine=engine)`.
 Then pass `reasoning_goal=[subject, predicate, object]` to `retrieve`, `stream`
 or `ask`. Alternatively, enable the `reasoning` configuration with `bundle`,
@@ -136,8 +141,8 @@ checker accepted example deductions and rejected a forged conclusion.
 Certificate tests skip without the checker. PostgreSQL integration remains
 unverified here; testing it requires `KF_TEST_DATABASE_URL`.
 
-Remaining work: broader reviewed mappings, automatic question-to-goal selection,
-interface controls, full OWL consistency support and comparison with the
+Remaining work: broader reviewed mappings, automatic question-to-goal generation,
+full OWL consistency support and comparison with the
 123-question RAG dataset. Numeric comparisons, negation and automatic prose-to-rule
 extraction are unsupported. This example does not establish production readiness
 or a measured accuracy/speed advantage.

@@ -1,0 +1,18 @@
+{
+  "version": "reasoning-assistant-pilot-v1",
+  "status": "accepted-bounded-source-descriptions",
+  "files": {
+    "bundle.json": "90f24d160d4573f05414b981fb4c6267fcf5d9cf5e3908c213dbdeab2f4bbcca",
+    "catalogue.json": "ef588fdf98ed70361bf73f9c1d37fe030c54c58b53d7a37c6d12eb1e521a363d",
+    "formalization.json": "7c5d626641d4001fbfcf88178f46cf06c4feea696ee5f6de8430f863f23ea3d3",
+    "grounding.json": "8c7bab66689c1b2e6a20897b63070a5cb6580480e7dabea0ed0c8625d7a9705a",
+    "mapping.json": "06e154521b5ced598843dcb982a6cce7415787750d20ce0a5132b730bae27b8b",
+    "provenance.json": "cd2e38cfa0012c327ac248c1e2bc5b1775e426e43b783490e8285c110bda60a2"
+  },
+  "counts": {
+    "claims": 3,
+    "chunks": 7,
+    "elements": 22
+  },
+  "scope": "Three individually reviewed source-description projections only. Frozen corpus is not accepted."
+}

@@ -1,0 +1,8 @@
+{
+  "frozen_input": "artifacts/20261028-docling-aml-cft-01/formalization-v1/input-bundle.json",
+  "frozen_input_sha256": "28c331def27b1b1d981dc140750bb7f8f1074cd425c0d5d645a2cd671a980d07",
+  "frozen_manifest_sha256": "061753ce8eba842bf999ed14831f244082cc65fac57e702c283af0ad60a4f5a2",
+  "proposal_sha256": "ff55c27312bed745f3efdbe4a30089709783507f7c4b74be8964605cb3cac103",
+  "catalogue_sha256": "5c762241c763e293ac8ab958d2310a6019040d77ce8d58feb46158a30f733287",
+  "purpose": "Three source-described questions; no corpus promotion. Original claims remain draft. Acceptance requires independently saved grounding and formalization passes."
+}

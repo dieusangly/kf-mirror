@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0.0",
+  "bundle_sha256": "e3de72ab17f7ed2578a95ea516c7fc084ff30fdd44e5130ca765ac397f6e2491",
+  "mappings": [
+    {
+      "id": "pilot-v2-009",
+      "claim_id": "claim:0e7dc75f6aab261dfd9bb6e93d96a1d2472484a94e7b070ccdafcd2bdb9cffd2",
+      "claim_sha256": "62d5e20504254966d9f3985d0d53e1d6c029aa231765aa24da724095cf9aa3b5",
+      "jurisdiction": "FR",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+          "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+          "urn:kf:pilot:acpr-tracfin:2025-04:SuspiciousTransactionReportingWhenApplicable"
+        ],
+        [
+          "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+          "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+          "urn:kf:pilot:acpr-tracfin:2025-04:Liability"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+              "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+              "urn:kf:pilot:acpr-tracfin:2025-04:SuspiciousTransactionReportingWhenApplicable"
+            ],
+            [
+              "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+              "urn:kf:pilot:acpr-tracfin:2025-04:explicitlyDoesNotExemptFrom",
+              "urn:kf:pilot:acpr-tracfin:2025-04:Liability"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+            "urn:kf:pilot:acpr-tracfin:2025-04:hasSourceDescribedProfile",
+            "urn:kf:pilot:acpr-tracfin:2025-04:NoReportingOrLiabilityExemption"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pilot-v2-023",
+      "claim_id": "claim:6e8824891a21fae3a1717fdce83ae22e879db29d57744ac5dba1be5426e29d3a",
+      "claim_sha256": "a6675ed77e316b71b0d9a848c5bf1705a82acfaceaafd3baeeaddb0b2c2c2f1d",
+      "jurisdiction": "BCBS",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:Customers"
+        ],
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:PersonsActingForCustomers"
+        ],
+        [
+          "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+          "urn:kf:pilot:basel:2020-07:recommendedTarget",
+          "urn:kf:pilot:basel:2020-07:BeneficialOwners"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+              "urn:kf:pilot:basel:2020-07:recommendedTarget",
+              "urn:kf:pilot:basel:2020-07:PersonsActingForCustomers"
+            ],
+            [
+              "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+              "urn:kf:pilot:basel:2020-07:recommendedTarget",
+              "urn:kf:pilot:basel:2020-07:BeneficialOwners"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+            "urn:kf:pilot:basel:2020-07:extendsToBoth",
+            "urn:kf:pilot:basel:2020-07:RepresentativesAndBeneficialOwners"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pilot-v2-013",
+      "claim_id": "claim:335cead4d30f8c28ab14039ef9fe0772012fa1f3a13b57e565fd0bbf37be6346",
+      "claim_sha256": "2f2c98800bb1d12da191521cd68085109b64f2e0f312cbe766662a2a50c2cd1b",
+      "jurisdiction": "FR",
+      "valid_from": "2026-10-28",
+      "valid_until": "2026-10-29",
+      "conditions": [],
+      "exceptions": [],
+      "facts": [
+        [
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimate"
+        ],
+        [
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+          "urn:kf:pilot:tracfin:2025-09-29:case3:LatestIFIReturn"
+        ]
+      ],
+      "rules": [
+        {
+          "body": [
+            [
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimate"
+            ],
+            [
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:reportedIncludes",
+              "urn:kf:pilot:tracfin:2025-09-29:case3:LatestIFIReturn"
+            ]
+          ],
+          "head": [
+            "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+            "urn:kf:pilot:tracfin:2025-09-29:case3:hasSourceDescribedAttachments",
+            "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimateAndLatestIFIReturn"
+          ]
+        }
+      ]
+    }
+  ],
+  "review": {
+    "status": "verified",
+    "content_sha256": "c21ec0ec6436f46b00aac3f77bd8a505a14d9c9d3724ef3688c6aa4a439dc9cb",
+    "reviewer": {
+      "kind": "agent",
+      "name": "Codex /root/semantic_review"
+    },
+    "reviewed_at": "2026-11-05T13:42:51.357001+00:00",
+    "notes": "Independent source-description formalization review in formalization.json, separate grounding review in grounding.json. Acceptance mechanically rebinds claim status and lineage subset only; facts/rules/scope/goals/answers identical to the reviewed proposal. No legal applicability or customer assertions. Original drafts and prior findings remain untouched."
+  }
+}

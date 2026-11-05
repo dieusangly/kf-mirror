@@ -51,6 +51,19 @@ class DocumentAssistant:
         if not question.strip() or token_count(question, config['budget']['tokenizer']) > config['budget']['max_question_tokens']:
             raise ValueError('question is empty or exceeds the configured question budget')
         snapshot = self.store.snapshot(corpus, snapshot_id)
+        if reasoning_goal is not None:
+            # Catalogue goals are already explicit. Resolve their complete proof
+            # directly; query rewriting, embeddings and reranking add no evidence.
+            from knowledge_foundry.reasoning.retrieval import attach_reasoning
+            from knowledge_foundry.retrieval.context import assemble_context
+            context = assemble_context(self.store, snapshot['id'], [], question, [], config,
+                                       source_ids, document_ids)
+            context = attach_reasoning(self.reasoning_engine, reasoning_goal, context, store=self.store,
+                                       snapshot=snapshot, documents=[], question=question, history=[],
+                                       config=config, source_ids=source_ids, document_ids=document_ids)
+            return {**context, 'snapshot_id': snapshot['id'], 'method': 'reviewed-proof',
+                    'mode': mode, 'query': question, 'history_used': False, 'source_ids': source_ids,
+                    'latency_seconds': round(time.monotonic() - started, 3)}
         turns = config['search']['followup_turns']
         history = list(history or [])[-turns:] if turns else []
         while history and token_count('\n'.join(history), config['budget']['tokenizer']) > config['budget']['history_tokens']:
@@ -87,11 +100,6 @@ class DocumentAssistant:
                                'context': {'question': query, 'query': query, 'history': [], **filters}},
                               include_outputs_from={'retrieve', 'rank', 'resolve'})
         context = output['context']['context']
-        if reasoning_goal is not None:
-            from knowledge_foundry.reasoning.retrieval import attach_reasoning
-            context = attach_reasoning(self.reasoning_engine, reasoning_goal, context, store=self.store,
-                                       snapshot=snapshot, documents=output['resolve']['documents'], question=query,
-                                       history=[], config=config, source_ids=source_ids, document_ids=document_ids)
         context['warnings'].extend(rewritten['warnings'])
         context['warnings'].extend(warnings)
         ranking = output['rank']['telemetry']
@@ -105,12 +113,14 @@ class DocumentAssistant:
                 'source_ids': source_ids,
                 'ranking': output['rank']['telemetry'], 'query_rewrite': rewritten['telemetry'], 'embedding_usage': embedding_usage, 'latency_seconds': round(time.monotonic() - started, 3)}
 
-    def stream(self, corpus, question, *, token, session_id, snapshot_id=None, intent=None, **options):
+    def stream(self, corpus, question, *, token, session_id, snapshot_id=None, intent=None,
+               symbolic_answer=None, assistant_mode=None, **options):
         started = time.monotonic()
         snapshot = self.store.snapshot(corpus, snapshot_id)
         # Resolve and pin once, including when publication changes mid-request.
         sid = snapshot['id']
-        messages = self.store.history(session_id, token, sid)
+        messages = (self.store.history(session_id, token, sid, assistant_mode) if assistant_mode else
+                    self.store.history(session_id, token, sid))
         history = [m['content'] for m in messages if m['role'] == 'user']
         if intent not in {None, 'document_inventory'}:
             raise ValueError('invalid request intent')
@@ -124,15 +134,20 @@ class DocumentAssistant:
         else:
             retrieved = self.retrieve(corpus, question, snapshot_id=sid, history=history, route_inventory=True, **options)
         yield {'type': 'retrieval', 'retrieval': {k: v for k, v in retrieved.items() if k != 'payload'}}
-        events = ([{'type': 'answer', 'answer': inventory_answer(retrieved['documents'])}]
-                  if retrieved.get('intent') == 'document_inventory' else
-                  generate(self.config, retrieved['payload'], retrieved['evidence'], self.answer_stream))
+        if symbolic_answer is not None and options.get('reasoning_goal') is None:
+            raise ValueError('symbolic_answer requires a reasoning goal')
+        events = None
         if retrieved.get('reasoning', {}).get('status') not in {None, 'asserted', 'inferred'}:
             from knowledge_foundry.retrieval.answering import INSUFFICIENT
-            events = [{'type': 'answer', 'answer': {
+            events = [{'type': 'answer', 'answer': symbolic_answer(retrieved) if symbolic_answer else {
                 'text': INSUFFICIENT, 'status': 'insufficient', 'citations': [],
                 'warnings': ['Symbolic answer withheld: ' + retrieved['reasoning']['status']],
                 'telemetry': {'model': 'reasoning-gate-v1', 'estimated_cost_usd': 0.}}}]
+        if events is None:
+            events = ([{'type': 'answer', 'answer': inventory_answer(retrieved['documents'])}]
+                      if retrieved.get('intent') == 'document_inventory' else
+                      [{'type': 'answer', 'answer': symbolic_answer(retrieved)}] if symbolic_answer else
+                      generate(self.config, retrieved['payload'], retrieved['evidence'], self.answer_stream))
         for event in events:
             if event['type'] != 'answer':
                 yield event
@@ -140,7 +155,8 @@ class DocumentAssistant:
             answer = {**event['answer'], 'snapshot_id': sid,
                       'retrieval': {k: v for k, v in retrieved.items() if k != 'payload'}}
             answer['telemetry']['total_latency_seconds'] = round(time.monotonic() - started, 3)
-            answer['message_id'] = self.store.save_turn(session_id, token, sid, question, answer)
+            mode_option = {'assistant_mode': assistant_mode} if assistant_mode else {}
+            answer['message_id'] = self.store.save_turn(session_id, token, sid, question, answer, **mode_option)
             yield {'type': 'answer', 'answer': answer}
 
     def ask(self, corpus, question, **options):

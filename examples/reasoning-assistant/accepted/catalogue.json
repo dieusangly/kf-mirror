@@ -1,0 +1,65 @@
+{
+  "version": "reasoning-assistant-pilot-v1",
+  "questions": [
+    {
+      "id": "V2-009",
+      "question": "Does filing a COSI remove the need to submit a suspicious transaction report or exempt the institution from liability?",
+      "language": "en",
+      "enabled": true,
+      "goal": [
+        "urn:kf:pilot:acpr-tracfin:2025-04:COSI",
+        "urn:kf:pilot:acpr-tracfin:2025-04:hasSourceDescribedProfile",
+        "urn:kf:pilot:acpr-tracfin:2025-04:NoReportingOrLiabilityExemption"
+      ],
+      "mapping_ids": [
+        "pilot-v2-009"
+      ],
+      "jurisdiction": "FR",
+      "as_of": "2026-10-28",
+      "scope_note": "Source-description snapshot only; interval is an execution boundary, not a legal effective date.",
+      "answer": "No. In the saved 2025 ACPR–Tracfin guidance, a COSI neither dispenses with a suspicious transaction report when applicable nor exempts the institution from liability. This does not establish actual liability or make every COSI trigger a suspicious transaction report.",
+      "assumptions": [],
+      "deduction_note": "The rule joins two explicit source assertions to establish the catalogue answer. It adds no legal consequence."
+    },
+    {
+      "id": "V2-023",
+      "question": "Under the Basel guidance, does customer due diligence extend beyond the account customer to representatives and beneficial owners?",
+      "language": "en",
+      "enabled": true,
+      "goal": [
+        "urn:kf:pilot:basel:2020-07:CDDRecommendation",
+        "urn:kf:pilot:basel:2020-07:extendsToBoth",
+        "urn:kf:pilot:basel:2020-07:RepresentativesAndBeneficialOwners"
+      ],
+      "mapping_ids": [
+        "pilot-v2-023"
+      ],
+      "jurisdiction": "BCBS",
+      "as_of": "2026-10-28",
+      "scope_note": "Source-description snapshot only; interval is an execution boundary, not a legal effective date.",
+      "answer": "Yes. Paragraph 35 of the saved July 2020 Basel guidance recommends customer due diligence for customers, persons acting on their behalf and beneficial owners. This describes the guidance's scope; it does not identify an actual beneficial owner or decide a national exemption. Notes 22–23 define the terms; note 24 concerns the identification/verification requirement.",
+      "assumptions": [],
+      "deduction_note": "The rule joins two explicit source assertions to establish the catalogue answer. It adds no legal consequence."
+    },
+    {
+      "id": "V2-013",
+      "question": "Dans le cas de Madame Z et de sa SCI, quels documents accompagnent la demande de prêt pour acquérir un nouveau bien immobilier ?",
+      "language": "fr",
+      "enabled": true,
+      "goal": [
+        "urn:kf:pilot:tracfin:2025-09-29:case3:LoanApplication",
+        "urn:kf:pilot:tracfin:2025-09-29:case3:hasSourceDescribedAttachments",
+        "urn:kf:pilot:tracfin:2025-09-29:case3:PropertyEstimateAndLatestIFIReturn"
+      ],
+      "mapping_ids": [
+        "pilot-v2-013"
+      ],
+      "jurisdiction": "FR",
+      "as_of": "2026-10-28",
+      "scope_note": "Source-description snapshot only; interval is an execution boundary, not a legal effective date.",
+      "answer": "Dans le cas n° 3 décrit par Tracfin, la demande de prêt comprend notamment l’estimation du bien mis en vente et la dernière déclaration d’IFI de Madame Z. L’acquisition via sa SCI est un projet financé en partie par une vente et en partie par un prêt ; le passage ne prouve ni l’octroi du prêt ni la réalisation de l’achat. Il s’agit d’un récit de source, pas de faits vérifiés sur une cliente réelle.",
+      "assumptions": [],
+      "deduction_note": "La règle réunit deux assertions explicites du récit. Elle n’établit aucune obligation juridique."
+    }
+  ]
+}

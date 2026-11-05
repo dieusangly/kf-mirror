@@ -36,7 +36,38 @@ def render_answer(message, store, session_id, token):
     else:
         text = re.sub(r'\[(E\d+)\]', lambda m: f'[{m[1]}](#evidence-{mid}-{m[1]})' if m[1] in labels else m[0], message['content'])
         st.markdown(text)
-    if answer.get('status') != 'inventory':
+    reasoning = answer.get('retrieval', {}).get('reasoning')
+    if reasoning is not None:
+        st.caption('Reviewed catalogue explanation · no LLM explanation was used. '
+                   'Saved certificate status describes the original answer run.')
+        st.caption(f"Jurisdiction: {reasoning.get('jurisdiction', 'unavailable')} · "
+                   f"Date: {reasoning.get('as_of', 'unavailable')} · {answer.get('scope_note', '')}")
+        certificate = reasoning.get('certificate', {})
+        st.write(f"Certificate: {certificate.get('status', 'not checked')} · "
+                 f"Verdict: {certificate.get('verdict') or 'no verdict'} · Proof: {reasoning['status']}")
+        if reasoning.get('reason'):
+            st.warning(reasoning['reason'])
+        if reasoning.get('conflicts'):
+            st.error('Contradictory premises: conclusion withheld.')
+            st.json(reasoning['conflicts'])
+        with st.expander('Conclusion, premises and applied rules', expanded=True):
+            st.write('Deductions' if reasoning.get('status') == 'inferred' else 'Source assertions / withheld conclusion')
+            st.json(reasoning.get('conclusions', []))
+            st.write('Premises · reviewed source assertions, including source-described cases')
+            st.json(reasoning.get('premises', []))
+            st.write('Applied rules · supplied reviewed rules remain assumptions of the proof')
+            st.json(reasoning.get('rules', []))
+            st.write('Additional scenario assumptions: ' + str(answer.get('assumptions', [])))
+            st.caption(answer.get('deduction_note', 'Missing facts mean unknown, never false.'))
+            if reasoning.get('mappings'):
+                with st.expander('Review provenance and source scope'):
+                    st.json(reasoning['mappings'])
+            context = [c for c in reasoning.get('citations', []) if c.get('role') == 'governing_context']
+            if context:
+                st.write('Original governing context · retained within the proof evidence budget')
+                for citation in context:
+                    st.code(citation['text'], language=None, wrap_lines=True)
+    elif answer.get('status') != 'inventory':
         st.caption('Exact source excerpts · no generated synthesis' if answer.get('status') == 'extractive' else
                    'Draft answer · review the cited passages before relying on it')
     telemetry = answer.get('telemetry', {})
@@ -82,8 +113,12 @@ def render_answer(message, store, session_id, token):
 
 
 def main():
-    st.set_page_config(page_title='Knowledge Foundry · Document assistant', page_icon='📚', layout='wide')
-    st.title('Document assistant')
+    st.set_page_config(page_title='Knowledge Foundry · Assistants', page_icon='📚', layout='wide')
+    assistant_name = st.sidebar.selectbox('Assistant', ['Document assistant', 'Reasoning assistant'])
+    assistant_mode = 'reasoning' if assistant_name == 'Reasoning assistant' else 'document'
+    st.sidebar.caption('Document assistant finds original passages and can draft answers. '
+                       'Reasoning assistant checks conclusions from reviewed facts and rules for a small question catalogue.')
+    st.title(assistant_name)
     st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
     config_path = os.environ.get('KF_RETRIEVAL_CONFIG')
     config = load_config(config_path)
@@ -93,8 +128,8 @@ def main():
         config['answer']['provider'] = 'extractive'
         config['search']['method'] = 'keyword'
         st.info('OPENAI_API_KEY is not configured. Using keyword search and source excerpts.')
-    store = PostgresStore()
     try:
+        store = PostgresStore()
         snapshots = [s for s in store.snapshots() if s['status'] == 'published']
     except Exception:
         st.error('PostgreSQL is unavailable or migrations have not run. Follow doc/aml-cft-pipeline.md.')
@@ -140,30 +175,47 @@ def main():
         token = secrets.token_urlsafe(32)
         st.query_params['chat_token'] = token
     st.sidebar.caption('This local demo uses a private history token in the URL. Keep the URL private to retain your history.')
-    conversation_key = 'conversation-' + selected_id
+    conversation_key = 'conversation-' + assistant_mode + '-' + selected_id
     if st.sidebar.button('New conversation / reset'):
-        st.session_state[conversation_key] = store.new_session(selected_id, token)
+        st.session_state[conversation_key] = store.new_session(selected_id, token, assistant_mode)
         st.rerun()
-    sessions = store.sessions(selected_id, token)
+    sessions = store.sessions(selected_id, token, assistant_mode)
     if not sessions:
-        store.new_session(selected_id, token)
-        sessions = store.sessions(selected_id, token)
+        store.new_session(selected_id, token, assistant_mode)
+        sessions = store.sessions(selected_id, token, assistant_mode)
     session_id = st.sidebar.selectbox('Conversation history', [s['id'] for s in sessions], key=conversation_key,
                                       format_func=lambda sid: sid[:8])
-    st.info('Draft document assistance. Source capture dates do not establish legal effectiveness. '
+    st.info('Reviewed source descriptions only. Proofs check deductions under supplied rules; '
+            'they do not establish source truth or current legal applicability.' if assistant_mode == 'reasoning' else
+            'Draft document assistance. Source capture dates do not establish legal effectiveness. '
             'Claims and summaries only help locate original passages.')
-    if config['answer']['provider'] == 'extractive':
+    if assistant_mode == 'document' and config['answer']['provider'] == 'extractive':
         st.caption('Extractive demo: answers show exact source excerpts. Configure the OpenAI provider for generated answers.')
     pending, intent = None, None
-    if st.button('Documents in corpus'):
+    if assistant_mode == 'document' and st.button('Documents in corpus'):
         pending, intent = 'Documents in corpus', 'document_inventory'
-    suggestions = definitions.get(corpus, {}).get('suggested_questions', [])
+    suggestions = definitions.get(corpus, {}).get('suggested_questions', []) if assistant_mode == 'document' else []
+    if assistant_mode == 'reasoning':
+        st.caption('Choose an exact catalogue question. Free-text questions outside the catalogue are withheld. '
+                   'Search/answer preferences above apply to Document assistant; reasoning uses complete proof evidence without model calls.')
+        try:
+            from knowledge_foundry.reasoning.catalogue import DEFAULT_DATASET, load_dataset, resolve_checker
+            dataset_path = os.environ.get('KF_REASONING_DATASET', str(DEFAULT_DATASET))
+            dataset = load_dataset(dataset_path)
+            if not os.access(resolve_checker(), os.X_OK):
+                st.warning('Proof checker is unavailable. Follow the checker installation in doc/assistants.md, then retry.')
+            with st.expander('Reasoning question catalogue', expanded=True):
+                for entry in dataset['catalogue']['questions']:
+                    if st.button(entry['question'], key='reasoning-' + entry['id']):
+                        pending = entry['question']
+        except Exception:
+            st.warning('Reasoning dataset is unavailable or failed review validation. Document assistant remains available.')
     if suggestions:
         with st.expander('Suggested questions', expanded=True):
             for i, question in enumerate(suggestions):
                 if st.button(question, key=f'suggest-{i}'):
                     pending = question
-    for message in store.history(session_id, token, selected_id):
+    for message in store.history(session_id, token, selected_id, assistant_mode):
         with st.chat_message(message['role']):
             if message['role'] == 'user':
                 st.write(message['content'])
@@ -174,18 +226,28 @@ def main():
         with st.chat_message('user'):
             st.write(question)
         with st.chat_message('assistant'):
-            st.caption('Retrieving evidence · streamed text is an unvalidated draft until complete')
-            assistant = DocumentAssistant(store, config)
+            st.caption('Checking reviewed premises, original citations and certificate' if assistant_mode == 'reasoning' else
+                       'Retrieving evidence · streamed text is an unvalidated draft until complete')
 
             def chunks():
+                # Document mode is independent of optional reasoning setup.
+                document_config = {**config, 'reasoning': {'enabled': False}}
+                assistant = DocumentAssistant(store, document_config)
                 for event in assistant.stream(corpus, question, token=token, session_id=session_id,
                                               snapshot_id=selected_id, method=method, mode=mode,
-                                              source_ids=source_ids or None, intent=intent):
+                                              source_ids=source_ids or None, intent=intent, assistant_mode='document'):
                     if event['type'] == 'delta':
                         yield event['text']
 
             try:
-                st.write_stream(chunks())
+                if assistant_mode == 'reasoning':
+                    from knowledge_foundry.reasoning.assistant import ReasoningAssistant
+                    ReasoningAssistant(store, config, dataset_dir=dataset_path,
+                        checker=os.environ.get('OO_HORN'), output_dir=os.environ.get('KF_REASONING_OUTPUT')).ask(
+                            corpus, question, token=token, session_id=session_id, snapshot_id=selected_id,
+                            source_ids=source_ids or None)
+                else:
+                    st.write_stream(chunks())
             except Exception as exc:
                 # Do not expose database connection strings or provider payloads.
                 st.error('The request could not complete. Check the selected mode, configured embeddings, API key and request budgets.')
