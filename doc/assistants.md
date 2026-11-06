@@ -1,21 +1,34 @@
 # Document and Reasoning assistants
 
-Run the app with `.venv/bin/python -m streamlit run apps/chat/app.py`. The sidebar defaults
-to **Document assistant**, which preserves retrieval, source filters, budgets,
-source excerpts and optional generated answers. **Reasoning assistant** offers a
-closed question catalogue backed by reviewed facts/rules and checked proofs.
-It makes no model calls. Free text must match a catalogue question exactly.
+Run `.venv/bin/python -m streamlit run apps/chat/app.py`.
+**Document assistant** retrieves original passages and can generate cited answers.
+**Reasoning assistant** interprets French/English questions over accepted JSON
+mappings, checks their proofs and evidence, then generates and assesses an
+explanation. Suggested buttons and typed questions use the same path.
 
-Both modes save separate PostgreSQL histories under the private `chat_token` URL.
-Keep that URL private. Switching modes or reloading retains the histories;
-reset creates a new conversation in the selected mode. Existing conversations
-remain Document assistant conversations.
+Each mode has a separate PostgreSQL history under the private `chat_token` URL.
+Keep that URL private. Switching modes or reloading retains history; reset creates
+an empty conversation in the selected mode. Existing conversations use Document mode.
 
 ## Setup
 
-Use the existing PostgreSQL/pgvector database settings in
-[the pipeline runbook](aml-cft-pipeline.md#7-rebuild-the-postgresql-search-projection).
-Before applying the additive history migration, make and verify a fresh backup:
+Configure PostgreSQL/pgvector using the [pipeline runbook](aml-cft-pipeline.md#7-rebuild-the-postgresql-search-projection).
+Install the dependencies and build the pinned checker using [reasoning setup](reasoning-engine.md#setup-and-example), then retain it locally:
+
+```sh
+.venv/bin/python scripts/setup_reasoning_assistant.py install-checker --source-dir /tmp/kf-open-ontologies
+.venv/bin/python scripts/setup_reasoning_assistant.py validate
+# Optional: import accepted evidence as a ready snapshot; does not publish it.
+.venv/bin/python scripts/setup_reasoning_assistant.py import
+```
+
+The import targets `aml-cft-reviewed-assistant`. Reasoning can also use a published
+pilot snapshot whose original proof spans and source metadata match exactly.
+Importing evidence does not approve the rest of the corpus. The normal document
+importer keeps its strict validation.
+
+No new migration is needed for natural-language questions. If an installation
+needs existing history migrations, first create and verify a fresh backup:
 
 ```sh
 source .envrc
@@ -28,127 +41,96 @@ sha256sum "$BACKUP"
 .venv/bin/python scripts/index_artifacts.py migrate
 ```
 
-Keep all backups. The archive checks read its directory and data stream; they do
-not establish restore success. Test restores and migrations in an isolated
-database/schema, never by restoring over the application database.
+Retain every backup and `artifacts/reasoning-checker/`. Archive checks do not prove
+restore success; test restores only in isolated databases/schemas.
 
-Install the pinned reasoning dependencies and build the matching `oo-horn`
-checker using [reasoning setup](reasoning-engine.md#setup-and-example). Retain it
-in the project so the normal Streamlit command finds it after restarts:
+## Configuration
+
+| Setting | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | Required for language interpretation/explanation; Document excerpts work without it. |
+| `KF_REASONING_CONFIG` | Defaults to [config/reasoning-assistant.json](../config/reasoning-assistant.json). |
+| `KF_REASONING_DATASET` | Defaults to `examples/reasoning-assistant/accepted`. |
+| `KF_REASONING_OUTPUT` | Defaults to `artifacts/reasoning-assistant-runs`; fresh proof directories only. |
+| `OO_HORN` | Explicit checker override; otherwise project installation, then PATH. Invalid overrides do not fall back. |
+
+Interpretation uses `gpt-6-luna` / `medium`; explanation uses `gpt-6-luna` / `low`.
+Both are supported by the [official model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+A successful turn makes four requests: interpretation, interpretation assessment,
+explanation and explanation assessment. Assessments use interpretation settings;
+Document answer preferences do not change these settings. Technical details retain
+phase usage, estimated cost, latency and failures. Requests use `store=false` and
+have no automatic retries.
+
+Model output is bounded by the smaller of its phase limit and retrieval output
+budget. Complete prompts, evidence counts, query work/results, inference iterations
+and checker time have explicit limits. Missing credentials, timeouts, incomplete
+responses and failed checks withhold reasoning answers; Document mode stays usable.
+
+## Questions and proof boundaries
+
+Queries check facts/deductions or list finite, connected matches over known terms.
+There is no generated code/SQL/SPARQL, general negation, aggregation, numerical
+comparison, rule creation or extraction of scenario assumptions. Missing facts
+remain unknown. Definitions need mappings; document text alone is insufficient.
+
+Examples over the three accepted mappings:
+
+| Question | Supported result |
+| --- | --- |
+| La demande de Madame Z contient-elle sa dernière déclaration d’IFI ? | Included in the source-described application, not a verified customer fact. |
+| What does Basel recommend for people acting on a customer’s behalf? | Inclusion in the represented recommended CDD scope. |
+| Does a COSI provide an exemption from liability? | The source explicitly states non-exemption; actual liability is not determined. |
+
+Lists of Basel targets and the existing two-premise conjunction rules are also
+supported. These examples are not an allowlist. The accepted FR/BCBS interval,
+**2026-10-28** only, is a source-description snapshot boundary, not a legal effective
+date. Dates require `YYYY-MM-DD`; malformed interpretations get a retry message.
+Dates are never silently changed, and saved failures remain unchanged after retry.
+
+Accepted mappings and their [separate reviews](../examples/reasoning-assistant/review/)
+are immutable; semantic changes require fresh independent review. Loading uses
+local JSON; PostgreSQL supplies snapshot evidence and conversation history.
+
+Cached reasoning is reused, but each new answer rechecks certificate bytes/logical
+steps and requires complete proof evidence matching source versions, scope, filters
+and budgets. Contradictions, unchecked proofs and missing evidence withhold answers
+without switching modes. Headings supply context, never substantive citations.
+See [review and proof boundaries](reasoning-engine.md#workflow-and-review-gates).
+
+Answers show a direct response, **Pourquoi cette réponse ?** / **Why this answer?**
+steps and original excerpts. Technical details are collapsed. Certificates check
+deductions under supplied assumptions, not source truth, legal applicability or
+wording. Model assessments of interpretation/prose are fallible. Saved history
+records its original run rather than rechecking old answers.
+
+## Experimental drafts and testing
+
+The explicit offline draft harness uses synthetic model responses and private
+in-memory snapshots:
 
 ```sh
-.venv/bin/python scripts/setup_reasoning_assistant.py install-checker --source-dir /tmp/kf-open-ontologies
-.venv/bin/python -m streamlit run apps/chat/app.py
+PYTHONPATH=.:src .venv/bin/python scripts/setup_reasoning_assistant.py experiment \
+  --draft-dir artifacts/20261028-docling-aml-cft-01/formalization-v1 \
+  --output /tmp/kf-draft-questions
 ```
 
-The installer checks the pinned clean source and records the binary hash under
-`artifacts/reasoning-checker/`. Keep that directory with the artifact backups.
-An explicit `OO_HORN` overrides the installation, including an invalid path;
-unset a stale override. A missing/rejecting checker withholds reasoning answers
-and shows a setup warning; Document assistant remains available.
-
-Validate and import only the accepted subset, without embeddings or model calls:
-
-```sh
-.venv/bin/python scripts/setup_reasoning_assistant.py validate
-.venv/bin/python scripts/setup_reasoning_assistant.py import
-```
-
-The second command creates/reuses an immutable **ready** snapshot in
-`aml-cft-reviewed-assistant`; it does not migrate or publish. Review the returned
-snapshot ID before any separately authorized publication. Reasoning can also use
-an existing published pilot snapshot if every original proof span and its source
-metadata match exactly. Merely importing a subset does not publish it or approve
-the rest of a corpus. The normal document-pipeline importer retains its strict
-classification and manifest validation.
-
-Optional settings:
-
-| Variable | Default / purpose |
-| --- | --- |
-| `KF_REASONING_DATASET` | `examples/reasoning-assistant/accepted`; validated accepted exports |
-| `KF_REASONING_OUTPUT` | `artifacts/reasoning-assistant-runs`; append-only proof runs |
-| `OO_HORN` | Optional checker override; otherwise use the project installation, then PATH |
-
-## Supported pilot questions
-
-The catalogue copies these development questions from the
-[123-question fixture](../tests/fixtures/retrieval-evaluation-123q.json). Its
-original `synthetic_unreviewed` evaluation labels are unchanged. Separate review
-accepts only the bounded source descriptions, not the evaluation dataset.
-
-| ID | Question / original source |
-| --- | --- |
-| V2-009 | Does filing a COSI remove the need to submit a suspicious transaction report or exempt the institution from liability? ACPR–Tracfin, `2025-04`, PDF p49 §§194–195; French citations. |
-| V2-023 | Under the Basel guidance, does customer due diligence extend beyond the account customer to representatives and beneficial owners? Basel, `2014-01-revised-2020-07`, PDF p12 (printed p8) §35 and notes 22–23; English citations. |
-| V2-013 | Dans le cas de Madame Z et de sa SCI, quels documents accompagnent la demande de prêt pour acquérir un nouveau bien immobilier ? Tracfin, `2025-09-29-tome-3`, PDF p18, cas n°3 étape 2; French citations. |
-
-Answers use the question's language and keep original-language passages. Each
-question names one fixed goal. Reviewed conjunction rules join two explicit
-source assertions: no reporting/liability exemption; representatives and owners
-within recommended CDD scope; the estimate and latest IFI return in the reported
-loan application. These are genuine bounded Horn deductions, not application of
-legal duties to new cases. No customer assumptions are supplied.
-
-The one-day execution scope is **2026-10-28**, with FR or BCBS identifying the
-source jurisdiction. It is a source-description snapshot boundary, **not a legal
-effective date**. COSI does not establish automatic DS or actual liability; Basel
-recommendations do not decide national exemptions; Madame Z is a source-described
-case, not a verified customer or completed purchase. The accepted catalogue
-contains exactly these three supported questions. The original five-entry review
-input is archived unchanged as
-[reviewed-catalogue.json](../examples/reasoning-assistant/proposals/reviewed-catalogue.json).
-Its two rejected questions remain in the review history. Runtime validation binds
-each retained entry to its independent review hash. Other questions are withheld.
-
-## Review and proof boundaries
-
-[Grounding judgments](../examples/reasoning-assistant/review/grounding.json) and
-[formalization judgments/findings](../examples/reasoning-assistant/review/formalization.json)
-come from separate review agents that inspected original PDF text and layout.
-This separates review contexts; it does not establish model-level independence
-or human/legal approval. Proposals, review hashes, original draft claims and
-accepted copies are retained under
-[examples/reasoning-assistant](../examples/reasoning-assistant/).
-
-The accepted export changes only copied grounding statuses and mechanical
-bundle/claim bindings after both reviews pass. Frozen pilot drafts, dispositions,
-prior findings and corpus acceptance remain untouched. Changed semantic content,
-answers, goals or scope need fresh independent review. There is no corpus loader
-or automatic prose-to-rule/goal conversion.
-
-The answer displays conclusion, premises, applied rules, jurisdiction/date,
-original passages and certificate status/verdict. Source assertions, supplied
-rule assumptions, deductions and reviewed explanatory text are distinguished;
-no LLM explanation is used. Saved history shows the original run's certificate
-status, not a newly checked answer.
-
-A closure is reused for unchanged dataset bytes, snapshot, scope and checker.
-Every new supported answer rechecks certificate hashes and logical steps, then
-requires the entire proof evidence inside the selected snapshot, filters and
-budgets. Headings remain mandatory governing context, never substantive citation
-labels. Missing evidence means unknown. Contradictions, unchecked proofs, altered
-certificates and unsupported questions withhold answers without switching modes.
-
-## Validation
+Use a fresh output directory. Optional `--case-id`, `--cases` and `--checker` select
+fixtures or the checker. Results are labelled **Experimental — unreviewed formalization**.
+Original statuses, hashes and findings are preserved; facts/rules remain unreviewed
+assumptions even when a certificate passes. The report records mappings, coverage
+limits and failures. There is no automatic fallback, draft promotion or production
+batch importer.
 
 ```sh
-# Tests create and remove unique schemas; do not point at an untrusted database.
+# Tests create/remove unique schemas; never migrate the application database.
 export KF_TEST_DATABASE_URL="$KF_DATABASE_URL"
-PYTHONPATH=src:.:tests .venv/bin/python -m pytest tests/reasoning tests/storage tests/retrieval -q
+unset OPENAI_API_KEY
+PYTHONPATH=src:.:tests .venv/bin/python -m pytest -q
 ```
 
-Without `KF_TEST_DATABASE_URL`, PostgreSQL/UI integration tests skip. Certificate
-tests require the real checker. Synthetic missing-premise/conflict mutations are
-explicitly identified in tests and never enter the accepted export.
-
-Validated 5 November 2026: full regression **905 passed, 6 skipped, 133 subtests**,
-with one existing Docling warning. PostgreSQL checks used isolated schemas;
-the real pinned checker accepted deductions and rejected certificate mutations.
-Latest cleanup validation: **90 reasoning/storage/UI regressions** and **7
-catalogue-integrity checks** passed. All three questions also returned checked
-answers in a browser launched with `OO_HORN` unset; unused questions were absent.
-Playwright/Chromium exercised both modes, French/English answers, reload history,
-the supported catalogue and source-filter refusal at desktop size; a fresh mobile
-viewport also rendered correctly. No paid model calls were made. Live generated
-answers, a database restore and other browsers were not verified.
+PostgreSQL tests skip without the test URL; certificate tests require the checker.
+Automated/browser model responses and semantic assessments are mocked. Live model
+quality, account access and actual API cost/latency remain unverified. Local logs,
+proofs and screenshots are retained in [QA artifacts](../artifacts/reasoning-question-validation/)
+and [timing artifacts](../artifacts/reasoning-speed/), which Git ignores.

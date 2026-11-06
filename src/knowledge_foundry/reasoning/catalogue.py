@@ -1,4 +1,7 @@
-"""Validated, bounded source-description catalogue; no natural-language goal generation."""
+"""Immutable accepted export validation and scope-bound engine cache.
+
+The frozen catalogue is review provenance and UI suggestions, not a runtime gate.
+"""
 import json
 import os
 from functools import lru_cache
@@ -129,13 +132,13 @@ def accepted_projection(dataset):
 
 
 @lru_cache(maxsize=8)
-def _cached_engine(directory, digest, snapshot_id, jurisdiction, as_of, output_dir, checker, checker_digest):
+def _cached_engine(directory, digest, snapshot_id, jurisdiction, as_of, output_dir, checker, checker_digest, timeout, max_iterations):
     """One closure per exact dataset/snapshot/scope/checker; explain rechecks certificates."""
     from knowledge_foundry.reasoning.engine import ReasoningEngine
     dataset = load_dataset(directory)
     require(dataset['digest'] == digest, 'dataset changed during setup')
     engine = ReasoningEngine(dataset['bundle'], dataset['mapping'], jurisdiction=jurisdiction, as_of=as_of)
-    engine.run(Path(output_dir) / uuid4().hex, checker=checker)
+    engine.run(Path(output_dir) / uuid4().hex, checker=checker, timeout=timeout, max_iterations=max_iterations)
     return engine
 
 
@@ -158,9 +161,10 @@ def resolve_checker(checker=None):
     return str(Path(checker).resolve())
 
 
-def get_engine(dataset, snapshot_id, question, *, output_dir, checker=None):
+def get_engine(dataset, snapshot_id, question, *, output_dir, checker=None, timeout=30., max_iterations=100):
     # Checker replacement invalidates cached state, even if its pathname is reused.
     checker = resolve_checker(checker)
     digest = file_hash(checker) if Path(checker).is_file() else 'missing'
     return _cached_engine(str(dataset['directory']), dataset['digest'], snapshot_id,
-                          question['jurisdiction'], question['as_of'], str(Path(output_dir).resolve()), checker, digest)
+                          question['jurisdiction'], question['as_of'], str(Path(output_dir).resolve()), checker, digest,
+                          timeout, max_iterations)

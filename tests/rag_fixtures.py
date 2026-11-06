@@ -81,3 +81,71 @@ def projection():
     identity = {**a['identity'], 'sources': a['bundle']['sources'], 'documents': a['bundle']['documents'],
                 'builds': a['bundle']['builds']}
     return records, evidence, identity
+
+
+# Synthetic model responses for reasoning tests; no live model-quality claim.
+def json_stream(value):
+    def stream(payload, config):
+        yield {'type': 'delta', 'text': json.dumps(value, ensure_ascii=False)}
+        yield {'type': 'usage', 'usage': {'input_tokens': 500, 'output_tokens': 200,
+                                         'cached_input_tokens': 0, 'cache_write_tokens': 0}}
+    return stream
+
+
+def plan_for(row, *, language='en', goal=None, patterns=None, select=None, status='ready'):
+    return copy.deepcopy({'status': status, 'language': language, 'message': '',
+            'operation': 'select' if select else 'check', 'jurisdiction': row['jurisdiction'],
+            'as_of': row['valid_from'], 'patterns': patterns if patterns is not None else [goal or row['rules'][0]['head']],
+            'select': select or []})
+
+
+def faithful_audit(payload, config):
+    from knowledge_foundry.reasoning.assistant import AUDIT_FIELDS, FIDELITY_FIELDS
+    fields = FIDELITY_FIELDS if payload['text']['format']['name'] == 'explanation_audit' else AUDIT_FIELDS
+    yield from json_stream(dict.fromkeys(fields, True))(payload, config)
+
+
+def excerpt_explanation(payload, config):
+    """Synthetic explanatory prose from original passages, never catalogue answers."""
+    data = json.loads(payload['input'])
+    fr = 'Answer in French' in payload['instructions']
+    evidence = data['evidence'][0]
+    conclusions = data['reasoning']['conclusions']
+    objects = {g[2].rsplit(':', 1)[-1] for g in conclusions}
+    if 'LatestIFIReturn' in objects:
+        text = ('Oui. La dernière déclaration d’IFI figure dans la demande décrite par Tracfin. ' if fr else
+                'Yes. The latest IFI return is included in the application described by Tracfin. ')
+    elif objects & {'Liability', 'NoReportingOrLiabilityExemption'}:
+        text = ('Non. La source précise qu’une COSI ne procure pas d’exonération de responsabilité. ' if fr else
+                'No. The source states that a COSI does not provide an exemption from liability. ')
+    elif 'PersonsActingForCustomers' in objects:
+        text = ('La recommandation inclut les personnes agissant pour le compte du client dans le périmètre de vigilance représenté. ' if fr else
+                'The recommendation includes people acting on a customer’s behalf in the represented due diligence scope. ')
+    else:
+        text = ('La source décrit les éléments demandés. ' if fr else 'The source describes the requested information. ')
+    text += '[' + evidence['label'] + ']\n\n'
+    text += ('Pourquoi cette réponse ? Information explicitement indiquée dans la source : ' if fr else
+             'Why this answer? Information explicitly stated in the source: ')
+    text += evidence['text'] + ' [' + evidence['label'] + ']'
+    yield {'type': 'delta', 'text': text}
+    yield {'type': 'usage', 'usage': {'input_tokens': 900, 'output_tokens': 300,
+                                     'cached_input_tokens': 0, 'cache_write_tokens': 0}}
+
+
+def suggestion_interpreter(payload, config):
+    """UI regression stub: selects a mapping from question/source words in TESTS only."""
+    from knowledge_foundry.reasoning.catalogue import load_dataset
+    data = json.loads(payload['input'])
+    dataset = load_dataset()
+    question = data['question']
+    entry = next((q for q in dataset['catalogue']['questions'] if q['question'] == question), None)
+    if entry:
+        row = next(r for r in dataset['mapping']['mappings'] if r['id'] in entry['mapping_ids'])
+        plan = plan_for(row, language=entry['language'])
+    else:
+        row = dataset['mapping']['mappings'][2]
+        if 'IFI' in question:
+            plan = plan_for(row, language='fr', goal=row['facts'][1])
+        else:
+            plan = plan_for(row, patterns=[], status='unsupported')
+    yield from json_stream(plan)(payload, config)

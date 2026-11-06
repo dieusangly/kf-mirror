@@ -18,7 +18,7 @@ PROVENANCE_GRAPH = 'urn:kf:reasoning:provenance'
 SHAPES = f'''
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix kf: <{KF}> .
-kf:ClaimShape a sh:NodeShape ; sh:targetClass kf:ReviewedClaim ;
+kf:ClaimShape a sh:NodeShape ; sh:targetClass kf:ReviewedClaim, kf:UnreviewedClaim ;
   sh:property [ sh:path kf:claimId ; sh:minCount 1 ; sh:maxCount 1 ] ;
   sh:property [ sh:path kf:claimHash ; sh:minCount 1 ; sh:maxCount 1 ] ;
   sh:property [ sh:path kf:buildId ; sh:minCount 1 ] ;
@@ -31,7 +31,10 @@ kf:ClaimShape a sh:NodeShape ; sh:targetClass kf:ReviewedClaim ;
 
 class ReasoningEngine:
     def __init__(self, bundle, mapping, *, jurisdiction, as_of):
-        self.projection = compile_projection(bundle, mapping, jurisdiction=jurisdiction, as_of=as_of)
+        self._initialize_projection(compile_projection(bundle, mapping, jurisdiction=jurisdiction, as_of=as_of))
+
+    def _initialize_projection(self, projection):
+        self.projection = projection
         self.asserted = OntologyEngine()
         self.asserted.load(self.projection['turtle'])
         self.asserted.store.load(self.projection['provenance'], format=ox.RdfFormat.TURTLE,

@@ -37,43 +37,39 @@ def render_answer(message, store, session_id, token):
         text = re.sub(r'\[(E\d+)\]', lambda m: f'[{m[1]}](#evidence-{mid}-{m[1]})' if m[1] in labels else m[0], message['content'])
         st.markdown(text)
     reasoning = answer.get('retrieval', {}).get('reasoning')
+    french = answer.get('language') == 'fr'
     if reasoning is not None:
-        st.caption('Reviewed catalogue explanation · no LLM explanation was used. '
-                   'Saved certificate status describes the original answer run.')
-        st.caption(f"Jurisdiction: {reasoning.get('jurisdiction', 'unavailable')} · "
-                   f"Date: {reasoning.get('as_of', 'unavailable')} · {answer.get('scope_note', '')}")
-        certificate = reasoning.get('certificate', {})
-        st.write(f"Certificate: {certificate.get('status', 'not checked')} · "
-                 f"Verdict: {certificate.get('verdict') or 'no verdict'} · Proof: {reasoning['status']}")
-        if reasoning.get('reason'):
-            st.warning(reasoning['reason'])
+        if answer.get('knowledge_label'):
+            st.warning(answer['knowledge_label'])
+        if answer.get('clarification'):
+            st.text(answer['clarification'])
+        st.caption('Les étapes symboliques sont contrôlées sous les hypothèses fournies. '
+                   'La vérité des sources et la rédaction du modèle ne sont pas certifiées.' if french else
+                   'Symbolic steps are checked under supplied assumptions. '
+                   'Source truth and model wording are not certified.')
+        if reasoning.get('jurisdiction'):
+            st.caption(('Périmètre de la source : ' if french else 'Source scope: ') +
+                       str(reasoning['jurisdiction']) + ' · ' + str(reasoning.get('as_of', '')) +
+                       (' · Limite de l’instantané, sans constat d’applicabilité juridique actuelle.' if french else
+                        ' · Snapshot boundary, without a finding of current legal applicability.'))
         if reasoning.get('conflicts'):
-            st.error('Contradictory premises: conclusion withheld.')
-            st.json(reasoning['conflicts'])
-        with st.expander('Conclusion, premises and applied rules', expanded=True):
-            st.write('Deductions' if reasoning.get('status') == 'inferred' else 'Source assertions / withheld conclusion')
-            st.json(reasoning.get('conclusions', []))
-            st.write('Premises · reviewed source assertions, including source-described cases')
-            st.json(reasoning.get('premises', []))
-            st.write('Applied rules · supplied reviewed rules remain assumptions of the proof')
-            st.json(reasoning.get('rules', []))
-            st.write('Additional scenario assumptions: ' + str(answer.get('assumptions', [])))
-            st.caption(answer.get('deduction_note', 'Missing facts mean unknown, never false.'))
-            if reasoning.get('mappings'):
-                with st.expander('Review provenance and source scope'):
-                    st.json(reasoning['mappings'])
-            context = [c for c in reasoning.get('citations', []) if c.get('role') == 'governing_context']
-            if context:
-                st.write('Original governing context · retained within the proof evidence budget')
-                for citation in context:
-                    st.code(citation['text'], language=None, wrap_lines=True)
+            st.error('Des prémisses contradictoires empêchent de conclure.' if french else
+                     'Contradictory premises prevent a conclusion.')
+        with st.expander('Détails techniques' if french else 'Technical details', expanded=False):
+            st.caption('Le statut du certificat enregistré décrit la réponse initiale.' if french else
+                       'Saved certificate status describes the original answer run.')
+            st.json({'reasoning': reasoning, 'query_plan': answer.get('retrieval', {}).get('query_plan'),
+                     'execution': answer.get('retrieval', {}).get('execution'),
+                     'semantic_checks': answer.get('retrieval', {}).get('semantic_checks'),
+                     'telemetry': answer.get('telemetry')})
     elif answer.get('status') != 'inventory':
         st.caption('Exact source excerpts · no generated synthesis' if answer.get('status') == 'extractive' else
                    'Draft answer · review the cited passages before relying on it')
     telemetry = answer.get('telemetry', {})
     st.caption(f"Model: {telemetry.get('model', 'unknown')} · {telemetry.get('total_latency_seconds', '?')} s · "
                f"Estimated answer cost: {telemetry.get('estimated_cost_usd')} USD")
-    with st.expander('Documents and snapshot' if answer.get('status') == 'inventory' else 'Sources and exact passages', expanded=True):
+    with st.expander('Documents and snapshot' if answer.get('status') == 'inventory' else
+                     'Sources et extraits originaux' if french else 'Sources and exact passages', expanded=True):
         citations = answer.get('citations', [])
         if answer.get('status') == 'inventory':
             st.dataframe(answer['documents'], hide_index=True, width='stretch',
@@ -102,8 +98,14 @@ def render_answer(message, store, session_id, token):
                          'original_chunk_ids': e['original_chunk_ids'], 'location': e['location']})
         for warning in answer.get('retrieval', {}).get('warnings', []) + answer.get('warnings', []):
             st.warning(warning)
-        with st.expander('Request and retrieval details'):
-            st.json({'telemetry': telemetry, 'retrieval': {k: v for k, v in answer.get('retrieval', {}).items() if k != 'evidence'}})
+        if reasoning is None:
+            with st.expander('Request and retrieval details'):
+                st.json({'telemetry': telemetry, 'retrieval': {k: v for k, v in answer.get('retrieval', {}).items() if k != 'evidence'}})
+        else:
+            context = [c for c in reasoning.get('citations', []) if c.get('role') == 'governing_context']
+            for citation in context:
+                st.caption('Contexte original' if french else 'Original governing context')
+                st.code(citation['text'], language=None, wrap_lines=True)
     comment = st.text_input('Optional feedback', key=f'comment-{mid}', max_chars=2000)
     up, down = st.columns(2)
     for column, rating, label in [(up, 1, 'Helpful'), (down, -1, 'Needs work')]:
@@ -117,7 +119,7 @@ def main():
     assistant_name = st.sidebar.selectbox('Assistant', ['Document assistant', 'Reasoning assistant'])
     assistant_mode = 'reasoning' if assistant_name == 'Reasoning assistant' else 'document'
     st.sidebar.caption('Document assistant finds original passages and can draft answers. '
-                       'Reasoning assistant checks conclusions from reviewed facts and rules for a small question catalogue.')
+                       'Reasoning assistant interprets French/English questions over reviewed facts and rules, then checks evidence and deductions.')
     st.title(assistant_name)
     st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
     config_path = os.environ.get('KF_RETRIEVAL_CONFIG')
@@ -196,15 +198,19 @@ def main():
         pending, intent = 'Documents in corpus', 'document_inventory'
     suggestions = definitions.get(corpus, {}).get('suggested_questions', []) if assistant_mode == 'document' else []
     if assistant_mode == 'reasoning':
-        st.caption('Choose an exact catalogue question. Free-text questions outside the catalogue are withheld. '
-                   'Search/answer preferences above apply to Document assistant; reasoning uses complete proof evidence without model calls.')
+        st.caption('Posez votre question en français ou en anglais. Les suggestions suivent le même traitement. '
+                   'Answers are limited to the selected knowledge and supported operations. '
+                   'Reasoning uses separate interpretation/explanation model settings and complete proof evidence; '
+                   'search/answer preferences above apply to Document assistant.')
+        if not os.environ.get('OPENAI_API_KEY'):
+            st.warning('Reasoning requires OPENAI_API_KEY for interpretation and explanation. Document assistant remains available.')
         try:
             from knowledge_foundry.reasoning.catalogue import DEFAULT_DATASET, load_dataset, resolve_checker
             dataset_path = os.environ.get('KF_REASONING_DATASET', str(DEFAULT_DATASET))
             dataset = load_dataset(dataset_path)
             if not os.access(resolve_checker(), os.X_OK):
                 st.warning('Proof checker is unavailable. Follow the checker installation in doc/assistants.md, then retry.')
-            with st.expander('Reasoning question catalogue', expanded=True):
+            with st.expander('Suggested questions', expanded=True):
                 for entry in dataset['catalogue']['questions']:
                     if st.button(entry['question'], key='reasoning-' + entry['id']):
                         pending = entry['question']

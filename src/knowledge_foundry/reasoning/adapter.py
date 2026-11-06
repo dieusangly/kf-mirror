@@ -72,6 +72,15 @@ def compile_projection(bundle, mapping, *, jurisdiction, as_of):
     Exceptions require POSITIVE clearance evidence. Its absence is unknown, not
     false. A clearance and its exception together produce a conflict witness.
     """
+    return _compile_projection(bundle, mapping, jurisdiction=jurisdiction, as_of=as_of, experimental=False)
+
+
+def _compile_projection(bundle, mapping, *, jurisdiction, as_of, experimental):
+    """Shared structural compiler; only the isolated harness bypasses REVIEW, never integrity.
+
+    This function does not change statuses or content hashes. Accepted callers
+    must enter through compile_projection, which enforces the semantic review.
+    """
     from open_ontologies_lite.horn.rules import AtomPat, RulePattern
 
     check_claim_evidence(bundle)
@@ -79,7 +88,8 @@ def compile_projection(bundle, mapping, *, jurisdiction, as_of):
     schema = json.loads((ROOT / 'schemas/reasoning-mapping-schema-v1.0.0.json').read_text())
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(mapping)
     require(mapping.get('bundle_sha256') == stable_hash(bundle), 'semantic bundle binding mismatch')
-    _review(mapping)
+    if not experimental:
+        _review(mapping)
     _date(as_of)
     require(isinstance(jurisdiction, str) and jurisdiction.strip(), 'jurisdiction is required')
     claims = {c['id']: c for c in bundle['claims']}
@@ -99,8 +109,9 @@ def compile_projection(bundle, mapping, *, jurisdiction, as_of):
         seen.add(row['id'])
         claim = claims.get(row['claim_id'])
         require(claim is not None and stable_hash(claim) == row['claim_sha256'], 'stale or missing mapped claim')
-        require(claim['grounding_review_status'] == 'verified',
-                'mapped claim must have verified grounding')
+        if not experimental:
+            require(claim['grounding_review_status'] == 'verified',
+                    'mapped claim must have verified grounding')
         require(builds[claim['build_id']]['status'] == 'complete', 'mapped claim build is incomplete')
         start, end = _date(row['valid_from']), row.get('valid_until')
         if end is not None:
@@ -110,7 +121,7 @@ def compile_projection(bundle, mapping, *, jurisdiction, as_of):
             excluded.append(row['id'])
             continue
         node = 'urn:kf:mapping:' + quote(row['id'], safe='')
-        meta(node, TYPE, KF + 'ReviewedClaim', True)
+        meta(node, TYPE, KF + ('UnreviewedClaim' if experimental else 'ReviewedClaim'), True)
         meta(node, KF + 'claimId', claim['id'])
         meta(node, KF + 'claimHash', row['claim_sha256'])
         meta(node, KF + 'claimText', claim['text'])

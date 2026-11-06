@@ -1,0 +1,147 @@
+{
+  "label": "Experimental — unreviewed formalization",
+  "model_quality": "unverified; synthetic mocked interpretation, prose and semantic assessments",
+  "cases": [
+    {
+      "id": "decree-delegation",
+      "batch": "batch-001.json",
+      "mapping_ids": [
+        "aml-cft-v1-l561-2-2-delegation"
+      ],
+      "question": "Quel type de texte doit préciser la détermination du bénéficiaire effectif selon cet article capturé ?",
+      "model_responses": "synthetic_mock_unreviewed",
+      "plan": {
+        "status": "ready",
+        "language": "fr",
+        "message": "",
+        "operation": "check",
+        "jurisdiction": "FR",
+        "as_of": "2016-12-03",
+        "patterns": [
+          [
+            "urn:kf:fr:cmf:L561-2-2:DefinitionAndDetermination",
+            "urn:kf:fr:cmf:L561-2-2:requiresSpecificationByInstrumentType",
+            "urn:kf:fr:cmf:L561-2-2:ConseilDEtatDecree"
+          ]
+        ],
+        "select": []
+      },
+      "explanation": "Sous l’hypothèse de cette formalisation non revue, l’article renvoie à un décret en Conseil d’État. [SOURCE]\n\nPourquoi cette réponse ? Information explicitement indiquée dans la source : la formalisation représente ce renvoi, sans établir l’adoption du décret ni l’applicabilité actuelle. [SOURCE]",
+      "expected_status": "reasoned"
+    },
+    {
+      "id": "listed-political-functions",
+      "batch": "batch-002.json",
+      "mapping_ids": [
+        "aml-cft-v1-p2018-25"
+      ],
+      "question": "Quelles fonctions politiques sont énumérées dans ce passage des lignes directrices PPE de 2018 ?",
+      "model_responses": "synthetic_mock_unreviewed",
+      "plan": {
+        "status": "ready",
+        "language": "fr",
+        "message": "",
+        "operation": "select",
+        "jurisdiction": "FR",
+        "as_of": "2018-10-01",
+        "patterns": [
+          [
+            "urn:kf:fr:cmf:ppe:2018-10-01:ListedFunctions",
+            "urn:kf:fr:cmf:ppe:2018-10-01:enumeratesFunctionCategory",
+            "?function"
+          ]
+        ],
+        "select": [
+          "?function"
+        ]
+      },
+      "explanation": "Sous les hypothèses de la formalisation non revue, ce passage énumère des membres des parlements national et européen ainsi que certaines fonctions dirigeantes de partis. [SOURCE]\n\nPourquoi cette réponse ? Information explicitement indiquée dans la source : quatre catégories sont représentées dans cet extrait ; cette liste ne couvre pas toute la réglementation PPE. [SOURCE]",
+      "expected_status": "reasoned"
+    },
+    {
+      "id": "regulation-legislators",
+      "batch": "batch-005.json",
+      "mapping_ids": [
+        "aml-cft-v1-tfr23en-1"
+      ],
+      "question": "Which legislators are named in the captured English heading of Regulation 2023/1113?",
+      "model_responses": "synthetic_mock_unreviewed",
+      "plan": {
+        "status": "ready",
+        "language": "en",
+        "message": "",
+        "operation": "select",
+        "jurisdiction": "EU",
+        "as_of": "2023-06-09",
+        "patterns": [
+          [
+            "urn:kf:eu:2023-1113:oj-en:PublishedText",
+            "urn:kf:eu:2023-1113:oj-en:StatedLegislator",
+            "?legislator"
+          ]
+        ],
+        "select": [
+          "?legislator"
+        ]
+      },
+      "explanation": "Under the unreviewed formalization assumptions, the heading names the European Parliament and the Council of the European Union. [SOURCE]\n\nWhy this answer? Information explicitly stated in the source: two stated-legislator assertions are matched in this captured heading, without establishing present applicability. [SOURCE]",
+      "expected_status": "insufficient",
+      "coverage_note": "All supporting elements are headings; existing proof admission correctly withholds substantive answers. No source-kind repair permitted."
+    },
+    {
+      "id": "draft-transmission",
+      "batch": "batch-005.json",
+      "mapping_ids": [
+        "aml-cft-v1-tfr23en-3"
+      ],
+      "question": "To which bodies does the captured regulation report transmission of the draft legislative act?",
+      "model_responses": "synthetic_mock_unreviewed",
+      "plan": {
+        "status": "ready",
+        "language": "en",
+        "message": "",
+        "operation": "check",
+        "jurisdiction": "EU",
+        "as_of": "2023-06-09",
+        "patterns": [
+          [
+            "urn:kf:eu:2023-1113:oj-en:PublishedText",
+            "urn:kf:eu:2023-1113:oj-en:ReportsDraftTransmissionTo",
+            "urn:kf:eu:2023-1113:oj-en:NationalParliaments"
+          ]
+        ],
+        "select": []
+      },
+      "explanation": "Under the unreviewed formalization assumption, the captured preamble reports transmission to the national parliaments. [SOURCE]\n\nWhy this answer? Information explicitly stated in the source: one reported-transmission assertion is matched; this does not establish present legal applicability. [SOURCE]",
+      "expected_status": "reasoned",
+      "coverage_note": "One source-described assertion, not current applicability."
+    },
+    {
+      "id": "invented-term-rejected",
+      "batch": "batch-001.json",
+      "mapping_ids": [
+        "aml-cft-v1-l561-2-2-delegation"
+      ],
+      "question": "Synthetic invalid-plan probe: invent an approved decree.",
+      "model_responses": "synthetic_mock_unreviewed",
+      "plan": {
+        "status": "ready",
+        "language": "fr",
+        "message": "",
+        "operation": "check",
+        "jurisdiction": "FR",
+        "as_of": "2016-12-03",
+        "patterns": [
+          [
+            "urn:kf:fr:cmf:L561-2-2:DefinitionAndDetermination",
+            "urn:kf:fr:cmf:L561-2-2:requiresSpecificationByInstrumentType",
+            "urn:synthetic:invented:AdoptedDecree"
+          ]
+        ],
+        "select": []
+      },
+      "explanation": "Sous l’hypothèse de cette formalisation non revue, l’article renvoie à un décret en Conseil d’État. [SOURCE]\n\nPourquoi cette réponse ? Information explicitement indiquée dans la source : la formalisation représente ce renvoi, sans établir l’adoption du décret ni l’applicabilité actuelle. [SOURCE]",
+      "expected_status": "insufficient"
+    }
+  ]
+}

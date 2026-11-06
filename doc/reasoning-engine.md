@@ -111,7 +111,7 @@ run `.venv/bin/python scripts/reason.py --help`.
 ## Assistant integration
 
 The Streamlit app provides **Document assistant** (default retrieval) and
-**Reasoning assistant** (three reviewed AML/CFT source-description questions).
+**Reasoning assistant** (bounded French/English questions over accepted facts/rules).
 See [assistant setup and usage](assistants.md) for the accepted subset, separate
 reviews, PostgreSQL import, history migration and proof boundaries.
 
@@ -134,15 +134,14 @@ PYTHONPATH=.:src .venv/bin/python -m pytest tests/reasoning -q
 PYTHONPATH=.:src .venv/bin/python -m pytest -q
 ```
 
-Validated 4 November 2026: **826 tests passed, 52 skipped, 133 subtests passed**,
-with one existing Docling warning. Tests cover review gates, scope, exceptions,
-contradictions, insufficient evidence, certificates and citation budgets. The real
-checker accepted example deductions and rejected a forged conclusion.
-Certificate tests skip without the checker. PostgreSQL integration remains
-unverified here; testing it requires `KF_TEST_DATABASE_URL`.
+Tests cover review gates, scope, exceptions, contradictions, certificate integrity
+and citation budgets. The real checker is required for certificate tests;
+PostgreSQL tests require `KF_TEST_DATABASE_URL`. See [assistant usage and validation](assistants.md#experimental-drafts-and-testing)
+for natural-language and browser coverage. Model responses in those checks are mocked.
 
-Remaining work: broader reviewed mappings, automatic question-to-goal generation,
-full OWL consistency support and comparison with the
-123-question RAG dataset. Numeric comparisons, negation and automatic prose-to-rule
-extraction are unsupported. This example does not establish production readiness
-or a measured accuracy/speed advantage.
+Remaining work: broader reviewed mappings, full OWL consistency support and
+comparison with the 123-question RAG dataset. Natural-language interpretation
+now produces validated finite queries; see [assistant usage](assistants.md#configuration).
+Numeric comparisons, general negation and automatic prose-to-rule extraction
+are unsupported. This example does not establish production readiness or a
+measured accuracy/speed advantage.
