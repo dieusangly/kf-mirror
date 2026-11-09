@@ -42,11 +42,22 @@ the original prose. Automated claim-to-mapping generation remains unimplemented.
 
 For session-based authoring, use the [generation prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_formalization_generation),
 then the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_formalization_review)
-in a fresh session. They cover the full candidate population, shared vocabulary,
+in a fresh session. They cover all generated claim candidates (the upstream
+proposals linked to exported claim records), shared vocabulary,
 batches of up to 100 mappings, coverage tracking and separate grounding/semantic
 judgments. Both preserve draft artifacts; corpus loading and reviewed-output
 promotion still need implementation. Repair findings in a separate session,
 then review changed entries and any affected vocabulary dependents again.
+
+For the completed AML/CFT formalization run, use the [revised formalization corpus](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md)
+and [archive-aware draft harness](assistants.md#experimental-drafts-and-testing).
+The authoring prompts above describe a workflow, not a request to reopen that
+run's completed cycle. The corpus underwent full initial review and subsequent
+repair/review work; final acceptance covers four exact revisions. See
+[review coverage and acceptance](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#acceptance-and-input-selection).
+Application use remains disabled.
+Use v2's `current/input-bundle.json` to inspect revised claims. Runtime reasoning
+continues to use the separately reviewed export; see [input selection](assistants.md#experimental-drafts-and-testing).
 
 ## Six capabilities
 

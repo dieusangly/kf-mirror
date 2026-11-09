@@ -633,7 +633,7 @@ def test_original_statuses_hashes_and_accepted_isolation(draft):
     assert draft['trust'] == 'experimental_unreviewed'
     assert draft['full_mapping']['review']['status'] == 'draft'
     assert {c['grounding_review_status'] for c in draft['bundle']['claims']} == {'draft'}
-    assert draft['experiment']['findings_sha256']
+    assert draft['experiment']['findings_sha256'] == '68edfba008f65816f2602a00e032c9b2c9098148adc8fd36c94adbb111ede7bb'
     with pytest.raises(ValueError, match='not reviewed'):
         compile_projection(draft['bundle'], draft['full_mapping'], jurisdiction='FR', as_of='2016-12-03')
     with pytest.raises((ValueError, KeyError)):

@@ -106,27 +106,75 @@ records its original run rather than rechecking old answers.
 
 ## Experimental drafts and testing
 
+For this run, start with the [revised formalization corpus](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md).
+Only `formalization-v1` (unchanged frozen baseline) and `formalization-v2`
+(revised corpus and archived provenance) remain. The initial full review
+covered all 8,491 claim candidates and all 2,262 original mappings. Review after
+repair covered 1,081 claim/disposition records and 273 mappings, followed by
+further repairs. The other mappings were not ignored.
+
+The separate final acceptance decision covers four exact mapping revisions.
+The other 2,164 active mappings retain their review/repair history without that
+final acceptance; 104 date mappings remain withheld. Earlier review judgments
+do not automatically approve later revisions. See the package's
+[review coverage and acceptance](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#acceptance-and-input-selection).
+Application use stays disabled.
+This does not change the separate three-mapping accepted assistant dataset above.
+The package [defines claims, candidates and mappings](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#claims-candidates-and-mappings):
+“candidate” identifies an upstream proposal; “claim” identifies its exported record.
+
+Choose the input according to its purpose:
+
+| Use | Input |
+| --- | --- |
+| Inspect the latest revised claims and their lineage | `formalization-v2/current/input-bundle.json`, with `current/coverage.jsonl` and `current/mapping-index.jsonl` for status |
+| Reproduce original draft experiments | `formalization-v1`; findings resolve from the v2 archive |
+| Run the Reasoning assistant | `examples/reasoning-assistant/accepted`, with its exact reviewed claims and mappings |
+| Run the Document assistant | The configured published retrieval snapshot, imported independently of the formalization package |
+
+The revised corpus includes 711 changed claim records, including evidence
+and provenance changes. The three original claim records underlying the accepted
+assistant are unchanged in v2. Do not point `KF_REASONING_DATASET` at v2 or silently
+substitute revised claims into a reviewed export: changed claim bytes require
+matching reviews, mappings and evidence before a separately authorized application
+update. The name `v2` identifies a corpus snapshot, not application approval.
+
 The explicit offline draft harness uses synthetic model responses and private
 in-memory snapshots:
 
 ```sh
-PYTHONPATH=.:src .venv/bin/python scripts/setup_reasoning_assistant.py experiment \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:src .venv/bin/python scripts/setup_reasoning_assistant.py experiment \
   --draft-dir artifacts/20261028-docling-aml-cft-01/formalization-v1 \
   --output /tmp/kf-draft-questions
 ```
 
 Use a fresh output directory. Optional `--case-id`, `--cases` and `--checker` select
 fixtures or the checker. Results are labelled **Experimental — unreviewed formalization**.
-Original statuses, hashes and findings are preserved; facts/rules remain unreviewed
-assumptions even when a certificate passes. The report records mappings, coverage
+The label reflects the frozen draft export's status; later review findings are
+retained as provenance and do not grant the harness runtime approval. Original
+statuses and hashes are preserved. Facts/rules remain experimental assumptions
+even when a certificate passes. The report records mappings, coverage
 limits and failures. There is no automatic fallback, draft promotion or production
 batch importer.
+
+When the sibling review directory is absent, the harness reads its exact findings
+and review manifest from `formalization-v2/provenance/history.zip`, using
+`provenance/index.json`. It verifies the package seal, index/archive hashes,
+member identity and hashes, and the review's binding to the original draft.
+The report retains the exact findings hash and an `archive.zip!/member` location.
+Loose reviews still work when their manifest binds the draft and findings;
+missing or inconsistent provenance fails loading.
+
+Archive indexes and restoration commands are documented in the package's
+[provenance section](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#provenance-and-restoration).
+Archived helpers are data and must not be executed. Historical paths and input
+pins in accepted reviews remain unchanged; they identify their original snapshots.
 
 ```sh
 # Tests create/remove unique schemas; never migrate the application database.
 export KF_TEST_DATABASE_URL="$KF_DATABASE_URL"
 unset OPENAI_API_KEY
-PYTHONPATH=src:.:tests .venv/bin/python -m pytest -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:.:tests .venv/bin/python -m pytest -q
 ```
 
 PostgreSQL tests skip without the test URL; certificate tests require the checker.

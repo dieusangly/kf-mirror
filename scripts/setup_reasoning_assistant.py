@@ -4,6 +4,7 @@ These commands make no model calls. Migrations and publication are separate.
 """
 import argparse
 import copy
+import hashlib
 import json
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ from knowledge_foundry.reasoning.catalogue import (
     DEFAULT_CHECKER, DEFAULT_DATASET, accepted_projection, load_dataset, resolve_checker,
 )
 from knowledge_foundry.reasoning.engine import ReasoningEngine
+from knowledge_foundry.provenance import ProvenanceArchive
 from knowledge_foundry.retrieval.artifacts import file_hash
 from knowledge_foundry.retrieval.config import load_config
 from knowledge_foundry.storage.postgres import PostgresStore
@@ -52,6 +54,29 @@ def install_checker(source_dir, destination=DEFAULT_CHECKER):
 LABEL = 'Experimental — unreviewed formalization'
 
 
+def draft_findings(directory):
+    """Bind required findings to this frozen draft, from loose files or archive."""
+    review_dir = directory.with_name(directory.name + '-review')
+    draft_hash = file_hash(directory / 'manifest.json')
+    if review_dir.exists():
+        review = json.loads((review_dir / 'review-manifest.json').read_bytes())
+        findings = (review_dir / 'findings.jsonl').read_bytes()
+        location = str(review_dir / 'findings.jsonl')
+    else:
+        package = directory.with_name('formalization-v2')
+        original = f'artifacts/{directory.parent.name}/{directory.name}'
+        with ProvenanceArchive(package) as archive:
+            archive.read(original + '/manifest.json', expected_sha256=draft_hash)
+            review = json.loads(archive.read(original + '-review/review-manifest.json'))
+            findings = archive.read(original + '-review/findings.jsonl',
+                                    expected_sha256=review['file_sha256']['findings.jsonl'])
+            location = archive.location(original + '-review/findings.jsonl')
+    require(review['frozen_manifest_sha256'] == draft_hash, 'review frozen draft binding mismatch')
+    digest = hashlib.sha256(findings).hexdigest()
+    require(digest == review['file_sha256']['findings.jsonl'], 'review findings hash mismatch')
+    return location, digest
+
+
 def load_draft_batch(directory, batch, *, mapping_ids=None):
     """Read one frozen batch, retaining every original status/hash and its findings.
 
@@ -83,8 +108,7 @@ def load_draft_batch(directory, batch, *, mapping_ids=None):
     vocabulary = json.loads((directory / 'vocabulary.json').read_text())['terms']
     from knowledge_foundry.reasoning.retrieval import mapping_atoms
     used = {v for r in selected for a in mapping_atoms(r) for v in a}
-    review_dir = directory.with_name(directory.name + '-review')
-    findings_path = review_dir / 'findings.jsonl'
+    findings_path, findings_hash = draft_findings(directory)
     # Keep review findings as data, with their file identity; this harness makes
     # no claim that later review has accepted a selected formalization.
     return {'bundle': bundle, 'mapping': mapping, 'full_mapping': full_mapping,
@@ -97,7 +121,7 @@ def load_draft_batch(directory, batch, *, mapping_ids=None):
                            'original_review': full_mapping['review'],
                            'claim_statuses': sorted({c['grounding_review_status'] for c in bundle['claims']}),
                            'findings_file': str(findings_path),
-                           'findings_sha256': file_hash(findings_path) if findings_path.exists() else None,
+                           'findings_sha256': findings_hash,
                            'coverage_limit': 'One explicitly selected frozen batch/subset; no source-fidelity acceptance.'}}
 
 
