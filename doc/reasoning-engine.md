@@ -45,19 +45,20 @@ then the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_claim_for
 in a fresh session. They cover all generated claim candidates (the upstream
 proposals linked to exported claim records), shared vocabulary,
 batches of up to 100 mappings, coverage tracking and separate grounding/semantic
-judgments. Both preserve draft artifacts; corpus loading and reviewed-output
-promotion still need implementation. Repair findings in a separate session,
+judgments. Both preserve draft artifacts. Accepted content can use the versioned
+release loader below after its independent export reviews; arbitrary draft
+promotion remains unsupported. Repair findings in a separate session,
 then review changed entries and any affected vocabulary dependents again.
 
 For the completed AML/CFT formalization run, use the [revised formalization corpus](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md)
-and [archive-aware draft harness](assistants.md#experimental-drafts-and-testing).
+and its [input-selection guidance](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#acceptance-and-input-selection).
 The authoring prompts above describe a workflow, not a request to reopen that
 run's completed cycle. The corpus underwent full initial review and subsequent
 repair/review work; final acceptance covers four exact revisions. See
 [review coverage and acceptance](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#acceptance-and-input-selection).
-Application use remains disabled.
+Direct application use of that draft corpus remains disabled.
 Use v2's `current/input-bundle.json` to inspect revised claims. Runtime reasoning
-continues to use the separately reviewed export; see [input selection](assistants.md#experimental-drafts-and-testing).
+continues to use the separately reviewed export; see [retained runtime dependencies](assistants.md#retained-artifacts).
 
 ## Six capabilities
 
@@ -121,10 +122,10 @@ run `.venv/bin/python scripts/reason.py --help`.
 
 ## Assistant integration
 
-The Streamlit app provides **Document assistant** (default retrieval) and
-**Reasoning assistant** (bounded French/English questions over accepted facts/rules).
-See [assistant setup and usage](assistants.md) for the accepted subset, separate
-reviews, PostgreSQL import, history migration and proof boundaries.
+With `KF_ASSISTANT_POC_ENABLED=1`, the Streamlit app provides one **Assistant**
+that routes document questions and accepted-fact checks to their respective
+capabilities. See [assistant setup and usage](assistants.md) for pinned snapshots,
+conversation storage, validation and rollback.
 
 Pass a completed engine as `DocumentAssistant(..., reasoning_engine=engine)`.
 Then pass `reasoning_goal=[subject, predicate, object]` to `retrieve`, `stream`
@@ -140,6 +141,23 @@ a goal keep normal retrieval-augmented generation (RAG) behavior.
 
 ## Validation and limitations
 
+The versioned release path in
+[`release.py`](../src/knowledge_foundry/reasoning/release.py) preserves the original
+single-sidecar contract. Each release sidecar retains the schema maximum of 100;
+`compile_release_projection` combines validated records across files and carries
+their real per-mapping historical/new review provenance. External runtime reviews
+must cover the exact accepted export before production compilation. Original
+draft statuses are never rewritten to fictitious verified records.
+
+Required proof citations include mapped vocabulary support, not just claim
+spans. The full scope closure remains independent of bounded interpretation
+selection. `ReasoningEngine.from_dataset(..., evaluation=True)` is an explicit
+offline testing entry point; its reports/proofs carry `evaluation_only` and do
+not satisfy production loader admission. Passing evaluation certificates certify
+steps under supplied assumptions, not pending source/semantic reviews. See
+[retained release artifacts](assistants.md#retained-artifacts) for the runtime
+dependencies and [rollback procedure](assistants.md#approved-launch-and-rollback-procedure).
+
 ```sh
 PYTHONPATH=.:src .venv/bin/python -m pytest tests/reasoning -q
 PYTHONPATH=.:src .venv/bin/python -m pytest -q
@@ -147,12 +165,15 @@ PYTHONPATH=.:src .venv/bin/python -m pytest -q
 
 Tests cover review gates, scope, exceptions, contradictions, certificate integrity
 and citation budgets. The real checker is required for certificate tests;
-PostgreSQL tests require `KF_TEST_DATABASE_URL`. See [assistant usage and validation](assistants.md#experimental-drafts-and-testing)
+PostgreSQL tests require `KF_TEST_DATABASE_URL`. See [assistant usage and validation](assistants.md#local-checks-and-activation-status)
 for natural-language and browser coverage. Model responses in those checks are mocked.
 
-Remaining work: broader reviewed mappings, full OWL consistency support and
-comparison with the 123-question RAG dataset. Natural-language interpretation
-now produces validated finite queries; see [assistant usage](assistants.md#configuration).
+The expanded export has independent runtime reviews and is used through the
+active reasoning POC; this does not establish production readiness. Retained live
+evaluations record coverage and latency limitations. Full OWL consistency support
+and comparison with the 123-question RAG dataset remain outside this POC.
+Natural-language interpretation produces validated finite queries; see
+[assistant usage](assistants.md).
 Numeric comparisons, general negation and automatic prose-to-rule extraction
 are unsupported. This example does not establish production readiness or a
 measured accuracy/speed advantage.

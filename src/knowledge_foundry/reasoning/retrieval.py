@@ -56,7 +56,7 @@ def in_scope(row, jurisdiction, as_of):
             (row.get('valid_until') is None or as_of < row['valid_until']))
 
 
-def knowledge_context(dataset, source_ids=None, document_ids=None):
+def knowledge_context(dataset, source_ids=None, document_ids=None, *, mapping_ids=None):
     """Ground interpretation in actual mappings/claim text and original excerpts.
 
     Never send catalogue goals/answers. Filters limit interpretation as well as
@@ -68,6 +68,8 @@ def knowledge_context(dataset, source_ids=None, document_ids=None):
     docs = {d['id']: d for d in bundle['documents']}
     rows = []
     for mapping in dataset['mapping']['mappings']:
+        if mapping_ids is not None and mapping['id'] not in mapping_ids:
+            continue
         claim = claims[mapping['claim_id']]
         if any((source_ids and ref['source_id'] not in source_ids) or
                (document_ids and ref['document_id'] not in document_ids) for ref in claim['evidence']):
@@ -79,9 +81,154 @@ def knowledge_context(dataset, source_ids=None, document_ids=None):
                              'location': element['location'],
                              'text': element['text'][ref['span']['start']:ref['span']['end']]})
         rows.append({'mapping': mapping, 'claim': claim['text'], 'original_passages': passages})
+    used = {v for row in rows for a in mapping_atoms(row['mapping']) for v in a}
+    vocabulary = [t for t in dataset.get('vocabulary', []) if t['iri'] in used]
+    if dataset.get('format') == 'reviewed-reasoning-release-v1':
+        from knowledge_foundry.structural_chunks import stable_hash
+        # Citation arrays contain repeated IDs/hashes, not vocabulary meanings.
+        # Keep every semantic field verbatim; full source support remains in the
+        # snapshot and is mandatory when admitting any resulting proof.
+        vocabulary = [{**{k: v for k, v in t.items() if k != 'supporting_source_references'},
+                       'record_sha256': stable_hash(t),
+                       'supporting_source_references_sha256': stable_hash(t['supporting_source_references'])}
+                      for t in vocabulary]
     return {'trust': dataset.get('trust', 'accepted'), 'knowledge': rows,
-            'vocabulary': dataset.get('vocabulary', []),
+            'vocabulary': vocabulary,
             'scope_boundary': 'Source-description snapshot; dates do not establish current legal applicability.'}
+
+
+def bounded_knowledge_context(dataset, question, history=(), source_ids=None, document_ids=None,
+                              *, input_tokens, tokenizer='cl100k_base'):
+    """Rank source descriptions locally; admit complete backward dependency groups.
+
+    The full scoped engine remains the proof/conflict authority. This selection
+    bounds interpretation only. It never creates case facts or proves that an
+    omitted mapping, exception or matching result does not exist.
+    """
+    import math
+    from collections import Counter, defaultdict
+    from knowledge_foundry.embeddings import token_count
+    require(type(input_tokens) is int and input_tokens > 0, 'selection input budget exceeded')
+    claims = {c['id']: c for c in dataset['bundle']['claims']}
+    vocabulary = {t['iri']: t for t in dataset.get('vocabulary', [])}
+    rows = {}
+    words = lambda s: set(re.findall(r'[^\W_]{2,}', s.casefold(), re.UNICODE))
+    # Scope dates remain verbatim in the model input/validator; their repeated
+    # digits are not topical vocabulary for lexical ranking.
+    query = words(re.sub(r'\b\d{4}-\d{2}-\d{2}\b', ' ', question + ' ' + ' '.join(history)))
+    stop = words('the a an is are does do what which who how in on at of and or to for '
+                 'le la les un une des du de et ou en au aux est sont que quel quelle quels quelles '
+                 'source sources snapshot state states this cette indique elle instantané documentaire does dans')
+    query -= stop
+    elements = {e['id']: e for e in dataset['bundle']['elements']}
+    documents, descriptions, frequencies = {}, {}, Counter()
+    producers = defaultdict(list)
+    for row in dataset['mapping']['mappings']:
+        claim = claims[row['claim_id']]
+        refs = list(claim['evidence'])
+        used = {t for a in mapping_atoms(row) for t in a if not VARIABLE.fullmatch(t)}
+        refs += [ref for iri in used if iri in vocabulary
+                 for ref in vocabulary[iri]['supporting_source_references']]
+        if any((source_ids and ref['source_id'] not in source_ids) or
+               (document_ids and ref['document_id'] not in document_ids) for ref in refs):
+            continue
+        rows[row['id']] = row
+        # Match acronym and number boundaries as well as ordinary camel case.
+        # Original excerpts carry the source language when claim text does not.
+        names = ' '.join(re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|'
+                               r'(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])', ' ',
+                               t.rsplit(':', 1)[-1].rsplit('/', 1)[-1]) for t in used)
+        passages = ' '.join(elements[r['element_id']]['text'][r['span']['start']:r['span']['end']]
+                            for r in claim['evidence'])
+        descriptions[row['id']] = words(claim['text'] + ' ' + names + ' ' + passages)
+        definitions = words(' '.join(vocabulary[t]['definition'] for t in used if t in vocabulary))
+        documents[row['id']] = descriptions[row['id']] | definitions
+        frequencies.update(documents[row['id']] & query)
+        for head in [*row['facts'], *(r['head'] for r in row['rules'])]:
+            producers[head[1]].append((row['id'], head))
+
+    def dependencies(mid):
+        found, pending = set(), [mid]
+        while pending:
+            current = pending.pop()
+            if current in found:
+                continue
+            found.add(current)
+            row = rows[current]
+            bodies = [[*rule['body'], *row['conditions'], *(ex['clearance'] for ex in row['exceptions'])]
+                      for rule in row['rules']]
+            # Exception conflicts have their own conjunction, independent of
+            # the rule guards, just as in the full engine's projection.
+            bodies += [[ex['when'], ex['clearance']] for ex in row['exceptions']]
+            for body in bodies:
+                alternatives = [[owner for owner, head in producers[pattern[1]]
+                                 if all(VARIABLE.fullmatch(a) or VARIABLE.fullmatch(b) or a == b
+                                        for a, b in zip(pattern, head))] for pattern in body]
+                # A conjunction with an unproducible premise cannot fire from
+                # stored knowledge. Keep its complete description and vocabulary
+                # above, without expanding unrelated alternatives for other
+                # premises. The missing premise stays unknown, never false.
+                if all(alternatives):
+                    pending.extend(owner for owners in alternatives for owner in owners)
+        return found
+
+    # Build source/vocabulary payloads once. Trying a smaller complete group
+    # after an oversized one must not repeatedly hash the entire vocabulary.
+    payload = knowledge_context(dataset, source_ids, document_ids, mapping_ids=set(rows))
+    payload_rows = {r['mapping']['id']: r for r in payload['knowledge']}
+    payload_terms = {t['iri']: t for t in payload['vocabulary']}
+    row_order = {mid: i for i, mid in enumerate(rows)}
+    term_order = {iri: i for i, iri in enumerate(payload_terms)}
+    used_terms = {mid: {t for a in mapping_atoms(row) for t in a} & payload_terms.keys()
+                  for mid, row in rows.items()}
+
+    def context(ids):
+        used = set().union(*(used_terms[mid] for mid in ids))
+        return {**payload, 'knowledge': [payload_rows[mid] for mid in sorted(ids, key=row_order.get)],
+                'vocabulary': [payload_terms[t] for t in sorted(used, key=term_order.get)]}
+
+    weights = {w: math.log(1 + len(rows) / frequencies[w]) for w in query if frequencies[w]}
+    selected, covered = set(), Counter()
+    remaining = {mid for mid in rows if documents[mid] & query}
+    ranked = []
+    reason = 'no_lexical_coverage'
+    budget_omissions = False
+    while remaining:
+        # Diminishing gains prevent repeated descriptions of one query facet
+        # from crowding out another facet of a conjunction or a rare term.
+        if not ranked:
+            ranked = sorted(remaining, key=lambda mid: (-sum(
+                weights[w] * (1 if w in descriptions[mid] else .25) / (1 + covered[w])
+                for w in documents[mid] & query) / math.sqrt(max(1, len(descriptions[mid]))), mid), reverse=True)
+        mid = ranked.pop()
+        remaining.remove(mid)
+        if mid in selected:
+            continue
+        group = dependencies(mid)
+        proposal = selected | group
+        candidate = context(proposal)
+        # Reserve room for selection metadata as well as the caller's model
+        # instructions/schema/history reserve. Actual requests are checked again.
+        if token_count(json.dumps(candidate, ensure_ascii=False), tokenizer) + 256 > input_tokens:
+            budget_omissions = True
+            continue
+        for owner in proposal - selected:
+            covered.update(documents[owner] & query)
+        selected = proposal
+        ranked = []  # Marginal scores change only when a group is admitted.
+        reason = 'bounded_selection'
+    if budget_omissions:
+        reason = 'dependency_budget'
+    result = context(selected)
+    result['selection'] = {'version': 'dependency-selection-v2', 'candidate_mapping_count': len(rows),
+                           'total_mapping_count': len(dataset['mapping']['mappings']),
+                           'selected_mapping_ids': sorted(selected), 'omitted_mapping_count': len(rows) - len(selected),
+                           'dependency_complete': True, 'reason': reason,
+                           'exhaustive_for_corpus': len(selected) == len(dataset['mapping']['mappings']),
+                           'boundary': 'Supported matches in selected knowledge only; omissions are unknown.'}
+    require(token_count(json.dumps(result, ensure_ascii=False), tokenizer) <= input_tokens,
+            'selection metadata exceeds input budget')
+    return result
 
 
 def validate_plan(plan, context, limits):
@@ -159,10 +306,11 @@ def execute_plan(engine, plan, limits):
             'work': work}
 
 
-def withheld_proof(proof, reason):
+def withheld_proof(proof, reason, reason_code='missing_citations'):
     """Keep actual scope/check verdict while withholding inadmissible conclusions."""
     return {**{k: proof[k] for k in ('goal', 'jurisdiction', 'as_of', 'certificate') if k in proof},
-            'status': 'insufficient', 'reason': reason, 'conclusions': [], 'premises': [], 'rules': [], 'citations': []}
+            'status': 'insufficient', 'reason': reason, 'reason_code': reason_code,
+            'conclusions': [], 'premises': [], 'rules': [], 'citations': []}
 
 
 def configured_engine(config):
@@ -213,7 +361,7 @@ def attach_reasoning(engine, goal, context, *, store, snapshot, documents, quest
     labels = {c['id']: c['label'] for c in assembled['evidence']}
     citable = {c['id'] for c in assembled['evidence'] if c['element_kind'] != 'heading'}
     if not set(ids) <= set(labels) or not set(ids) & citable:
-        return {**context, 'reasoning': withheld_proof(proof, 'complete proof evidence exceeds context limits or is non-citable')}
+        return {**context, 'reasoning': withheld_proof(proof, 'complete proof evidence exceeds context limits or is non-citable', 'evidence_budget')}
     proof['citations'] = [{**c, 'label': labels[c['id']],
                            'role': 'source_passage' if c['id'] in citable else 'governing_context'} for c in citations]
     data = json.loads(assembled['payload']['input'])
@@ -227,12 +375,16 @@ def attach_reasoning(engine, goal, context, *, store, snapshot, documents, quest
     data['reasoning']['verdict'] = proof['certificate']['verdict']
     assembled['payload']['input'] = json.dumps(data, ensure_ascii=False)
     assembled['payload']['instructions'] += (
-        '\nThe reasoning field contains a checked symbolic derivation within its explicit scope. '
-        'Explain its conclusion, premises and rules and cite the original evidence labels. '
-        'Supplied rules are reviewed assumptions; the certificate proves the deduction, '
-        'not the truth or current legal applicability of those assumptions. '
+        '\nThe reasoning field contains checked symbolic results within their explicit scope. '
+        'For status asserted, the conclusions match stored source assertions: no new deduction is established, '
+        'and no rule or inferred step is required. Combining several stored assertions remains asserted. '
+        'For status inferred only: The reasoning field contains a checked symbolic derivation. '
+        'Explain only the deductions established by the supplied proof steps, premises '
+        'and rules. Supplied rules are reviewed assumptions. Cite the original evidence labels. '
+        'A certificate checks symbolic results, not source truth, natural-language interpretation, '
+        'wording or current legal applicability. '
         'Do not extend its jurisdiction, date, conditions or exceptions.'
     )
     if request_tokens(assembled['payload'], config) > config['budget']['input_tokens']:
-        return {**context, 'reasoning': withheld_proof(proof, 'complete proof exceeds input token budget')}
+        return {**context, 'reasoning': withheld_proof(proof, 'complete proof exceeds input token budget', 'evidence_budget')}
     return {**assembled, 'reasoning': proof}

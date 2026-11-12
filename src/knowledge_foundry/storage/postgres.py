@@ -275,6 +275,85 @@ class PostgresStore:
             rows = conn.execute('SELECT id,payload FROM kf_evidence WHERE snapshot_id=%s AND id=ANY(%s)', (snapshot_id, list(ids))).fetchall()
         return {r['id']: r['payload'] for r in rows}
 
+    def evidence_for_elements(self, snapshot_id, element_ids):
+        with self.connection() as conn:
+            rows = conn.execute("SELECT payload FROM kf_evidence WHERE snapshot_id=%s "
+                                "AND payload->'reference'->>'element_id'=ANY(%s)",
+                                (snapshot_id, sorted(element_ids))).fetchall()
+        return [r['payload'] for r in rows]
+
+    def new_assistant_conversation(self, token, binding):
+        """Pin both published snapshots; never adopt a legacy conversation."""
+        cid = str(uuid.uuid4())
+        with self.connection() as conn:
+            for key in ('documents', 'accepted'):
+                spec = binding[key]
+                row = conn.execute("SELECT id FROM kf_snapshots WHERE id=%s AND corpus=%s AND status='published'",
+                                   (spec['snapshot_id'], spec['corpus'])).fetchone()
+                if not row:
+                    raise ValueError('Assistant conversation requires both exact published snapshots')
+            conn.execute('INSERT INTO kf_assistant_conversations '
+                '(id,owner_hash,document_snapshot_id,accepted_snapshot_id,binding,binding_sha256) '
+                'VALUES (%s,%s,%s,%s,%s,%s)', (cid, self.owner_hash(token),
+                    binding['documents']['snapshot_id'], binding['accepted']['snapshot_id'],
+                    Jsonb(binding), stable_hash(binding)))
+        return cid
+
+    def assistant_conversations(self, token):
+        with self.connection() as conn:
+            rows = conn.execute("SELECT c.*, (SELECT content FROM kf_assistant_messages m "
+                "WHERE m.conversation_id=c.id AND role='user' ORDER BY sequence LIMIT 1) AS title "
+                'FROM kf_assistant_conversations c WHERE owner_hash=%s ORDER BY created_at DESC,id',
+                (self.owner_hash(token),)).fetchall()
+        return [{**r, 'id': str(r['id'])} for r in rows]
+
+    def _assistant_owned(self, conn, conversation_id, token, binding, *, lock=False):
+        row = conn.execute('SELECT * FROM kf_assistant_conversations WHERE id=%s AND owner_hash=%s' +
+                           (' FOR UPDATE' if lock else ''), (conversation_id, self.owner_hash(token))).fetchone()
+        if not row or row['binding'] != binding or row['binding_sha256'] != stable_hash(binding) or (
+                row['document_snapshot_id'] != binding['documents']['snapshot_id'] or
+                row['accepted_snapshot_id'] != binding['accepted']['snapshot_id']):
+            raise ValueError('conversation is unavailable for this owner and knowledge binding')
+        return row
+
+    def assistant_history(self, conversation_id, token, binding):
+        with self.connection() as conn:
+            self._assistant_owned(conn, conversation_id, token, binding)
+            rows = conn.execute('SELECT * FROM kf_assistant_messages WHERE conversation_id=%s ORDER BY sequence',
+                                (conversation_id,)).fetchall()
+        return [{**r, 'id': str(r['id']), 'conversation_id': str(r['conversation_id']),
+                 'submission_id': str(r['submission_id'])} for r in rows]
+
+    def save_assistant_turn(self, conversation_id, token, binding, submission_id, question, answer):
+        submission_id = str(uuid.UUID(str(submission_id)))
+        if answer.get('bindings') != binding:
+            raise ValueError('final answer has a different knowledge binding')
+        mid = str(uuid.uuid4())
+        with self.connection() as conn:
+            self._assistant_owned(conn, conversation_id, token, binding, lock=True)
+            old = conn.execute('SELECT * FROM kf_assistant_messages WHERE conversation_id=%s AND submission_id=%s',
+                               (conversation_id, submission_id)).fetchall()
+            if old:
+                old_answer = next((m['payload'] for m in old if m['role'] == 'assistant'), {})
+                if (len(old) != 2 or next(m['content'] for m in old if m['role'] == 'user') != question or
+                    old_answer.get('filters') != answer['filters'] or old_answer.get('intent') != answer.get('intent')):
+                    raise ValueError('submission identity was reused for a different question')
+                return str(next(m['id'] for m in old if m['role'] == 'assistant'))
+            payload = {'bindings': binding, 'binding_sha256': stable_hash(binding),
+                       'filters': answer['filters'], 'submission_id': submission_id}
+            for role, content, body, message_id in [
+                    ('user', question, payload, str(uuid.uuid4())), ('assistant', answer['text'], answer, mid)]:
+                conn.execute('INSERT INTO kf_assistant_messages '
+                    '(id,conversation_id,submission_id,role,content,payload) VALUES (%s,%s,%s,%s,%s,%s)',
+                    (message_id, conversation_id, submission_id, role, content, Jsonb(body)))
+        return mid
+
+    def legacy_conversations(self, token):
+        with self.connection() as conn:
+            rows = conn.execute('SELECT id,snapshot_id,assistant_mode,created_at FROM kf_sessions '
+                                'WHERE owner_hash=%s ORDER BY created_at DESC', (self.owner_hash(token),)).fetchall()
+        return [{**r, 'id': str(r['id'])} for r in rows]
+
     @staticmethod
     def owner_hash(token):
         if not isinstance(token, str) or len(token) < 32:

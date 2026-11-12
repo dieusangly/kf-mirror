@@ -72,6 +72,23 @@ def config(tmp_path):
     return c
 
 
+def assistant_poc_binding(store, snapshot_id):
+    """SYNTHETIC UI binding over the tiny animal corpus, never a runtime export."""
+    from knowledge_foundry.assistant.bindings import KnowledgeBinding
+    class SyntheticBinding(KnowledgeBinding):
+        def snapshots(self, store):
+            row = store.snapshot('animals', snapshot_id)
+            return row, row
+
+        def validate(self, store):
+            self.bundle = {**bundle(), '_elements': {e['id']: e for e in bundle()['elements']}}
+            return {'status': 'passed', 'fixture': 'synthetic animal binding, no accepted knowledge'}
+    spec = {'corpus': 'animals', 'snapshot_id': snapshot_id}
+    return SyntheticBinding({'format': 'assistant-poc-v1', 'documents': spec, 'accepted': spec,
+        'limits': {'max_parts': 4, 'max_provider_requests': 8, 'max_total_input_tokens': 96000,
+                   'max_total_output_tokens': 12800, 'max_elapsed_seconds': 30, 'max_final_output_tokens': 3200}})
+
+
 def projection():
     a = artifacts()
     records, evidence = project(a)

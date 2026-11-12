@@ -6,6 +6,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,9 @@ from knowledge_foundry.reasoning.catalogue import (
     DEFAULT_CHECKER, DEFAULT_DATASET, accepted_projection, load_dataset, resolve_checker,
 )
 from knowledge_foundry.reasoning.engine import ReasoningEngine
+from knowledge_foundry.reasoning.release import (
+    EVALUATION_LABEL, ReviewRequired, admit_release, inspect_release, release_evidence, release_projection,
+)
 from knowledge_foundry.provenance import ProvenanceArchive
 from knowledge_foundry.retrieval.artifacts import file_hash
 from knowledge_foundry.retrieval.config import load_config
@@ -270,9 +274,152 @@ def run_experiment(args, parser):
     return 0 if all(r['matched_expectation'] for r in results) else 1
 
 
+class ReleaseEvaluationStore:
+    """Explicit offline session; optional database is confined to one ready snapshot.
+
+    Conversation history stays in memory. This cannot publish, migrate, choose an
+    active corpus or write messages into the application database.
+    """
+    def __init__(self, dataset, *, database=None, corpus='release-evaluation', snapshot_id=None):
+        records, evidence, identity = release_projection(dataset, evaluation=True)
+        self.rows = {e['id']: e for e in evidence}
+        self.identity, self.database, self.corpus = identity, database, corpus
+        self.sid = snapshot_id or 'release-evaluation:' + dataset['digest']
+        self.saved = []
+        if database:
+            snapshot = database.evaluation_snapshot(corpus, snapshot_id)
+            require(snapshot['identity']['release_identity'] == dataset['release_identity'] and
+                    snapshot['identity']['knowledge_status'] == 'runtime_review_pending_evaluation',
+                    'isolated evaluation snapshot binding mismatch')
+
+    def snapshot(self, corpus, snapshot_id=None):
+        require(corpus == self.corpus and snapshot_id == self.sid, 'explicit release evaluation snapshot required')
+        if self.database:
+            return self.database.evaluation_snapshot(corpus, snapshot_id)
+        return {'id': self.sid, 'identity': self.identity}
+
+    def evidence(self, snapshot_id, ids):
+        require(snapshot_id == self.sid, 'release evaluation snapshot only')
+        return self.database.evidence(snapshot_id, ids) if self.database else {
+            key: copy.deepcopy(self.rows[key]) for key in ids if key in self.rows}
+
+    def history(self, session_id, token, snapshot_id, assistant_mode):
+        require(snapshot_id == self.sid and assistant_mode == 'reasoning', 'release evaluation history only')
+        return []
+
+    def save_turn(self, session_id, token, snapshot_id, question, answer, assistant_mode):
+        self.history(session_id, token, snapshot_id, assistant_mode)
+        self.saved.append(copy.deepcopy(answer))
+        return 'release-evaluation-message:' + str(len(self.saved))
+
+    def rank_evidence(self, snapshot_id, query, rows):
+        return rows
+
+    def list_siblings(self, *args):
+        return {}
+
+
+class ReleaseEvaluationAssistant(ReasoningAssistant):
+    """Offline tests only. Production configuration cannot construct this class."""
+    experimental = True
+
+    def __init__(self, dataset, config, *, store=None, **options):
+        self.release, self.engines = dataset, {}
+        super().__init__(store or ReleaseEvaluationStore(dataset), config, **options)
+
+    def _dataset(self):
+        return self.release
+
+    def _engine(self, dataset, snapshot_id, plan, limits):
+        key = (snapshot_id, plan['jurisdiction'], plan['as_of'])
+        if key not in self.engines:
+            engine = ReasoningEngine.from_dataset(dataset, jurisdiction=plan['jurisdiction'],
+                                                  as_of=plan['as_of'], evaluation=True)
+            engine.run(Path(self.output_dir) / uuid4().hex, checker=resolve_checker(self.checker),
+                       timeout=limits['checker_timeout_seconds'], max_iterations=limits['max_iterations'])
+            self.engines[key] = engine
+        return self.engines[key]
+
+    def ask(self, *args, **kwargs):
+        answer = super().ask(*args, **kwargs)
+        answer.update(knowledge_status='runtime_review_pending_evaluation', knowledge_label=EVALUATION_LABEL)
+        # Persist the actual evaluation label, rather than the base class's
+        # historical experimental-draft label.
+        if self.store.saved:
+            self.store.saved[-1] = copy.deepcopy(answer)
+        return answer
+
+
+def release_summary(dataset):
+    evidence, mapping_evidence = release_evidence(dataset)
+    try:
+        admit_release(dataset)
+    except ReviewRequired as error:
+        contract = json.loads((dataset['directory'] / 'integration.json').read_bytes())
+        gate = {'status': 'blocked', 'reason': str(error),
+                'missing_review_dimensions': [key for key in ('grounding', 'formalization')
+                                             if not contract.get('reviews', {}).get(key)]}
+    else:
+        gate = {'status': 'reviews_pass', 'activation_performed': False}
+    return {'release_identity': dataset['release_identity'], 'dataset_sha256': dataset['digest'],
+            'mappings': len(mapping_evidence), 'claims': len(dataset['bundle']['claims']),
+            'vocabulary': len(dataset['vocabulary']), 'evidence': len(evidence), 'runtime_gate': gate,
+            'record_statuses_preserved': True, 'suggestions': [], 'paid_api_calls': 0}
+
+
+def run_release(args, parser):
+    dataset = inspect_release(args.dataset)
+    if args.command == 'inspect-release':
+        return release_summary(dataset)
+    if args.command == 'import-release-evaluation':
+        require(bool(args.test_database_url), 'explicit --test-database-url or KF_TEST_DATABASE_URL required')
+        require(args.test_database_url != os.environ.get('KF_DATABASE_URL'),
+                'evaluation cannot target the application database URL')
+        records, evidence, identity = release_projection(dataset, evaluation=True)
+        return PostgresStore(args.test_database_url).import_snapshot(args.corpus, identity, records, evidence, None)
+    require(args.output is not None and not args.output.exists(), 'fresh --output JSON file required')
+    require(args.output.resolve().is_relative_to(args.dataset.resolve()), 'release results must stay in the release directory')
+    fixtures = json.loads(args.cases.read_bytes())
+    def explanation(payload, config):
+        data = json.loads(payload['input'])
+        passage = data['evidence'][0]
+        yield {'type': 'delta', 'text': passage['text'] + ' [' + passage['label'] + ']'}
+        yield {'type': 'usage', 'usage': {'input_tokens': 0, 'output_tokens': 0,
+                                         'cached_input_tokens': 0, 'cache_write_tokens': 0}}
+    def audit(payload, config):
+        fields = FIDELITY_FIELDS if payload['text']['format']['name'] == 'explanation_audit' else AUDIT_FIELDS
+        yield from mock_response(dict.fromkeys(fields, True))(payload, config)
+    store = ReleaseEvaluationStore(dataset)
+    if args.test_database_url:
+        require(args.test_database_url != os.environ.get('KF_DATABASE_URL'),
+                'evaluation cannot target the application database URL')
+        require(args.snapshot_id is not None, 'database evaluation requires --snapshot-id')
+        store = ReleaseEvaluationStore(dataset, database=PostgresStore(args.test_database_url),
+                                       corpus=args.corpus, snapshot_id=args.snapshot_id)
+    assistant = ReleaseEvaluationAssistant(dataset, load_config(), store=store, checker=args.checker,
+        output_dir=args.dataset / 'checks/proofs', answer_stream=explanation, audit_stream=audit)
+    results = []
+    for case in fixtures['cases']:
+        assistant.interpretation_stream = mock_response(case['plan'])
+        answer = assistant.ask(store.corpus, case['question'], token='isolated-evaluation',
+                               session_id='isolated', snapshot_id=store.sid,
+                               source_ids=case.get('source_ids'), document_ids=case.get('document_ids'))
+        results.append({'case_id': case['id'], 'matched_expectation': answer['status'] == case['expected_status'],
+                        'question': case['question'], 'answer': answer})
+    report = {**release_summary(dataset), 'cases_sha256': file_hash(args.cases), 'results': results,
+              'model_quality': 'Mocked interpretation, explanation and assessments; no live quality claim.',
+              'evaluation_only': True, 'snapshot_id': store.sid,
+              'all_expected': all(r['matched_expectation'] for r in results)}
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open('x') as stream:
+        stream.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    return {k: v for k, v in report.items() if k != 'results'}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['validate', 'import', 'install-checker', 'experiment'])
+    parser.add_argument('command', choices=['validate', 'import', 'install-checker', 'experiment',
+                        'inspect-release', 'import-release-evaluation', 'evaluate-release'])
     parser.add_argument('--source-dir', type=Path, help='clean pinned Open Ontologies checkout with built Lean checker')
     parser.add_argument('--dataset', type=Path, default=DEFAULT_DATASET)
     parser.add_argument('--corpus', default='aml-cft-reviewed-assistant')
@@ -281,7 +428,14 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, help='new experiment directory; prior evidence is retained')
     parser.add_argument('--checker', help='experiment checker override')
     parser.add_argument('--case-id', action='append', help='run only these experiment fixture cases')
+    parser.add_argument('--test-database-url', default=os.environ.get('KF_TEST_DATABASE_URL'),
+                        help='explicit isolated test database; never defaults to KF_DATABASE_URL')
+    parser.add_argument('--snapshot-id', help='explicit ready snapshot for offline release evaluation')
     args = parser.parse_args(argv)
+    if args.command.endswith('-release') or args.command == 'import-release-evaluation':
+        result = run_release(args, parser)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get('all_expected') is False else result
     if args.command == 'experiment':
         if not args.draft_dir or not args.output:
             parser.error('--draft-dir and --output are required for experiment')

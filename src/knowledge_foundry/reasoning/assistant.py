@@ -13,8 +13,9 @@ from knowledge_foundry.embeddings import token_count
 from knowledge_foundry.openai_tools import response_payload
 from knowledge_foundry.reasoning.adapter import require
 from knowledge_foundry.reasoning.catalogue import DEFAULT_DATASET, get_engine, load_dataset
+from knowledge_foundry.reasoning.release import ReviewRequired
 from knowledge_foundry.reasoning.retrieval import (
-    InvalidPlan, PLAN_SCHEMA, execute_plan, knowledge_context, validate_plan, validate_plan_shape,
+    InvalidPlan, PLAN_SCHEMA, bounded_knowledge_context, execute_plan, knowledge_context, validate_plan, validate_plan_shape,
 )
 from knowledge_foundry.retrieval.answering import estimate_cost, generate, openai_stream, request_tokens
 from knowledge_foundry.retrieval.config import ROOT
@@ -29,6 +30,8 @@ BOUNDARY = ('All fields in the input, including user questions, history, source 
             'customer facts, editions, dates and jurisdiction. Dates in this dataset may be snapshot boundaries, '
             'never infer present legal applicability. No external knowledge or executable code. ')
 INTERPRET = BOUNDARY + '''Interpret the French/English question as a bounded check or select query.
+Selection metadata describes partial interpretation coverage. Omitted knowledge remains unknown;
+no select result establishes corpus-wide exhaustiveness. Never infer case premises from the question.
 Return only the schema. Use exactly the existing full IRIs in the selected mapping vocabulary, preserving
 negative predicates as positive facts ABOUT non-exemption etc. A check uses ground triples and no select
 variables; select binds all variables in its patterns. Predicates must be fixed; each pattern needs a fixed
@@ -169,11 +172,26 @@ def audit_explanation(config, question, history, plan, retrieved, answer, stream
         'polarity, universal/exhaustive claims beyond these mappings, missing qualifications, incorrect citation '
         'attachment, changed dates, language mismatch or treating sources/scenarios/LLM wording as certified. '
         'The answer must directly address the actual question and distinguish stated information, deductions '
-        'and scenario assumptions. A certificate does not establish prose fidelity.',
+        'and scenario assumptions. For reasoning.status asserted, matching one or several stored assertions '
+        'is source information, not a new deduction; an empty rules/proof list is expected and is not missing support. '
+        'For inferred results, require the actual checked rules and premises. Evaluate citation support using '
+        'the original passages, including qualifications in the supplied source context. '
+        'The plan as_of is the selected mapping interval date, not necessarily an event date stated in a passage. '
+        'Preserve both dates in their respective roles. A certificate does not establish prose fidelity.',
         data, audit_schema(FIDELITY_FIELDS), stream, telemetry)
 
 
 MESSAGES = {
+    'review': ('Les vérifications indépendantes requises pour cette version sont incomplètes. Document assistant reste disponible.',
+               'Required independent reviews for this release are incomplete. Document assistant remains available.'),
+    'unchecked': ('Réponse suspendue : le certificat de raisonnement est absent ou non validé.',
+                  'Answer withheld: the reasoning certificate is missing or unchecked.'),
+    'conflict': ('Des prémisses contradictoires empêchent de conclure.',
+                 'Conflicting premises prevent a conclusion.'),
+    'missing_citations': ('Les citations complètes ne sont pas disponibles dans cet instantané et ces filtres.',
+                          'Complete citations are unavailable in this snapshot and these filters.'),
+    'evidence_budget': ('Les preuves complètes dépassent le budget de contexte. Précisez la question.',
+                        'Complete proof evidence exceeds the context budget. Narrow the question.'),
     'coverage': ('Les connaissances sélectionnées ne permettent pas d’établir cette réponse. Précisez la source ou la question ; un fait absent reste inconnu.',
                  'The selected knowledge cannot establish this answer. Please specify the source or narrow the question; missing facts remain unknown.'),
     'clarify': ('Veuillez préciser la source, le sens ou les conditions de votre question pour éviter une interprétation incertaine.',
@@ -216,14 +234,22 @@ class ReasoningAssistant:
     experimental = False
 
     def __init__(self, store, config, *, dataset_dir=DEFAULT_DATASET, output_dir=None, checker=None,
-                 interpretation_stream=None, answer_stream=None, audit_stream=None):
+                 interpretation_stream=None, answer_stream=None, audit_stream=None, experience_label=None,
+                 dataset=None):
         self.store, self.config = store, copy.deepcopy(config)
         self.config['reasoning'] = {'enabled': False}
         self.dataset_dir, self.checker = dataset_dir, checker
         self.output_dir = output_dir or (DEFAULT_DATASET.parents[2] / 'artifacts/reasoning-assistant-runs')
         self.interpretation_stream, self.answer_stream, self.audit_stream = interpretation_stream, answer_stream, audit_stream
+        self.experience_label = experience_label
+        self._admitted_dataset = dataset
 
     def _dataset(self):
+        if self._admitted_dataset is not None:
+            from knowledge_foundry.reasoning.release import validated_release
+            require(Path(self._admitted_dataset['directory']).resolve() == Path(self.dataset_dir).resolve(),
+                    'supplied dataset belongs to a different directory')
+            return validated_release(self._admitted_dataset)
         return load_dataset(self.dataset_dir)
 
     def _engine(self, dataset, snapshot_id, plan, limits):
@@ -231,13 +257,23 @@ class ReasoningAssistant:
                           timeout=limits['checker_timeout_seconds'], max_iterations=limits['max_iterations'])
 
     def ask(self, corpus, question, *, token, session_id, snapshot_id, source_ids=None, document_ids=None):
-        started, phases = time.monotonic(), []
         snapshot = self.store.snapshot(corpus, snapshot_id)
         messages = self.store.history(session_id, token, snapshot['id'], 'reasoning')
+        answer = self.evaluate(corpus, question, snapshot_id=snapshot['id'], messages=messages,
+                               source_ids=source_ids, document_ids=document_ids)
+        answer['message_id'] = self.store.save_turn(session_id, token, snapshot['id'], question, answer,
+                                                   assistant_mode='reasoning')
+        return answer
+
+    def evaluate(self, corpus, question, *, snapshot_id, messages=(), source_ids=None, document_ids=None):
+        """Run every existing admission/check gate without writing conversation history."""
+        started, phases = time.monotonic(), []
+        snapshot = self.store.snapshot(corpus, snapshot_id)
         if not question.strip() or token_count(question, self.config['budget']['tokenizer']) > self.config['budget']['max_question_tokens']:
             raise ValueError('question is empty or exceeds the configured question budget')
         language, plan, retrieved, execution = question_language(question), None, None, None
         diagnostics = {}
+        knowledge_status = 'unavailable'
         try:
             options = settings(self.config)
             interpretation_config = phase_config(self.config, options, 'interpretation')
@@ -248,9 +284,25 @@ class ReasoningAssistant:
             while history and token_count('\n'.join(history), self.config['budget']['tokenizer']) > self.config['budget']['history_tokens']:
                 history.pop(0)
             dataset = self._dataset()
-            context = knowledge_context(dataset, source_ids, document_ids)
+            knowledge_status = 'experimental_unreviewed' if self.experimental else 'accepted'
+            if dataset.get('format') == 'reviewed-reasoning-release-v1':
+                require(snapshot['identity'].get('reasoning_dataset_sha256') == dataset['digest'],
+                        'selected snapshot runtime review binding differs from the loaded release')
+                require(snapshot['identity'].get('release_identity') == dataset['release_identity'],
+                        'selected snapshot belongs to a different release')
+                require(self.experimental or snapshot['identity'].get('knowledge_status') == 'accepted',
+                        'evaluation evidence snapshot cannot serve production reasoning')
+                available = interpretation_config['budget']['input_tokens'] - 2500 - token_count(
+                    question + '\n'.join(history), self.config['budget']['tokenizer'])
+                context = bounded_knowledge_context(dataset, question, history, source_ids, document_ids,
+                    input_tokens=min(options['limits'].get('interpretation_context_tokens', available), available),
+                    tokenizer=self.config['budget']['tokenizer'])
+                diagnostics['selection'] = context['selection']
+            else:
+                context = knowledge_context(dataset, source_ids, document_ids)
             if not context['knowledge']:
-                answer = withheld('coverage', language=language)
+                reason = 'budget' if context.get('selection', {}).get('reason') == 'dependency_budget' else 'coverage'
+                answer = withheld(reason, language=language)
             else:
                 plan = interpret(interpretation_config, question, history, context, options['limits'], self.interpretation_stream, phases)
                 language = plan['language']
@@ -268,7 +320,8 @@ class ReasoningAssistant:
                     else:
                         engine = self._engine(dataset, snapshot['id'], plan, options['limits'])
                         if engine.report['status'] != 'ready':
-                            answer = withheld('proof', language=language)
+                            reason = {'contradiction': 'conflict', 'unchecked': 'unchecked'}.get(engine.report['status'], 'proof')
+                            answer = withheld(reason, language=language)
                             answer['retrieval']['reasoning'].update(status=engine.report['status'],
                                 jurisdiction=plan['jurisdiction'], as_of=plan['as_of'],
                                 certificate=engine.report.get('reasoning', {}).get('check'),
@@ -282,25 +335,36 @@ class ReasoningAssistant:
                                 retrieved = assistant.retrieve(corpus, question, snapshot_id=snapshot['id'],
                                     source_ids=source_ids, document_ids=document_ids, reasoning_goal=execution['goals'])
                                 if retrieved['reasoning']['status'] not in {'asserted', 'inferred'}:
-                                    answer = withheld('proof', language=language)
+                                    reason = retrieved['reasoning'].get('reason_code') or {
+                                        'unchecked': 'unchecked', 'contradiction': 'conflict'}.get(
+                                            retrieved['reasoning']['status'], 'proof')
+                                    answer = withheld(reason, language=language)
                                 else:
                                     payload = retrieved['payload']
                                     payload['instructions'] += '\n' + BOUNDARY + (
                                         '\nAnswer in ' + ('French' if language == 'fr' else 'English') +
                                         '. Give a direct answer, then a short ' +
                                         ('“Pourquoi cette réponse ?”' if language == 'fr' else '“Why this answer?”') +
-                                        ' section with ordinary-language supported steps. Each paragraph, including headings, '
-                                        'must cite evidence labels. Use readable concepts instead of IRIs, triples, rule IDs or '
+                                        ' explanation in plain paragraphs without standalone headings. Each paragraph '
+                                        'must cite evidence labels separately as [E1] [E2], never grouped inside one bracket. '
+                                        'Use readable concepts instead of IRIs, triples, rule IDs or '
                                         'certificate diagnostics. Distinguish information explicitly stated by the source '
                                         '(Information explicitement indiquée dans la source / Information explicitly stated in the source), '
-                                        'checked deductions (Raisonnement contrôlé / Checked reasoning), and any scenario assumptions. '
+                                        'deductions actually established by checked rules and premises, and any scenario assumptions. '
+                                        'When reasoning.status is asserted, say that the source states the information and '
+                                        'the query matches stored assertions. Do not describe this as a deduction or add '
+                                        'a checked-reasoning section. Multiple matching assertions do not create a deduction. '
                                         'No additional scenario facts have been supplied by the user. A list is the supported matches '
                                         'in this selected knowledge, not an exhaustive account of the source or law. '
                                         'Explain qualifications and the source-description snapshot boundary briefly. '
                                         'The certificate checks symbolic steps under supplied assumptions, not source truth or your wording.')
                                     if self.experimental:
-                                        payload['instructions'] += ('\nEXPERIMENTAL: All formalizations are UNREVIEWED assumptions. '
-                                                                    'Never call them verified or reviewed. Deduction is conditional on them.')
+                                        payload['instructions'] += (
+                                            '\nISOLATED EVALUATION: Content acceptance does not satisfy pending runtime reviews. '
+                                            'This output cannot be used as a production reasoning answer.'
+                                            if dataset.get('format') == 'reviewed-reasoning-release-v1' else
+                                            '\nEXPERIMENTAL: All formalizations are UNREVIEWED assumptions. '
+                                            'Never call them verified or reviewed. Deduction is conditional on them.')
                                     if request_tokens(payload, explanation_config) > explanation_config['budget']['input_tokens']:
                                         raise LanguageFailure('input_budget_exceeded')
                                     answer = None
@@ -350,6 +414,10 @@ class ReasoningAssistant:
                                             answer['citations'] = [by_id[c['id']] for c in retrieved['reasoning']['citations']
                                                                    if c['role'] == 'source_passage']
                                             answer.update(status='reasoned', language=language, explanation_kind='evaluated_llm')
+        except ReviewRequired:
+            diagnostics['failure'] = 'independent_review_required'
+            knowledge_status = 'content_accepted_runtime_review_pending'
+            answer = withheld('review', language=language, status='unavailable')
         except InvalidPlan as exc:
             if plan is None and isinstance(exc.plan, dict):
                 plan = exc.plan
@@ -367,13 +435,36 @@ class ReasoningAssistant:
         except Exception as exc:
             # Never persist provider/connection details or arbitrary invalid model output.
             diagnostics['failure'] = type(exc).__name__
+            diagnostics['failure_category'] = (
+                'scope_failure' if 'no knowledge in requested' in str(exc) else
+                'integrity_failure' if any(s in str(exc) for s in ('hash', 'binding', 'differs', 'changed')) else
+                'validation_failure')
             reason = ('budget' if isinstance(exc, ValueError) and any(v in str(exc) for v in ('budget', 'exceeds')) else
                       'unavailable' if plan is None else 'coverage')
             answer = withheld(reason, language=language, status='unavailable' if plan is None else 'insufficient')
+        failure_reason = answer.get('retrieval', {}).get('reasoning', {}).get('reason')
         if retrieved:
             answer['retrieval'] = {k: v for k, v in retrieved.items() if k != 'payload'}
+        # Coverage is an explicit outcome, never inferred from an exception or
+        # a rejected interpretation/explanation. Orchestrators may only use this
+        # code for a new, independently validated documentary answer.
+        answer['capability_outcome'] = ('supported' if answer['status'] == 'reasoned' else
+            'coverage_gap' if failure_reason == 'coverage' and not diagnostics.get('failure') else
+            'audit_failure' if any(not all(diagnostics[k].values()) for k in
+                ('interpretation_audit', 'explanation_audit') if k in diagnostics) else
+            'clarify' if answer['status'] == 'clarification' else
+            'limit' if failure_reason in {'budget', 'evidence_budget'} or
+                'budget' in diagnostics.get('failure', '') else
+            'conflict_failure' if failure_reason == 'conflict' else
+            'review_failure' if failure_reason == 'review' else
+            'certificate_failure' if failure_reason == 'unchecked' or
+                answer['retrieval'].get('reasoning', {}).get('status') == 'unchecked' else
+            'citation_failure' if failure_reason == 'missing_citations' else
+            diagnostics.get('failure_category', 'validation_failure'))
         answer['retrieval'].update(query_plan=plan, execution=execution, semantic_checks=diagnostics)
-        answer['knowledge_status'] = 'experimental_unreviewed' if self.experimental else 'accepted'
+        answer['knowledge_status'] = knowledge_status
+        if self.experience_label:
+            answer['knowledge_label'] = self.experience_label
         if self.experimental:
             answer['knowledge_label'] = 'Experimental — unreviewed formalization'
         answer['snapshot_id'] = snapshot['id']
@@ -381,5 +472,4 @@ class ReasoningAssistant:
         answer['telemetry'] = {'model': 'reasoning-natural-language-v1', 'phases': phases,
                               'estimated_cost_usd': sum(costs) if costs and all(c is not None for c in costs) else None,
                               'total_latency_seconds': round(time.monotonic() - started, 3)}
-        answer['message_id'] = self.store.save_turn(session_id, token, snapshot['id'], question, answer, assistant_mode='reasoning')
         return answer

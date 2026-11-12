@@ -90,8 +90,82 @@ def check_claim_evidence(bundle):
         if isinstance(bundle.get(collection), list):
             view[collection] = [{k: v for k, v in row.items() if k not in ignored}
                                 if isinstance(row, dict) else row for row in bundle[collection]]
-    Draft202012Validator(schema, format_checker=FormatChecker()).validate(view)
+    _validate_claim_schema(schema, view)
     _check_records(view, include_topics=False)
+
+
+def _expand_local_refs(schema):
+    """Resolve sole-key, acyclic local references once, keeping validator semantics.
+
+    Unsupported references retain the original schema and normal resolution.
+    Only schema nodes are traversed: literal values in enum/const are data.
+    """
+    maps = {'properties', 'patternProperties', '$defs', 'dependentSchemas'}
+    arrays = {'allOf', 'anyOf', 'oneOf', 'prefixItems'}
+    singles = {'items', 'contains', 'additionalProperties', 'unevaluatedProperties',
+               'unevaluatedItems', 'propertyNames', 'not', 'if', 'then', 'else'}
+
+    def expand(node, trail=()):
+        if not isinstance(node, dict):
+            return node
+        if '$id' in node and node is not schema:
+            raise ValueError('nested schema resource')
+        if any(key in node for key in ('$dynamicRef', '$dynamicAnchor', '$anchor')):
+            raise ValueError('dynamic or anchored schema resource')
+        if '$ref' in node:
+            ref = node['$ref']
+            if len(node) != 1 or not ref.startswith('#/$defs/') or ref in trail:
+                raise ValueError('unsupported schema reference')
+            parts = ref[2:].split('/')
+            target = schema
+            for part in parts:
+                target = target[part.replace('~1', '/').replace('~0', '~')]
+            return expand(target, (*trail, ref))
+        result = dict(node)
+        for key, value in node.items():
+            if key in maps:
+                result[key] = {name: expand(child, trail) for name, child in value.items()}
+            elif key in arrays:
+                result[key] = [expand(child, trail) for child in value]
+            elif key in singles:
+                result[key] = expand(value, trail)
+        return result
+
+    try:
+        return expand(schema)
+    except (ValueError, KeyError, TypeError):
+        return schema
+
+
+def _validate_claim_schema(schema, view):
+    """Validate repeated exact references once within this invocation only."""
+    expanded = _expand_local_refs(schema)
+    checker = FormatChecker()
+    if expanded is not schema:
+        specs = [expanded['properties'][name]['items']['properties']['evidence']
+                 for name in ('chunks', 'claims')]
+        # Both collections use precisely the same evidence schema. Array and
+        # cross-record constraints still apply at every original occurrence.
+        if specs[0]['items'] == specs[1]['items']:
+            validator = Draft202012Validator(specs[0]['items'], format_checker=checker)
+            seen = set()
+            try:
+                for name in ('chunks', 'claims'):
+                    rows = view.get(name)
+                    for row in rows if isinstance(rows, list) else ():
+                        refs = row.get('evidence') if isinstance(row, dict) else None
+                        for ref in refs if isinstance(refs, list) else ():
+                            key = json.dumps(ref, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+                            if key not in seen:
+                                validator.validate(ref)
+                                seen.add(key)
+            except TypeError:
+                # Non-JSON Python input gets the normal validator's verdict.
+                Draft202012Validator(schema, format_checker=checker).validate(view)
+                return
+            for spec in specs:
+                spec['items'] = True
+    Draft202012Validator(expanded, format_checker=checker).validate(view)
 
 
 def _check_records(bundle, *, include_topics):

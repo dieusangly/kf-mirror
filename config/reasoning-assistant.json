@@ -20,7 +20,8 @@
     "max_facts": 10000,
     "max_work": 100000,
     "max_iterations": 100,
-    "checker_timeout_seconds": 30
+    "checker_timeout_seconds": 30,
+    "interpretation_context_tokens": 8000
   },
   "pricing": {
     "model": "gpt-6-luna",

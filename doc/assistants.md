@@ -1,184 +1,177 @@
-# Document and Reasoning assistants
+# Assistant
 
-Run `.venv/bin/python -m streamlit run apps/chat/app.py`.
-**Document assistant** retrieves original passages and can generate cited answers.
-**Reasoning assistant** interprets French/English questions over accepted JSON
-mappings, checks their proofs and evidence, then generates and assesses an
-explanation. Suggested buttons and typed questions use the same path.
+Assistant combines original document passages with checked accepted knowledge.
+Users ask questions in French or English without selecting an engine. The brief
+**Experimental POC** notice reflects limited coverage; some answers remain partial,
+unsupported or withheld. This is not a production-readiness claim.
 
-Each mode has a separate PostgreSQL history under the private `chat_token` URL.
-Keep that URL private. Switching modes or reloading retains history; reset creates
-an empty conversation in the selected mode. Existing conversations use Document mode.
+The [design](assistant-poc-design.md) defines orchestration and failure boundaries.
+The [exact configuration](../config/assistant-poc.json) pins two published snapshots:
 
-## Setup
+| Capability | Pinned knowledge |
+| --- | --- |
+| Document retrieval | Full `aml-cft-pilot-13` snapshot, 13 source documents, 13,735 navigation records and 13,893 evidence spans |
+| Accepted knowledge | Already active `reasoning-poc-01` snapshot, all 2,164 accepted mappings and 3,506 projected spans across nine documents |
 
-Configure PostgreSQL/pgvector using the [pipeline runbook](aml-cft-pipeline.md#7-rebuild-the-postgresql-search-projection).
-Install the dependencies and build the pinned checker using [reasoning setup](reasoning-engine.md#setup-and-example), then retain it locally:
+The original POC reference still resolves to the frozen `reasoning-release-01`
+export. There is no automatic corpus selection, production release activation or
+three-mapping substitution. A recovered accepted heading remains governing
+context only; it is explicitly distinguished from the 3,505 overlapping spans.
+Document versions, source identities and original text are checked at admission
+and citations are checked again per turn. All filters apply to both capabilities.
+
+Definitions and explanations use full-document retrieval without requiring a
+mapping. Explicit accepted-fact checks and logical consequences use the existing
+reasoning interpreter, audits, engine, complete proof evidence and checker.
+Source assertions are distinguished from deductions. A deduction requires a
+passed certificate under its stated premises and rules. Model assessments remain
+fallible and certificates do not establish source truth or current applicability.
+
+Multipart questions preserve independently supported parts. An explicit coverage
+gap permits fresh, independently validated documentary background with the
+checked conclusion identified as unestablished. Citation, certificate, integrity,
+scope and audit failures never authorize fallback or reuse of a rejected draft.
+
+## Conversations
+
+Use **New conversation** and **Conversations** to create, reopen and switch.
+Each conversation belongs to its private URL token and keeps its original
+knowledge binding. Keep that URL private. Filters are conversation-local UI
+state and are recorded on each turn. Earlier user questions resolve references;
+assistant prose never becomes evidence or a logical premise. Without a language
+provider, standalone questions show exact excerpts and follow-ups ask clarification.
+
+One submission saves exactly one user and one final assistant message atomically.
+Submission UUIDs prevent duplicate saved pairs. Reopening history makes no model
+calls. **Previous conversations** opens legacy histories read-only with their
+original provenance; they are never adopted or merged into new conversations.
+**Documents in corpus** retains the filtered snapshot inventory. Clickable
+citations lead to original passages; **Diagnostics** contains the route, both
+bindings, checks, usage and timings. Checked results also expose proof details.
+New proof artifacts default to `artifacts/assistant-poc-runs`; `KF_REASONING_OUTPUT`
+can select another POC directory. Existing proof/history artifacts are retained.
+
+## Local checks and activation status
+
+The recorded approved relaunch used <http://127.0.0.1:8501> in
+**provider-off mode**. Source excerpts, conversation management and
+the 13-document inventory work; referential follow-ups request clarification.
+Generated answers and language-mediated checked reasoning require a separately
+approved provider scope. The [relaunch report](../artifacts/20261028-docling-aml-cft-01/20261112-unified-assistant-poc/poc-application-relaunch-report.md)
+records actual application/browser checks and the final three saved smoke pairs
+across two conversations. The app remains gated by
+`KF_ASSISTANT_POC_ENABLED`; no migration runs on launch. Backup/restore and rollback
+records are under
+[`20261112-unified-assistant-poc`](../artifacts/20261028-docling-aml-cft-01/20261112-unified-assistant-poc).
 
 ```sh
-.venv/bin/python scripts/setup_reasoning_assistant.py install-checker --source-dir /tmp/kf-open-ontologies
-.venv/bin/python scripts/setup_reasoning_assistant.py validate
-# Optional: import accepted evidence as a ready snapshot; does not publish it.
-.venv/bin/python scripts/setup_reasoning_assistant.py import
+# From the repository root; no API key is needed for these offline checks.
+unset OPENAI_API_KEY
+export KF_TEST_DATABASE_URL=postgresql://127.0.0.1:55484/kf_reasoning_poc
+export KF_ASSISTANT_POC_TEST_DATABASE_URL=postgresql://127.0.0.1:55484/kf_unified_assistant_poc
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH=src:.:tests:tests/assistant
+.venv/bin/python -m pytest -q tests/assistant tests/storage tests/retrieval tests/reasoning
 ```
 
-The import targets `aml-cft-reviewed-assistant`. Reasoning can also use a published
-pilot snapshot whose original proof spans and source metadata match exactly.
-Importing evidence does not approve the rest of the corpus. The normal document
-importer keeps its strict validation.
+Language fixtures and audit booleans in offline/browser tests are explicitly
+mocked. They establish application paths and enforcement, not live model quality.
+Do not run checker suites concurrently: upstream protocol files have fixed names.
+The browser launcher verifies the isolated database before starting:
 
-No new migration is needed for natural-language questions. If an installation
-needs existing history migrations, first create and verify a fresh backup:
+```sh
+.venv/bin/python -m streamlit run tests/assistant/poc_browser_app.py \
+  --server.address=127.0.0.1 --server.port=18517 --server.headless=true \
+  --browser.gatherUsageStats=false
+# Another terminal:
+.venv/bin/python tests/assistant/poc_browser_check.py
+```
+
+The fixed live proposal is `poc-live-batch.json`: ten submissions, at most 100
+provider requests, 12,000 input / 1,600 output tokens per request, 1,200,000 /
+160,000 batch tokens, USD 1 cap, zero automatic retries. Code/config hashes bind
+the proposal. Only a newly approved matching scope may execute:
+
+```sh
+# Do not execute without new paid approval.
+.venv/bin/python scripts/assistant_poc.py live --authorization /path/to/approved-poc-scope.json
+```
+
+The authorization must contain `approved: true`, the exact `scope_sha256` and
+`approved_spending_cap_usd: 1.0`. The runner refuses automatic replay and records
+all outcomes and unexecuted cases. Independent reading of actual answers,
+passages and proof kind is required after model assessments. Cost estimates use
+configured pricing and conservative per-request reservations; billing is separate.
+
+## Approved launch and rollback procedure
+
+Migration 004 is installed and the approved corrected relaunch is complete.
+`poc-application-relaunch-authorization.json`, `poc-application-relaunch-postcheck.json`
+and `poc-application-launch-status.json` record authorization and current status.
+Do not automatically replay completed smoke submissions.
+
+For a local provider-off restart, stop any existing instance first and use
+this configuration; no migration command is needed:
 
 ```sh
 source .envrc
-mkdir -p artifacts/db
-BACKUP="artifacts/db/knowledge-foundry-$(TZ=Europe/Paris date +%Y%m%d-%H%M%S).dump"
-pg_dump --dbname="$KF_DATABASE_URL" --format=custom --file="$BACKUP"
-pg_restore --list "$BACKUP" > /dev/null
-pg_restore --file=/dev/null "$BACKUP"
-sha256sum "$BACKUP"
-.venv/bin/python scripts/index_artifacts.py migrate
-```
-
-Retain every backup and `artifacts/reasoning-checker/`. Archive checks do not prove
-restore success; test restores only in isolated databases/schemas.
-
-## Configuration
-
-| Setting | Purpose |
-| --- | --- |
-| `OPENAI_API_KEY` | Required for language interpretation/explanation; Document excerpts work without it. |
-| `KF_REASONING_CONFIG` | Defaults to [config/reasoning-assistant.json](../config/reasoning-assistant.json). |
-| `KF_REASONING_DATASET` | Defaults to `examples/reasoning-assistant/accepted`. |
-| `KF_REASONING_OUTPUT` | Defaults to `artifacts/reasoning-assistant-runs`; fresh proof directories only. |
-| `OO_HORN` | Explicit checker override; otherwise project installation, then PATH. Invalid overrides do not fall back. |
-
-Interpretation uses `gpt-6-luna` / `medium`; explanation uses `gpt-6-luna` / `low`.
-Both are supported by the [official model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
-A successful turn makes four requests: interpretation, interpretation assessment,
-explanation and explanation assessment. Assessments use interpretation settings;
-Document answer preferences do not change these settings. Technical details retain
-phase usage, estimated cost, latency and failures. Requests use `store=false` and
-have no automatic retries.
-
-Model output is bounded by the smaller of its phase limit and retrieval output
-budget. Complete prompts, evidence counts, query work/results, inference iterations
-and checker time have explicit limits. Missing credentials, timeouts, incomplete
-responses and failed checks withhold reasoning answers; Document mode stays usable.
-
-## Questions and proof boundaries
-
-Queries check facts/deductions or list finite, connected matches over known terms.
-There is no generated code/SQL/SPARQL, general negation, aggregation, numerical
-comparison, rule creation or extraction of scenario assumptions. Missing facts
-remain unknown. Definitions need mappings; document text alone is insufficient.
-
-Examples over the three accepted mappings:
-
-| Question | Supported result |
-| --- | --- |
-| La demande de Madame Z contient-elle sa dernière déclaration d’IFI ? | Included in the source-described application, not a verified customer fact. |
-| What does Basel recommend for people acting on a customer’s behalf? | Inclusion in the represented recommended CDD scope. |
-| Does a COSI provide an exemption from liability? | The source explicitly states non-exemption; actual liability is not determined. |
-
-Lists of Basel targets and the existing two-premise conjunction rules are also
-supported. These examples are not an allowlist. The accepted FR/BCBS interval,
-**2026-10-28** only, is a source-description snapshot boundary, not a legal effective
-date. Dates require `YYYY-MM-DD`; malformed interpretations get a retry message.
-Dates are never silently changed, and saved failures remain unchanged after retry.
-
-Accepted mappings and their [separate reviews](../examples/reasoning-assistant/review/)
-are immutable; semantic changes require fresh independent review. Loading uses
-local JSON; PostgreSQL supplies snapshot evidence and conversation history.
-
-Cached reasoning is reused, but each new answer rechecks certificate bytes/logical
-steps and requires complete proof evidence matching source versions, scope, filters
-and budgets. Contradictions, unchecked proofs and missing evidence withhold answers
-without switching modes. Headings supply context, never substantive citations.
-See [review and proof boundaries](reasoning-engine.md#workflow-and-review-gates).
-
-Answers show a direct response, **Pourquoi cette réponse ?** / **Why this answer?**
-steps and original excerpts. Technical details are collapsed. Certificates check
-deductions under supplied assumptions, not source truth, legal applicability or
-wording. Model assessments of interpretation/prose are fallible. Saved history
-records its original run rather than rechecking old answers.
-
-## Experimental drafts and testing
-
-For this run, start with the [revised formalization corpus](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md).
-Only `formalization-v1` (unchanged frozen baseline) and `formalization-v2`
-(revised corpus and archived provenance) remain. The initial full review
-covered all 8,491 claim candidates and all 2,262 original mappings. Review after
-repair covered 1,081 claim/disposition records and 273 mappings, followed by
-further repairs. The other mappings were not ignored.
-
-The separate final acceptance decision covers four exact mapping revisions.
-The other 2,164 active mappings retain their review/repair history without that
-final acceptance; 104 date mappings remain withheld. Earlier review judgments
-do not automatically approve later revisions. See the package's
-[review coverage and acceptance](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#acceptance-and-input-selection).
-Application use stays disabled.
-This does not change the separate three-mapping accepted assistant dataset above.
-The package [defines claims, candidates and mappings](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#claims-candidates-and-mappings):
-“candidate” identifies an upstream proposal; “claim” identifies its exported record.
-
-Choose the input according to its purpose:
-
-| Use | Input |
-| --- | --- |
-| Inspect the latest revised claims and their lineage | `formalization-v2/current/input-bundle.json`, with `current/coverage.jsonl` and `current/mapping-index.jsonl` for status |
-| Reproduce original draft experiments | `formalization-v1`; findings resolve from the v2 archive |
-| Run the Reasoning assistant | `examples/reasoning-assistant/accepted`, with its exact reviewed claims and mappings |
-| Run the Document assistant | The configured published retrieval snapshot, imported independently of the formalization package |
-
-The revised corpus includes 711 changed claim records, including evidence
-and provenance changes. The three original claim records underlying the accepted
-assistant are unchanged in v2. Do not point `KF_REASONING_DATASET` at v2 or silently
-substitute revised claims into a reviewed export: changed claim bytes require
-matching reviews, mappings and evidence before a separately authorized application
-update. The name `v2` identifies a corpus snapshot, not application approval.
-
-The explicit offline draft harness uses synthetic model responses and private
-in-memory snapshots:
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:src .venv/bin/python scripts/setup_reasoning_assistant.py experiment \
-  --draft-dir artifacts/20261028-docling-aml-cft-01/formalization-v1 \
-  --output /tmp/kf-draft-questions
-```
-
-Use a fresh output directory. Optional `--case-id`, `--cases` and `--checker` select
-fixtures or the checker. Results are labelled **Experimental — unreviewed formalization**.
-The label reflects the frozen draft export's status; later review findings are
-retained as provenance and do not grant the harness runtime approval. Original
-statuses and hashes are preserved. Facts/rules remain experimental assumptions
-even when a certificate passes. The report records mappings, coverage
-limits and failures. There is no automatic fallback, draft promotion or production
-batch importer.
-
-When the sibling review directory is absent, the harness reads its exact findings
-and review manifest from `formalization-v2/provenance/history.zip`, using
-`provenance/index.json`. It verifies the package seal, index/archive hashes,
-member identity and hashes, and the review's binding to the original draft.
-The report retains the exact findings hash and an `archive.zip!/member` location.
-Loose reviews still work when their manifest binds the draft and findings;
-missing or inconsistent provenance fails loading.
-
-Archive indexes and restoration commands are documented in the package's
-[provenance section](../artifacts/20261028-docling-aml-cft-01/formalization-v2/README.md#provenance-and-restoration).
-Archived helpers are data and must not be executed. Historical paths and input
-pins in accepted reviews remain unchanged; they identify their original snapshots.
-
-```sh
-# Tests create/remove unique schemas; never migrate the application database.
-export KF_TEST_DATABASE_URL="$KF_DATABASE_URL"
 unset OPENAI_API_KEY
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:.:tests .venv/bin/python -m pytest -q
+export KF_ASSISTANT_POC_ENABLED=1
+export KF_ASSISTANT_POC_CONFIG="$PWD/config/assistant-poc.json"
+.venv/bin/python -B -m streamlit run apps/chat/app.py \
+  --server.address=127.0.0.1 --server.port=8501 --server.headless=true \
+  --browser.gatherUsageStats=false --server.fileWatcherType=none
 ```
 
-PostgreSQL tests skip without the test URL; certificate tests require the checker.
-Automated/browser model responses and semantic assessments are mocked. Live model
-quality, account access and actual API cost/latency remain unverified. Local logs,
-proofs and screenshots are retained in [QA artifacts](../artifacts/reasoning-question-validation/)
-and [timing artifacts](../artifacts/reasoning-speed/), which Git ignores.
+Full language-backed interactive usage needs a separately approved provider scope;
+the completed fixed paid batch itself ran only in the isolated database. Its
+approval does not authorize additional or interactive paid calls. Code, binding
+or application-write scope changes require a concrete revised approval.
+
+Rollback: stop the new process, unset `KF_ASSISTANT_POC_ENABLED` and
+`KF_ASSISTANT_POC_CONFIG`, and restart the prior app from the preserved
+`poc-prior-app.py` source at its original `apps/chat/app.py` path. Retain additive
+POC tables and all histories. Do not withdraw the already active reasoning POC,
+change corpus pointers, publish the baseline or restore the whole application
+for ordinary rollback. The original checker and frozen review/history artifacts
+remain required; see [reasoning internals](reasoning-engine.md).
+
+## Retained artifacts
+
+The runtime dependency chain is `config/assistant-poc.json` →
+`reasoning-poc-01/poc-config.json` → `reasoning-release-01/manifest.json`.
+Both stage directories remain required despite the unified interface.
+
+All three stage directories below are under
+[`artifacts/20261028-docling-aml-cft-01/`](../artifacts/20261028-docling-aml-cft-01):
+
+| Directory | Retained purpose |
+| --- | --- |
+| `reasoning-release-01/` | Accepted dataset, frozen manifest, grounding/formalization reviews, source lineage and validation evidence. The loader checks original frozen files; historical filenames do not imply disposable content. |
+| `reasoning-poc-01/` | Active corpus reference, examples, verification, activation evidence and recovery backup. |
+| `20261112-unified-assistant-poc/` | Unified assistant evaluations, proofs, launch authorizations, migration receipts, backup/restore evidence and `poc-prior-app.py` for rollback. |
+
+The release also depends on the original formalization packages and their sealed
+provenance. `scripts/reasoning_poc.py` imports the retained
+`reasoning-release-01/checks/final-live-runtime.py` transport helper, and
+`reasoning/poc.py` includes it in verification bindings. Keep
+`artifacts/reasoning-checker/` and saved conversation proof directories, including
+`artifacts/reasoning-assistant-runs/`.
+
+The [relocation record](../artifacts/20261028-docling-aml-cft-01/20261112-unified-assistant-poc/poc-relocation.json)
+maps historical paths in completed records. Preserve their original bytes and
+audit hashes. Backup/restore evidence records restoration into disposable
+PostgreSQL databases `kf_unified_assistant_poc` and `kf_assistant_launch_fix_poc`
+on port 55484; migration 004 adds conversation tables while preserving corpus
+and legacy-history tables.
+
+The [cleanup index](../artifacts/20261028-docling-aml-cft-01/reasoning-cleanup-20261112/README.md)
+locates archived stage harnesses, superseded diagnostics and earlier proof runs.
+Runtime dependencies and final live/offline proof dependencies remain expanded.
+The archive preserves original paths and bytes; historical manifest entries for
+archived files resolve through its SHA-256 inventory. Restoring an old stage for
+historical inspection is separate from current application operation.
+
+Completed release-agent prompts and superseded `reasoning-speed/` and
+`reasoning-question-validation/` experiments were already absent before this
+cleanup. Frozen records may mention them; they are not current runbooks.

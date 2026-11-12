@@ -1,164 +1,199 @@
-"""Rendered Streamlit interactions backed by the isolated real database."""
-import copy
+"""Unified Streamlit UI on synthetic animal data and isolated real PostgreSQL."""
 import json
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from knowledge_foundry.retrieval.config import MODES, ROOT
+from knowledge_foundry.assistant.bindings import KnowledgeBinding
+from knowledge_foundry.assistant.service import Assistant
+from knowledge_foundry.retrieval.config import ROOT
+from rag_fixtures import assistant_poc_binding, json_stream
 
 
-def test_chat_history_reset_feedback_and_source_panel(store, published, tmp_path, monkeypatch):
-    config, _ = published
-    path = tmp_path / 'retrieval.json'
-    path.write_text(json.dumps(config))
+@pytest.fixture
+def ui(store, published, tmp_path, monkeypatch):
+    cfg, sid = published
+    binding = assistant_poc_binding(store, sid)
+    path = tmp_path / 'assistant-poc-config.json'; path.write_text(json.dumps(cfg))
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
     monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
-    assert not app.exception
-    assert app.title[0].value == 'Document assistant'
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Corpus').value == 'animals'
+    monkeypatch.setenv('KF_ASSISTANT_POC_ENABLED', '1')
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    monkeypatch.setattr(KnowledgeBinding, 'load', classmethod(lambda cls, path=None: binding))
+    def forbidden(*args, **kwargs): pytest.fail('offline UI must not call providers')
+    monkeypatch.setattr('knowledge_foundry.assistant.service.openai_stream', forbidden)
+    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=30).run()
+    return app, binding
+
+
+def test_chat_history_creation_switching_and_source_panel(store, ui):
+    app, binding = ui
+    assert not app.exception and app.title[0].value == 'Assistant'
+    assert not any(s.label in {'Assistant', 'Answer mode', 'Search', 'Retrieve via'} for s in app.selectbox)
     app.chat_input[0].set_value('exercise').run()
-    assert not app.exception
-    assert len(app.chat_message) == 2
-    assert any(e.label == 'Sources and exact passages' for e in app.expander)
+    assert not app.exception and len(app.chat_message) == 2
     assert any('Dogs must rest' in c.value for c in app.code)
-    assert any('Edition:' in c.value for c in app.caption)
-    helpful = next(b for b in app.button if b.label == 'Helpful')
-    helpful.click().run()
-    assert not app.exception
-    assert any(s.value == 'Feedback saved' for s in app.success)
-    previous = next(s for s in app.sidebar.selectbox if s.label == 'Conversation history').value
-    next(b for b in app.sidebar.button if b.label == 'New conversation / reset').click().run()
-    assert not app.exception
-    assert len(app.chat_message) == 0
-    history = next(s for s in app.sidebar.selectbox if s.label == 'Conversation history')
-    assert len(history.options) == 2
-    assert history.value != previous
-    history.set_value(previous).run()
-    assert not app.exception
-    assert len(app.chat_message) == 2
+    assert any(e.label == 'Diagnostics' and not e.proto.expanded for e in app.expander)
+    selector = next(s for s in app.selectbox if s.label == 'Conversations')
+    previous = selector.value
+    next(b for b in app.button if b.label == 'New conversation').click().run()
+    assert not app.exception and not app.chat_message
+    next(s for s in app.selectbox if s.label == 'Conversations').select(previous).run()
+    assert not app.exception and len(app.chat_message) == 2
+    app.chat_input[0].set_value('What about exceptions?').run()
+    assert not app.exception and len(app.chat_message) == 4
+    assert len(store.assistant_history(previous, app.query_params['chat_token'], binding.value)) == 4
+
+
+def test_inventory_button_uses_metadata_without_models(ui):
+    app, _ = ui
+    next(b for b in app.button if b.label == 'Documents in corpus').click().run()
+    assert not app.exception and len(app.dataframe) == 1
+    assert any('Documents (1)' in m.value for m in app.markdown)
+
+
+def test_transient_empty_selector_preserves_owned_url_conversation(ui, store, monkeypatch):
+    from streamlit.delta_generator import DeltaGenerator
+    app, binding = ui
+    next(b for b in app.button if b.label == 'New conversation').click().run()
+    app.chat_input[0].set_value('exercise').run()
+    cid = app.query_params['conversation_id']
+    token = app.query_params['chat_token']
+    original = DeltaGenerator.selectbox
+
+    def empty_conversation_selection(self, label, *args, **kwargs):
+        value = original(self, label, *args, **kwargs)
+        # Browser widget state can briefly clear as an empty conversation gains
+        # its first question/title. Its owned URL remains the context binding.
+        return None if label == 'Conversations' else value
+
+    monkeypatch.setattr(DeltaGenerator, 'selectbox', empty_conversation_selection)
     app.chat_input[0].set_value('What about exceptions?').run()
     assert not app.exception
-    assert len(app.chat_message) == 4
+    assert app.query_params['conversation_id'] == cid
+    assert len(store.assistant_conversations(token)) == 1
+    assert len(store.assistant_history(cid, token, binding.value)) == 4
 
 
-def test_generated_mode_uses_resolved_citations_without_a_live_model(store, published, tmp_path, monkeypatch):
-    c, _ = published
-    c['answer']['provider'] = 'openai'
-    path = tmp_path / 'retrieval.json'
-    path.write_text(json.dumps(c))
-    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    monkeypatch.setenv('OPENAI_API_KEY', 'fixture-no-network')
-    def stream(payload, config):
-        evidence = json.loads(payload['input'])['evidence']
-        selected = next(e for e in evidence if e['text'].startswith('Dogs must'))
-        yield {'type': 'delta', 'text': 'Dogs rest after exercise [' + selected['label'] + '].'}
-    monkeypatch.setattr('knowledge_foundry.retrieval.answering.openai_stream', stream)
-    def route(payload, config):
-        question = json.loads(payload['input'])['question']
-        yield {'type': 'delta', 'text': json.dumps({'query': question, 'uses_history': False, 'intent': 'evidence_question'})}
-    monkeypatch.setattr('knowledge_foundry.retrieval.query.openai_stream', route)
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').value == 'openai'
-    next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').select('openai').run()
-    app.chat_input[0].set_value('Dogs rest exercise').run()
+def test_question_from_unavailable_url_creates_one_separate_history(ui, store):
+    from uuid import uuid4
+    app, binding = ui
+    app.chat_input[0].set_value('exercise').run()
+    prior = app.query_params['conversation_id']
+    token = app.query_params['chat_token']
+    app.query_params['conversation_id'] = str(uuid4())
+    app.run()
+    app.chat_input[0].set_value('cats').run()
     assert not app.exception
-    assert any('Draft answer' in item.value for item in app.caption)
-    assert any('Dogs must rest' in item.value for item in app.code)
-    assert any('evidence-' in item.value and 'Dogs rest' in item.value for item in app.markdown)
+    current = app.query_params['conversation_id']
+    assert current != prior
+    assert len(store.assistant_conversations(token)) == 2
+    assert len(store.assistant_history(prior, token, binding.value)) == 2
+    assert len(store.assistant_history(current, token, binding.value)) == 2
 
 
-def test_inventory_button_uses_metadata_without_models(store, published, tmp_path, monkeypatch):
-    c, _ = published
-    path = tmp_path / 'retrieval.json'
-    path.write_text(json.dumps(c))
-    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
-    next(b for b in app.button if b.label == 'Documents in corpus').click().run()
-    assert not app.exception
-    assert len(app.dataframe) == 1
-    assert any('snapshot metadata' in c.value for c in app.caption)
-    assert not any('No supporting citations' in i.value for i in app.info)
+def test_reopen_older_conversation_without_duplicate_default_warning(ui, monkeypatch, caplog):
+    from streamlit.elements.lib import policies
+    app, _ = ui
+    app.chat_input[0].set_value('exercise').run()
+    prior = app.query_params['conversation_id']
+    next(b for b in app.button if b.label == 'New conversation').click().run()
+    app.query_params['conversation_id'] = prior
+    monkeypatch.setattr(policies, '_shown_default_value_warning', False)
+    caplog.clear()
+    app.run()
+    assert not app.exception and len(app.chat_message) == 2
+    assert next(s for s in app.selectbox if s.label == 'Conversations').value == prior
+    assert not any('created with a default value' in r.message for r in caplog.records)
 
 
-@pytest.mark.parametrize('custom_config', [False, True])
-def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, monkeypatch, custom_config):
-    c, _ = published
-    c['answer']['provider'] = 'openai'
-    c['search']['method'] = 'vector'
-    path = tmp_path / 'retrieval.json'
-    path.write_text(json.dumps(c))
-    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    if custom_config:
-        monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    else:
-        monkeypatch.delenv('KF_RETRIEVAL_CONFIG', raising=False)
-        monkeypatch.setattr('knowledge_foundry.retrieval.config.load_config', lambda path=None: copy.deepcopy(c))
-    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
-    assert not app.exception
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').value == 'extractive'
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Search').value == 'keyword'
-    assert any('OPENAI_API_KEY is not configured' in item.value for item in app.info)
+def test_generated_answer_uses_validated_clickable_citations(ui, monkeypatch):
+    app, _ = ui
+    def init(self, store, config, binding, **kwargs):
+        config['answer']['provider'] = 'openai'
+        def answer(payload, cfg):
+            data = json.loads(payload['input'])
+            row = next(e for e in data['evidence'] if e['text'].startswith('Dogs must'))
+            yield from json_stream_text('Dogs must rest after exercise, with the stated exception [' + row['label'] + '].')
+        original(self, store, config, binding, route_stream=json_stream({'language':'en','parts':[
+            {'question':'exercise','retrieval_query':'exercise','capability':'documents'}]}), audit_stream=audit, document_stream=answer, **kwargs)
+    def json_stream_text(text):
+        yield {'type':'delta','text':text}
+        yield {'type':'usage','usage':{'input_tokens':200,'output_tokens':40}}
+    def audit(payload, config):
+        yield from json_stream(dict.fromkeys(payload['text']['format']['schema']['properties'], True))(payload, config)
+    original = Assistant.__init__
+    monkeypatch.setattr(Assistant, '__init__', init)
     app.chat_input[0].set_value('exercise').run()
     assert not app.exception
-    assert any('Dogs must rest' in item.value for item in app.code)
-
-
-def test_chat_defaults_to_vector_and_passage_and_claim(store, published, monkeypatch):
-    config, snapshot_id = published
-    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    monkeypatch.delenv('KF_RETRIEVAL_CONFIG', raising=False)
-    monkeypatch.setattr('knowledge_foundry.retrieval.config.load_config', lambda path=None: copy.deepcopy(config))
-    monkeypatch.setattr('knowledge_foundry.embeddings.EmbeddingAdapter._request',
-        lambda self, texts: {'data': [{'index': i, 'embedding': [1., 0., 0.]} for i in range(len(texts))],
-                             'usage': {'prompt_tokens': 0}})
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
-    assert not app.exception
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Search').value == 'vector'
-    mode = next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via')
-    assert mode.options == list(MODES)
-    assert mode.value == 'passage-and-claim'
-    coverage = store.vector_coverage(snapshot_id)
-    records = sum(coverage[k]['records'] for k in ('passage', 'claim'))
-    assert any(c.value == f'Passage-And-Claim: {records} records · {records} with vectors'
-               for c in app.sidebar.caption)
-    assert not app.sidebar.warning
-    app.chat_input[0].set_value('exercise').run()
-    assert not app.exception
+    assert any('https://' in m.value and 'Dogs must rest' in m.value for m in app.markdown)
     assert any('Dogs must rest' in c.value for c in app.code)
-    session_id = next(s for s in app.sidebar.selectbox if s.label == 'Conversation history').value
-    history = store.history(session_id, app.query_params['chat_token'], snapshot_id)
-    retrieval = history[-1]['payload']['retrieval']
-    assert retrieval['method'] == 'vector'
-    assert retrieval['mode'] == 'passage-and-claim'
-    mode = next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via')
-    mode.select('claim').run()
-    assert not app.exception
-    assert any(c.value == 'Claim: 1 records · 1 with vectors' for c in app.sidebar.caption)
 
 
-@pytest.mark.parametrize('kind', ['passage', 'claim'])
-def test_mixed_mode_warns_when_either_branch_has_incomplete_vector_coverage(
-        store, published, tmp_path, monkeypatch, kind):
-    config, snapshot_id = published
-    config['search'].update(method='vector', mode='passage-and-claim')
-    path = tmp_path / 'retrieval.json'
-    path.write_text(json.dumps(config))
-    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
-    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    with store.connection() as conn:
-        conn.execute('UPDATE kf_records SET vector_id=NULL WHERE snapshot_id=%s AND kind=%s',
-                     (snapshot_id, kind))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+def test_excerpts_keep_original_bytes_with_final_citation_labels(ui, monkeypatch):
+    import copy
+    import knowledge_foundry.assistant.service as service
+    app, _ = ui
+    generate = service.generate
+
+    def nonsequential_retrieval_labels(config, payload, evidence, stream):
+        evidence = copy.deepcopy(evidence)
+        for index, row in enumerate(evidence, 20):
+            row['label'] = 'E' + str(index)
+        yield from generate(config, payload, evidence, stream)
+
+    monkeypatch.setattr(service, 'generate', nonsequential_retrieval_labels)
+    app.chat_input[0].set_value('exercise').run()
     assert not app.exception
-    assert next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via').value == 'passage-and-claim'
-    coverage = store.vector_coverage(snapshot_id)
-    records = sum(coverage[k]['records'] for k in ('passage', 'claim'))
-    vectors = sum(coverage[k]['vectors'] for k in ('passage', 'claim'))
-    assert any(c.value == f'Passage-And-Claim: {records} records · {vectors} with vectors'
-               for c in app.sidebar.caption)
-    assert any('Vector coverage is incomplete' in w.value for w in app.sidebar.warning)
+    assert any(t.value == 'Dogs must rest after exercise. [1]' for t in app.text)
+    assert not any('[E20]' in t.value for t in app.text)
+    assert any('[E1](https://' in m.value for m in app.markdown)
+
+
+def test_error_is_safe_and_no_automatic_retry(ui, monkeypatch):
+    app, _ = ui
+    calls = []
+    def failed(*args, **kwargs):
+        calls.append(True)
+        raise RuntimeError('private provider payload must not be displayed')
+    monkeypatch.setattr(Assistant, 'ask', failed)
+    app.chat_input[0].set_value('exercise').run()
+    assert not app.exception and len(calls) == 1
+    assert any('No automatic retry' in e.value for e in app.error)
+    assert not any('private provider payload' in e.value for e in app.error)
+
+
+def test_filters_are_visible_for_all_questions_and_conversation_local(ui, store):
+    app, binding = ui
+    source = next(m for m in app.multiselect if m.label == 'Source filter')
+    source_id = binding.snapshots(store)[0]['identity']['sources'][0]['id']
+    source.select(source_id).run()
+    app.chat_input[0].set_value('exercise').run()
+    assert not app.exception
+    assert next(m for m in app.multiselect if m.label == 'Source filter').value == [source_id]
+    next(b for b in app.button if b.label == 'New conversation').click().run()
+    assert not next(m for m in app.multiselect if m.label == 'Source filter').value
+    assert any(m.label == 'Document filter' for m in app.multiselect)
+
+
+def test_unavailable_conversation_url_does_not_open_another_history(ui, store):
+    from uuid import uuid4
+    app, binding = ui
+    token = app.query_params['chat_token']
+    cid = store.new_assistant_conversation(token, binding.value)
+    store.save_assistant_turn(cid, token, binding.value, str(uuid4()), 'Saved POC question',
+        {'text':'Saved POC answer','status':'withheld','bindings':binding.value,
+         'filters':{'source_ids':None,'document_ids':None},'intent':None,'citations':[]})
+    fresh = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=30)
+    fresh.query_params['chat_token'] = token
+    fresh.query_params['conversation_id'] = str(uuid4())
+    fresh.run()
+    assert not fresh.exception and not fresh.chat_message
+    assert any('requested conversation is unavailable' in w.value for w in fresh.warning)
+    selection = next(s for s in fresh.selectbox if s.label == 'Conversations')
+    assert selection.value is None
+    selection.select(cid).run()
+    assert not fresh.exception and len(fresh.chat_message) == 2
+    fresh.query_params['conversation_id'] = str(uuid4())
+    fresh.run()
+    assert not fresh.exception and not fresh.chat_message

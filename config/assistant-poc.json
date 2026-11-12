@@ -1,0 +1,25 @@
+{
+  "format": "assistant-poc-v1",
+  "documents": {
+    "corpus": "aml-cft-pilot-13",
+    "snapshot_id": "snapshot:02dd78fd1e2ca7ed4e9205f889a8c809b03865d0c674da3c86378f3265d15997",
+    "bundle": "artifacts/20261028-docling-aml-cft-01/document-structuring/chunks/artifact-bundle.json",
+    "bundle_sha256": "ac209ceea06f06a6a96a3ed65af2224dac8736a420387ec8f202c6ede1ab5b3a"
+  },
+  "accepted": {
+    "corpus": "reasoning-poc-01",
+    "snapshot_id": "snapshot:167be3e5ca25e879a09f3c12dcb2cb78a25399ca7722321886ddc7e7ef358a29",
+    "poc_reference": "artifacts/20261028-docling-aml-cft-01/reasoning-poc-01/poc-config.json",
+    "poc_reference_sha256": "eb1e45e899d584b451c7ecbe47268d9e5972fd8bb7328600a209b00b9479b369",
+    "dataset_sha256": "a7648d5d459081ce547f463cce5dc56b34e3c9b7a67afb5f53027627108d3a71",
+    "mapping_count": 2164
+  },
+  "limits": {
+    "max_parts": 4,
+    "max_provider_requests": 26,
+    "max_total_input_tokens": 312000,
+    "max_total_output_tokens": 41600,
+    "max_elapsed_seconds": 240,
+    "max_final_output_tokens": 6400
+  }
+}

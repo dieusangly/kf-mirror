@@ -33,6 +33,17 @@ class ReasoningEngine:
     def __init__(self, bundle, mapping, *, jurisdiction, as_of):
         self._initialize_projection(compile_projection(bundle, mapping, jurisdiction=jurisdiction, as_of=as_of))
 
+    @classmethod
+    def from_dataset(cls, dataset, *, jurisdiction, as_of, evaluation=False):
+        if dataset.get('format') != 'reviewed-reasoning-release-v1':
+            require(not evaluation, 'release evaluation requires a versioned release')
+            return cls(dataset['bundle'], dataset['mapping'], jurisdiction=jurisdiction, as_of=as_of)
+        from knowledge_foundry.reasoning.adapter import compile_release_projection
+        engine = cls.__new__(cls)
+        engine._initialize_projection(compile_release_projection(dataset, jurisdiction=jurisdiction,
+                                       as_of=as_of, evaluation=evaluation))
+        return engine
+
     def _initialize_projection(self, projection):
         self.projection = projection
         self.asserted = OntologyEngine()
@@ -80,6 +91,8 @@ class ReasoningEngine:
         status = ('contradiction' if conflicts else 'incomplete' if not report['fixpoint_reached'] else
                   'ready' if report['check']['status'] == 'accepted' else 'unchecked')
         self.report = {'status': status, 'upstream_commit': UPSTREAM_COMMIT,
+                       'evaluation_only': projection.get('evaluation_only', False),
+                       'release_identity': projection.get('release_identity'),
                        **{k: projection[k] for k in ('version', 'bundle_sha256', 'mapping_sha256', 'jurisdiction', 'as_of', 'excluded')},
                        'validation': validation, 'reasoning': report, 'conflicts': conflicts,
                        'certificate_sha256': self.hashes}
@@ -125,7 +138,8 @@ class ReasoningEngine:
         wanted = atom(goal)
         require(self.report is not None, 'reasoning has not run')
         base = {'goal': goal, 'jurisdiction': self.projection['jurisdiction'], 'as_of': self.projection['as_of'],
-                'conclusions': [], 'premises': [], 'rules': [], 'citations': []}
+                'conclusions': [], 'premises': [], 'rules': [], 'citations': [],
+                'evaluation_only': self.projection.get('evaluation_only', False)}
         if self.report['status'] in {'contradiction', 'incomplete', 'insufficient'}:
             return {**base, 'status': self.report['status'], 'conflicts': self.report.get('conflicts', [])}
         steps = {s.conclusion: s for s in self.result.steps}

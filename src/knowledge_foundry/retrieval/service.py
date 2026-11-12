@@ -42,7 +42,8 @@ class DocumentAssistant:
             self.reasoning_engine = configured_engine(self.config)
 
     def retrieve(self, corpus, question, *, snapshot_id=None, history=None, method=None,
-                 mode=None, source_ids=None, document_ids=None, route_inventory=False, reasoning_goal=None):
+                 mode=None, source_ids=None, document_ids=None, route_inventory=False, reasoning_goal=None,
+                 search_query=None):
         started = time.monotonic()
         config = self.config
         if reasoning_goal is not None and self.reasoning_engine is None:
@@ -71,6 +72,11 @@ class DocumentAssistant:
         rewritten = rewrite_query(config, question, history, self.query_stream,
                                   route_inventory=route_inventory and reasoning_goal is None)
         query, history = rewritten['query'], rewritten['history']
+        if search_query is not None:
+            if (not isinstance(search_query, str) or not search_query.strip() or
+                token_count(search_query, config['budget']['tokenizer']) > config['budget']['max_question_tokens']):
+                raise ValueError('search query is empty or exceeds the configured question budget')
+            query = search_query
         if rewritten['intent'] == 'document_inventory':
             return {'intent': 'document_inventory', 'documents': inventory(snapshot, source_ids, document_ids),
                     'snapshot_id': snapshot['id'], 'evidence': [], 'warnings': rewritten['warnings'],
@@ -95,9 +101,10 @@ class DocumentAssistant:
         pipeline = retrieval_pipeline(self.store, snapshot, config, self.ranking_stream)
         filters = {'source_ids': source_ids, 'document_ids': document_ids}
         output = pipeline.run({'retrieve': {'query': query, 'method': method, 'mode': mode, 'vector': vector, **filters},
-                               'rank': {'query': query},
+                               'rank': {'query': question if search_query is not None else query},
                                'resolve': {'query': query, **filters},
-                               'context': {'question': query, 'query': query, 'history': [], **filters}},
+                               'context': {'question': question if search_query is not None else query,
+                                           'query': query, 'history': [], **filters}},
                               include_outputs_from={'retrieve', 'rank', 'resolve'})
         context = output['context']['context']
         context['warnings'].extend(rewritten['warnings'])

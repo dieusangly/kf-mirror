@@ -698,3 +698,23 @@ def test_experimental_metadata_cannot_claim_review(draft, defect):
     with pytest.raises(ValueError, match='draft status|draft metadata'):
         ExperimentalReasoningEngine(modified, jurisdiction='FR', as_of='2016-12-03')
     assert draft['full_mapping']['review']['status'] == 'draft'
+
+
+def test_checker_same_path_replacement_invalidates_the_closure(dataset, checker, tmp_path):
+    """Changing content at a fixed executable path cannot retain the old engine."""
+    import os
+    import shutil
+    local = tmp_path / 'oo-horn'
+    shutil.copy2(checker, local)
+    entry = dataset['catalogue']['questions'][0]
+    first = get_engine(dataset, 'snapshot:checker-replacement', entry, output_dir=tmp_path / 'proofs', checker=local)
+    assert first.report['status'] == 'ready'
+    raw, stat = local.read_bytes(), local.stat()
+    replacement = tmp_path / 'new-checker'
+    # ELF permits trailing bytes; the honest checker still reports its new hash.
+    replacement.write_bytes(raw + b'\n')
+    os.chmod(replacement, stat.st_mode)
+    replacement.replace(local)
+    second = get_engine(dataset, 'snapshot:checker-replacement', entry, output_dir=tmp_path / 'proofs', checker=local)
+    assert second is not first and second.report['status'] == 'ready'
+    assert second.verify_certificate()['status'] == 'accepted'

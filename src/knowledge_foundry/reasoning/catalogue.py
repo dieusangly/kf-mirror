@@ -4,6 +4,7 @@ The frozen catalogue is review provenance and UI suggestions, not a runtime gate
 """
 import json
 import os
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
@@ -13,11 +14,35 @@ from knowledge_foundry.structural_chunks import stable_hash
 
 DEFAULT_DATASET = Path(__file__).resolve().parents[3] / 'examples/reasoning-assistant/accepted'
 DEFAULT_CHECKER = DEFAULT_DATASET.parents[2] / 'artifacts/reasoning-checker/oo-horn'
+_engine_dataset = ContextVar('validated_engine_dataset', default=None)
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def load_suggestions(directory=DEFAULT_DATASET):
+    """Read display metadata; this entry point never grants release admission.
+
+    Release v1 has no suggested questions. Answers still enter load_dataset and
+    validate every source, candidate and review inside the measured request.
+    """
+    directory = Path(directory).resolve()
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    if 'frozen_candidate_record' not in manifest.get('integration', {}):
+        return load_dataset(directory)['catalogue']['questions']
+    from knowledge_foundry.reasoning.release import FORMAT, ReviewRequired, local_file, read
+    contract = read(local_file(directory, 'integration.json'))
+    require(contract['format'] == FORMAT and contract.get('catalogue', []) == [],
+            'unsupported release presentation contract')
+    for dimension in ('grounding', 'formalization'):
+        spec = contract.get('reviews', {}).get(dimension)
+        if not spec:
+            raise ReviewRequired('Independent export review required: ' + dimension)
+        require(file_hash(local_file(directory, spec['file'])) == spec['sha256'],
+                'runtime review file hash mismatch')
+    return []
 
 
 def load_dataset(directory=DEFAULT_DATASET):
@@ -28,6 +53,9 @@ def load_dataset(directory=DEFAULT_DATASET):
     """
     directory = Path(directory).resolve()
     manifest = json.loads((directory / 'manifest.json').read_text())
+    if 'integration' in manifest and 'frozen_candidate_record' in manifest['integration']:
+        from knowledge_foundry.reasoning.release import load_release
+        return load_release(directory)
     require(manifest['status'] == 'accepted-bounded-source-descriptions', 'dataset is not accepted')
     names = {'bundle.json', 'mapping.json', 'catalogue.json', 'provenance.json',
              'grounding.json', 'formalization.json'}
@@ -93,6 +121,9 @@ def load_dataset(directory=DEFAULT_DATASET):
 
 def accepted_projection(dataset):
     """Import only reviewed claim spans, never all chunks in their lineage bundle."""
+    if dataset.get('format') == 'reviewed-reasoning-release-v1':
+        from knowledge_foundry.reasoning.release import release_projection
+        return release_projection(dataset)
     bundle = dataset['bundle']
     elements = {e['id']: e for e in bundle['elements']}
     documents = {d['id']: d for d in bundle['documents']}
@@ -135,9 +166,12 @@ def accepted_projection(dataset):
 def _cached_engine(directory, digest, snapshot_id, jurisdiction, as_of, output_dir, checker, checker_digest, timeout, max_iterations):
     """One closure per exact dataset/snapshot/scope/checker; explain rechecks certificates."""
     from knowledge_foundry.reasoning.engine import ReasoningEngine
-    dataset = load_dataset(directory)
+    dataset = _engine_dataset.get()
+    if dataset is None:
+        dataset = load_dataset(directory)
+    require(str(dataset['directory']) == directory, 'dataset directory changed during setup')
     require(dataset['digest'] == digest, 'dataset changed during setup')
-    engine = ReasoningEngine(dataset['bundle'], dataset['mapping'], jurisdiction=jurisdiction, as_of=as_of)
+    engine = ReasoningEngine.from_dataset(dataset, jurisdiction=jurisdiction, as_of=as_of)
     engine.run(Path(output_dir) / uuid4().hex, checker=checker, timeout=timeout, max_iterations=max_iterations)
     return engine
 
@@ -162,9 +196,18 @@ def resolve_checker(checker=None):
 
 
 def get_engine(dataset, snapshot_id, question, *, output_dir, checker=None, timeout=30., max_iterations=100):
+    # A caller's digest/accepted flag must not bypass admission on cache hits.
+    if (dataset.get('format') == 'reviewed-reasoning-release-v1' or
+            (Path(dataset['directory']) / 'integration.json').is_file()):
+        from knowledge_foundry.reasoning.release import validated_release
+        dataset = validated_release(dataset)
     # Checker replacement invalidates cached state, even if its pathname is reused.
     checker = resolve_checker(checker)
     digest = file_hash(checker) if Path(checker).is_file() else 'missing'
-    return _cached_engine(str(dataset['directory']), dataset['digest'], snapshot_id,
-                          question['jurisdiction'], question['as_of'], str(Path(output_dir).resolve()), checker, digest,
-                          timeout, max_iterations)
+    token = _engine_dataset.set(dataset if dataset.get('format') == 'reviewed-reasoning-release-v1' else None)
+    try:
+        return _cached_engine(str(dataset['directory']), dataset['digest'], snapshot_id,
+                              question['jurisdiction'], question['as_of'], str(Path(output_dir).resolve()), checker, digest,
+                              timeout, max_iterations)
+    finally:
+        _engine_dataset.reset(token)

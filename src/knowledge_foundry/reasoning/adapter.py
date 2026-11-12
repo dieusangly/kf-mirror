@@ -81,8 +81,6 @@ def _compile_projection(bundle, mapping, *, jurisdiction, as_of, experimental):
     This function does not change statuses or content hashes. Accepted callers
     must enter through compile_projection, which enforces the semantic review.
     """
-    from open_ontologies_lite.horn.rules import AtomPat, RulePattern
-
     check_claim_evidence(bundle)
     mapping = copy.deepcopy(mapping)
     schema = json.loads((ROOT / 'schemas/reasoning-mapping-schema-v1.0.0.json').read_text())
@@ -90,6 +88,50 @@ def _compile_projection(bundle, mapping, *, jurisdiction, as_of, experimental):
     require(mapping.get('bundle_sha256') == stable_hash(bundle), 'semantic bundle binding mismatch')
     if not experimental:
         _review(mapping)
+        mapped_claims = {r['claim_id'] for r in mapping['mappings']}
+        require(all(c['grounding_review_status'] == 'verified' for c in bundle['claims']
+                    if c['id'] in mapped_claims),
+                'mapped claim must have verified grounding')
+    return _assemble_projection(bundle, mapping, jurisdiction=jurisdiction, as_of=as_of,
+                                experimental=experimental)
+
+
+def compile_release_projection(dataset, *, jurisdiction, as_of, evaluation=False):
+    """Compile validated sidecars without promoting original record statuses.
+
+    Evaluation is an explicit offline entry point. Production requires either
+    full admission or a loader-issued snapshot with rechecked content bindings.
+    """
+    from knowledge_foundry.reasoning.release import inspect_release, validated_release, release_evidence
+    fresh = inspect_release(dataset['directory']) if evaluation else validated_release(dataset)
+    require(fresh['release_identity'] == dataset['release_identity'], 'release changed before compilation')
+    reviews = {e['mapping_id']: {'historical_judgments': e['historical_judgments'],
+               'new_assessment': fresh['content_reviews'].get(e['mapping_id']),
+               'runtime_review_files': fresh.get('runtime_contract', {}).get('reviews', {}),
+               'runtime_review_pending': evaluation} for e in fresh['ledger'] if e['disposition'] == 'eligible'}
+    mapping = {'mappings': fresh['mapping']['mappings'], 'review': {'release_identity': fresh['release_identity']}}
+    projection = _assemble_projection(fresh['bundle'], mapping, jurisdiction=jurisdiction, as_of=as_of,
+                                      experimental=evaluation, reviews=reviews)
+    evidence, by_mapping = release_evidence(fresh)
+    links = []
+    # Vocabulary support is required proof evidence, including qualifications
+    # which are not repeated in the mapped claim's own citation list.
+    for row in projection['active']:
+        node = 'urn:kf:mapping:' + quote(row['id'], safe='')
+        for key in by_mapping[row['id']]:
+            projection['citations'][key] = {k: evidence[key][k] for k in
+                ('id', 'reference', 'text', 'source', 'document', 'location', 'element_kind')}
+            links.append(f'{ox.NamedNode(node)} {ox.NamedNode(KF + "evidence")} {ox.NamedNode("urn:kf:evidence:" + key)} .')
+    projection['provenance'] += '\n' + '\n'.join(links)
+    projection.update(version='reviewed-release-v1' if not evaluation else 'release-evaluation-v1',
+                      release_identity=fresh['release_identity'], evaluation_only=evaluation)
+    return projection
+
+
+def _assemble_projection(bundle, mapping, *, jurisdiction, as_of, experimental, reviews=None):
+    """Shared atom/guard/provenance compiler after the caller's integrity/review gate."""
+    from open_ontologies_lite.horn.rules import AtomPat, RulePattern
+
     _date(as_of)
     require(isinstance(jurisdiction, str) and jurisdiction.strip(), 'jurisdiction is required')
     claims = {c['id']: c for c in bundle['claims']}
@@ -109,9 +151,6 @@ def _compile_projection(bundle, mapping, *, jurisdiction, as_of, experimental):
         seen.add(row['id'])
         claim = claims.get(row['claim_id'])
         require(claim is not None and stable_hash(claim) == row['claim_sha256'], 'stale or missing mapped claim')
-        if not experimental:
-            require(claim['grounding_review_status'] == 'verified',
-                    'mapped claim must have verified grounding')
         require(builds[claim['build_id']]['status'] == 'complete', 'mapped claim build is incomplete')
         start, end = _date(row['valid_from']), row.get('valid_until')
         if end is not None:
@@ -131,7 +170,8 @@ def _compile_projection(bundle, mapping, *, jurisdiction, as_of, experimental):
         if end:
             meta(node, KF + 'validUntil', end)
         meta(node, KF + 'mapping', json.dumps(row, ensure_ascii=False, sort_keys=True))
-        meta(node, KF + 'review', json.dumps(mapping['review'], ensure_ascii=False, sort_keys=True))
+        meta(node, KF + 'review', json.dumps(reviews[row['id']] if reviews is not None else mapping['review'],
+                                           ensure_ascii=False, sort_keys=True))
         for ref in claim['evidence']:
             element, doc = elements[ref['element_id']], documents[ref['document_id']]
             source = sources[(doc['source_id'], doc['source_version'])]

@@ -1,4 +1,4 @@
-"""Local Streamlit demo: all retrieval and persistence live in the service."""
+"""Unified Assistant POC; all evidence checks and persistence live in services."""
 import os
 import re
 import secrets
@@ -10,9 +10,10 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
-from knowledge_foundry.retrieval.config import MODES, corpora, load_config
+from knowledge_foundry.retrieval.config import corpora, load_config
 from knowledge_foundry.retrieval.provenance import graph_path
-from knowledge_foundry.retrieval.service import DocumentAssistant
+from knowledge_foundry.assistant.bindings import KnowledgeBinding
+from knowledge_foundry.assistant.service import Assistant
 from knowledge_foundry.storage.postgres import PostgresStore
 
 
@@ -22,12 +23,15 @@ def show_graph(path):
     st.iframe(path, height=700, alt='Knowledge provenance graph')
 
 
-def render_answer(message, store, session_id, token):
+def render_answer(message, store, session_id, token, *, feedback=True):
     answer, mid = message['payload'], message['id']
     labels = {e['label'] for e in answer.get('citations', [])}
     # Extractive source text is displayed literally; generated Markdown links are
     # constructed only for labels already resolved by application code.
-    if answer.get('status') == 'inventory':
+    unified = 'parts' in answer
+    if unified:
+        render_parts(answer, mid)
+    elif answer.get('status') == 'inventory':
         st.text(message['content'])
         st.caption('Document inventory from the selected snapshot metadata, with the current source filter.')
     elif answer.get('status') == 'extractive':
@@ -43,9 +47,12 @@ def render_answer(message, store, session_id, token):
             st.warning(answer['knowledge_label'])
         if answer.get('clarification'):
             st.text(answer['clarification'])
-        st.caption('Les étapes symboliques sont contrôlées sous les hypothèses fournies. '
+        if answer.get('status') == 'reasoned' and reasoning.get('status') == 'asserted':
+            st.caption('Assertions de la source correspondantes ; aucune nouvelle déduction.' if french else
+                       'Matching source assertions; no new deduction.')
+        st.caption('Les certificats contrôlent les étapes symboliques sous les hypothèses fournies. '
                    'La vérité des sources et la rédaction du modèle ne sont pas certifiées.' if french else
-                   'Symbolic steps are checked under supplied assumptions. '
+                   'Certificates check symbolic steps under supplied assumptions. '
                    'Source truth and model wording are not certified.')
         if reasoning.get('jurisdiction'):
             st.caption(('Périmètre de la source : ' if french else 'Source scope: ') +
@@ -62,19 +69,20 @@ def render_answer(message, store, session_id, token):
                      'execution': answer.get('retrieval', {}).get('execution'),
                      'semantic_checks': answer.get('retrieval', {}).get('semantic_checks'),
                      'telemetry': answer.get('telemetry')})
-    elif answer.get('status') != 'inventory':
+    elif not unified and answer.get('status') != 'inventory':
         st.caption('Exact source excerpts · no generated synthesis' if answer.get('status') == 'extractive' else
                    'Draft answer · review the cited passages before relying on it')
     telemetry = answer.get('telemetry', {})
-    st.caption(f"Model: {telemetry.get('model', 'unknown')} · {telemetry.get('total_latency_seconds', '?')} s · "
-               f"Estimated answer cost: {telemetry.get('estimated_cost_usd')} USD")
+    if not unified:
+        st.caption(f"Model: {telemetry.get('model', 'unknown')} · {telemetry.get('total_latency_seconds', '?')} s · "
+                   f"Estimated answer cost: {telemetry.get('estimated_cost_usd')} USD")
     with st.expander('Documents and snapshot' if answer.get('status') == 'inventory' else
-                     'Sources et extraits originaux' if french else 'Sources and exact passages', expanded=True):
+                     'Sources et extraits originaux' if french else 'Sources and exact passages', expanded=not unified):
         citations = answer.get('citations', [])
         if answer.get('status') == 'inventory':
             st.dataframe(answer['documents'], hide_index=True, width='stretch',
                          column_config={'uri': st.column_config.LinkColumn('Source')})
-        elif not citations:
+        elif not citations and not any(p.get('outcome') == 'inventory' for p in answer.get('parts', [])):
             st.info('No supporting citations were available or citation validation failed.')
         for e in citations:
             anchor = f'evidence-{mid}-{e["label"]}'
@@ -98,14 +106,16 @@ def render_answer(message, store, session_id, token):
                          'original_chunk_ids': e['original_chunk_ids'], 'location': e['location']})
         for warning in answer.get('retrieval', {}).get('warnings', []) + answer.get('warnings', []):
             st.warning(warning)
-        if reasoning is None:
+        if reasoning is None and not unified:
             with st.expander('Request and retrieval details'):
                 st.json({'telemetry': telemetry, 'retrieval': {k: v for k, v in answer.get('retrieval', {}).items() if k != 'evidence'}})
-        else:
+        elif reasoning is not None:
             context = [c for c in reasoning.get('citations', []) if c.get('role') == 'governing_context']
             for citation in context:
-                st.caption('Contexte original' if french else 'Original governing context')
+                st.caption(citation['label'] + ' · ' + ('Contexte original' if french else 'Original governing context'))
                 st.code(citation['text'], language=None, wrap_lines=True)
+    if not feedback:
+        return
     comment = st.text_input('Optional feedback', key=f'comment-{mid}', max_chars=2000)
     up, down = st.columns(2)
     for column, rating, label in [(up, 1, 'Helpful'), (down, -1, 'Needs work')]:
@@ -114,151 +124,212 @@ def render_answer(message, store, session_id, token):
             st.success('Feedback saved')
 
 
+def render_parts(answer, mid):
+    targets = {}
+    labels_by_id = {row['id']: row['label'] for row in answer['citations']}
+    for row in answer['citations']:
+        uri = row['source']['uri']
+        if urlparse(uri).scheme in {'http', 'https'}:
+            targets[row['label']] = uri
+        else:
+            targets[row['label']] = '#evidence-' + mid + '-' + row['label']
+    for index, part in enumerate(answer['parts'], 1):
+        if len(answer['parts']) > 1:
+            st.caption(f"{index}. {part.get('question', '')}")
+        if part.get('verbatim'):
+            if part.get('coverage_fallback'):
+                st.info('Le résultat contrôlé demandé reste non établi ; ces passages apportent seulement un contexte documentaire.'
+                        if answer['language'] == 'fr' else
+                        'The requested checked result remains unestablished; these passages provide documentary background only.')
+            # Keep source bytes literal and attach the final label by evidence
+            # identity. Retrieval labels embedded in the saved excerpt string
+            # may predate multipart renumbering and are not citation links.
+            for row in part['citations']:
+                label = labels_by_id[row['id']]
+                st.text(row['text'])
+                st.markdown(f'[{label}]({targets[label]})')
+        else:
+            labels = set(part['citation_labels'])
+            st.markdown(re.sub(r'\[(E\d+)\]', lambda m:
+                f'[{m[1]}]({targets[m[1]]})' if m[1] in labels else m[0], part['display_text']))
+        if part.get('documents') is not None:
+            st.dataframe(part['documents'], hide_index=True, width='stretch',
+                         column_config={'uri': st.column_config.LinkColumn('Source')})
+        proof = part.get('retrieval', {}).get('reasoning')
+        if part.get('support') == 'accepted_source_assertions':
+            st.caption('Assertions de la source ; aucune nouvelle déduction.' if answer['language'] == 'fr' else
+                       'Source assertions; no new deduction.')
+        if part.get('support') == 'checked_deduction':
+            st.caption('Déduction contrôlée sous les prémisses et règles indiquées.' if answer['language'] == 'fr' else
+                       'Checked deduction under the stated premises and rules.')
+        if proof and part.get('status') == 'supported':
+            with st.expander(('Détails de la preuve' if answer['language'] == 'fr' else 'Proof details') + f' · {index}'):
+                st.caption('Certificates check symbolic steps under supplied assumptions, not source truth or current legal applicability.')
+                st.json(proof)
+    if not answer['parts']:
+        st.text(answer['text'])
+    with st.expander('Diagnostics', expanded=False):
+        st.caption('Saved checks describe the original turn; reopening does not re-run providers.')
+        st.json({'orchestration': answer.get('orchestration'), 'bindings': answer.get('bindings'),
+                 'filters': answer.get('filters'), 'checks': [p.get('checks') for p in answer['parts']],
+                 'usage_and_timing': answer.get('telemetry')})
+
+
+def legacy_history(store, token):
+    with st.sidebar.expander('Previous conversations', expanded=False):
+        try:
+            rows = store.legacy_conversations(token)
+        except Exception:
+            st.caption('Previous history is unavailable.')
+            return False
+        choices = {r['id']: r for r in rows}
+        selected = st.selectbox('Open previous history', [None, *choices],
+            key='assistant-poc-legacy',
+            format_func=lambda cid: 'Select a previous conversation' if cid is None else
+                str(choices[cid]['created_at'])[:16] + ' · ' + cid[:8])
+    if not selected:
+        return False
+    row = choices[selected]
+    st.info('Previous conversation · read-only · original provenance retained. Create or select a conversation to continue in Assistant.')
+    with st.expander('Original provenance'):
+        st.json(row)
+    for message in store.history(selected, token, row['snapshot_id'], row['assistant_mode']):
+        with st.chat_message(message['role']):
+            if message['role'] == 'user':
+                st.text(message['content'])
+            else:
+                render_answer(message, store, selected, token, feedback=False)
+    return True
+
+
+def select_conversation():
+    st.session_state['assistant-poc-legacy'] = None
+    selected = st.session_state.get('assistant-poc-conversation')
+    if selected:
+        st.query_params['conversation_id'] = selected
+
+
 def main():
-    st.set_page_config(page_title='Knowledge Foundry · Assistants', page_icon='📚', layout='wide')
-    assistant_name = st.sidebar.selectbox('Assistant', ['Document assistant', 'Reasoning assistant'])
-    assistant_mode = 'reasoning' if assistant_name == 'Reasoning assistant' else 'document'
-    st.sidebar.caption('Document assistant finds original passages and can draft answers. '
-                       'Reasoning assistant interprets French/English questions over reviewed facts and rules, then checks evidence and deductions.')
-    st.title(assistant_name)
-    st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
-    config_path = os.environ.get('KF_RETRIEVAL_CONFIG')
-    config = load_config(config_path)
-    if not config_path:
-        config['search'].update(method='vector', mode='passage-and-claim')
-    if config['answer']['provider'] == 'openai' and not os.environ.get('OPENAI_API_KEY'):
-        config['answer']['provider'] = 'extractive'
-        config['search']['method'] = 'keyword'
-        st.info('OPENAI_API_KEY is not configured. Using keyword search and source excerpts.')
-    try:
-        store = PostgresStore()
-        snapshots = [s for s in store.snapshots() if s['status'] == 'published']
-    except Exception:
-        st.error('PostgreSQL is unavailable or migrations have not run. Follow doc/aml-cft-pipeline.md.')
-        st.stop()
-    if not snapshots:
-        st.info('No published snapshots. Import validated artifacts, then explicitly publish the snapshot.')
-        st.stop()
-    definitions = corpora(os.environ.get('KF_CORPORA_CONFIG'))
-    corpus = st.sidebar.selectbox('Corpus', sorted({s['corpus'] for s in snapshots}),
-                                  format_func=lambda c: definitions.get(c, {}).get('title', c))
-    choices = [s for s in snapshots if s['corpus'] == corpus]
-    choices.sort(key=lambda s: not s.get('active'))
-    selected_id = st.sidebar.selectbox('Published snapshot', [s['id'] for s in choices],
-        format_func=lambda sid: ('Active · ' if next(s for s in choices if s['id'] == sid).get('active') else 'Previous · ') + sid[-12:])
-    snapshot = next(s for s in choices if s['id'] == selected_id)
-    with st.sidebar.expander('Snapshot provenance'):
-        st.write('Chunk build: ' + snapshot['identity']['chunk_build_id'])
-        st.write('Snapshot: ' + selected_id)
-    st.sidebar.caption('Publication selects an index version; it does not approve source content or draft claims.')
-    method = st.sidebar.selectbox('Search', ['keyword', 'vector', 'combined'],
-        index=['keyword', 'vector', 'combined'].index(config['search']['method']),
-        help='Vector and combined search use query embeddings and require OPENAI_API_KEY.')
-    mode = st.sidebar.selectbox('Retrieve via', MODES, index=MODES.index(config['search']['mode']))
-    all_coverage = store.vector_coverage(selected_id)
-    kinds = ('passage', 'claim') if mode == 'passage-and-claim' else (mode,)
-    coverage = {key: sum(all_coverage.get(kind, {}).get(key, 0) for kind in kinds)
-                for key in ('records', 'vectors')}
-    st.sidebar.caption(f"{mode.title()}: {coverage['records']} records · {coverage['vectors']} with vectors")
-    if method != 'keyword' and coverage['vectors'] < coverage['records']:
-        st.sidebar.warning('Vector coverage is incomplete. Reimport with --embed-missing, or use keyword search.')
-    config['answer']['provider'] = st.sidebar.selectbox('Answer mode', ['extractive', 'openai'],
-        index=['extractive', 'openai'].index(config['answer']['provider']),
-        format_func=lambda p: 'Source excerpts' if p == 'extractive' else 'Generated answer (OpenAI)')
-    if config['answer']['provider'] == 'openai':
-        st.sidebar.caption('Generated answers require OPENAI_API_KEY and may incur API costs.')
-    source_map = {s['id']: s['title'] + ' · ' + s['version'] for s in snapshot['identity'].get('sources', [])}
-    source_ids = st.sidebar.multiselect('Source filter', list(source_map), format_func=lambda s: source_map[s])
-    graph = graph_path(snapshot, definitions.get(corpus, {}))
-    if graph and st.sidebar.button('Open provenance graph'):
-        show_graph(graph)
+    st.set_page_config(page_title='Knowledge Foundry · Assistant', page_icon='📚', layout='wide')
+    st.title('Assistant')
+    st.caption('Knowledge Foundry · source-backed answers and checked reasoning')
+    st.info('Experimental POC · Coverage is limited. Some questions may remain unsupported. '
+            'Source editions do not establish current legal applicability.')
     token = st.query_params.get('chat_token')
     if not token or len(token) < 32:
         token = secrets.token_urlsafe(32)
         st.query_params['chat_token'] = token
-    st.sidebar.caption('This local demo uses a private history token in the URL. Keep the URL private to retain your history.')
-    conversation_key = 'conversation-' + assistant_mode + '-' + selected_id
-    if st.sidebar.button('New conversation / reset'):
-        st.session_state[conversation_key] = store.new_session(selected_id, token, assistant_mode)
+    st.sidebar.caption('Keep this private URL to reopen your conversations. The history token controls access.')
+    try:
+        store = PostgresStore()
+        default_binding = KnowledgeBinding.load(os.environ.get('KF_ASSISTANT_POC_CONFIG'))
+        full, _ = default_binding.snapshots(store)
+    except Exception:
+        st.error('The pinned knowledge configuration or PostgreSQL is unavailable. No alternative snapshot was selected.')
+        st.stop()
+    if os.environ.get('KF_ASSISTANT_POC_ENABLED') != '1':
+        legacy_history(store, token)
+        st.warning('The unified Assistant is implemented locally and awaits scoped application migration and activation approval.')
+        st.stop()
+    try:
+        conversations = store.assistant_conversations(token)
+    except Exception:
+        st.error('Assistant conversation storage is not installed. Apply the approved POC migration before activation.')
+        st.stop()
+    if st.sidebar.button('New conversation', type='primary'):
+        cid = store.new_assistant_conversation(token, default_binding.value)
+        st.session_state['assistant-poc-conversation'] = cid
+        st.session_state['assistant-poc-legacy'] = None
+        st.query_params['conversation_id'] = cid
         st.rerun()
-    sessions = store.sessions(selected_id, token, assistant_mode)
-    if not sessions:
-        store.new_session(selected_id, token, assistant_mode)
-        sessions = store.sessions(selected_id, token, assistant_mode)
-    session_id = st.sidebar.selectbox('Conversation history', [s['id'] for s in sessions], key=conversation_key,
-                                      format_func=lambda sid: sid[:8])
-    st.info('Reviewed source descriptions only. Proofs check deductions under supplied rules; '
-            'they do not establish source truth or current legal applicability.' if assistant_mode == 'reasoning' else
-            'Draft document assistance. Source capture dates do not establish legal effectiveness. '
-            'Claims and summaries only help locate original passages.')
-    if assistant_mode == 'document' and config['answer']['provider'] == 'extractive':
-        st.caption('Extractive demo: answers show exact source excerpts. Configure the OpenAI provider for generated answers.')
-    pending, intent = None, None
-    if assistant_mode == 'document' and st.button('Documents in corpus'):
-        pending, intent = 'Documents in corpus', 'document_inventory'
-    suggestions = definitions.get(corpus, {}).get('suggested_questions', []) if assistant_mode == 'document' else []
-    if assistant_mode == 'reasoning':
-        st.caption('Posez votre question en français ou en anglais. Les suggestions suivent le même traitement. '
-                   'Answers are limited to the selected knowledge and supported operations. '
-                   'Reasoning uses separate interpretation/explanation model settings and complete proof evidence; '
-                   'search/answer preferences above apply to Document assistant.')
-        if not os.environ.get('OPENAI_API_KEY'):
-            st.warning('Reasoning requires OPENAI_API_KEY for interpretation and explanation. Document assistant remains available.')
-        try:
-            from knowledge_foundry.reasoning.catalogue import DEFAULT_DATASET, load_dataset, resolve_checker
-            dataset_path = os.environ.get('KF_REASONING_DATASET', str(DEFAULT_DATASET))
-            dataset = load_dataset(dataset_path)
-            if not os.access(resolve_checker(), os.X_OK):
-                st.warning('Proof checker is unavailable. Follow the checker installation in doc/assistants.md, then retry.')
-            with st.expander('Suggested questions', expanded=True):
-                for entry in dataset['catalogue']['questions']:
-                    if st.button(entry['question'], key='reasoning-' + entry['id']):
-                        pending = entry['question']
-        except Exception:
-            st.warning('Reasoning dataset is unavailable or failed review validation. Document assistant remains available.')
-    if suggestions:
-        with st.expander('Suggested questions', expanded=True):
-            for i, question in enumerate(suggestions):
-                if st.button(question, key=f'suggest-{i}'):
-                    pending = question
-    for message in store.history(session_id, token, selected_id, assistant_mode):
-        with st.chat_message(message['role']):
-            if message['role'] == 'user':
-                st.write(message['content'])
-            else:
-                render_answer(message, store, session_id, token)
-    question = st.chat_input('Ask a question about the selected sources') or pending
-    if question:
-        with st.chat_message('user'):
-            st.write(question)
-        with st.chat_message('assistant'):
-            st.caption('Checking reviewed premises, original citations and certificate' if assistant_mode == 'reasoning' else
-                       'Retrieving evidence · streamed text is an unvalidated draft until complete')
-
-            def chunks():
-                # Document mode is independent of optional reasoning setup.
-                document_config = {**config, 'reasoning': {'enabled': False}}
-                assistant = DocumentAssistant(store, document_config)
-                for event in assistant.stream(corpus, question, token=token, session_id=session_id,
-                                              snapshot_id=selected_id, method=method, mode=mode,
-                                              source_ids=source_ids or None, intent=intent, assistant_mode='document'):
-                    if event['type'] == 'delta':
-                        yield event['text']
-
+    choices = {c['id']: c for c in conversations}
+    if choices:
+        requested = st.query_params.get('conversation_id')
+        unavailable = bool(requested and requested not in choices)
+        if requested in choices:
+            # Restore the owned URL selection before constructing its widget.
+            # A new conversation's label changes when its first turn is saved.
+            st.session_state['assistant-poc-conversation'] = requested
+        elif unavailable:
+            st.warning('The requested conversation is unavailable for this private URL. Select or create a conversation.')
+            st.session_state['assistant-poc-conversation'] = None
+        selected = st.sidebar.selectbox('Conversations', [None, *choices] if unavailable else list(choices),
+            index=0,
+            key='assistant-poc-conversation',
+            on_change=select_conversation, format_func=lambda cid:
+                'Select a conversation' if cid is None else
+                (choices[cid]['title'] or 'New conversation')[:65] + ' · ' + cid[:8])
+        if selected is None and requested in choices:
+            selected = requested
+        if selected:
+            st.query_params['conversation_id'] = selected
             try:
-                if assistant_mode == 'reasoning':
-                    from knowledge_foundry.reasoning.assistant import ReasoningAssistant
-                    ReasoningAssistant(store, config, dataset_dir=dataset_path,
-                        checker=os.environ.get('OO_HORN'), output_dir=os.environ.get('KF_REASONING_OUTPUT')).ask(
-                            corpus, question, token=token, session_id=session_id, snapshot_id=selected_id,
-                            source_ids=source_ids or None)
+                binding = KnowledgeBinding(choices[selected]['binding'])
+                full, _ = binding.snapshots(store)
+            except Exception:
+                st.error('This conversation’s original knowledge binding is unavailable. No other snapshot was selected.')
+                st.stop()
+        else:
+            binding = default_binding
+    else:
+        selected, binding = None, default_binding
+        st.sidebar.caption('Create a conversation or ask your first question.')
+    binding_key = 'assistant-poc-binding-' + binding.digest
+    if binding_key not in st.session_state:
+        st.session_state[binding_key] = binding
+    binding = st.session_state[binding_key]
+    if legacy_history(store, token):
+        st.stop()
+    with st.sidebar.expander('Sources and documents', expanded=False):
+        source_map = {s['id']: s['title'] + ' · ' + s['version'] for s in full['identity']['sources']}
+        doc_map = {d['id']: source_map[d['source_id']] + ' · ' + d['id'][-8:] for d in full['identity']['documents']}
+        scope_key = selected or 'new'
+        source_ids = st.multiselect('Source filter', list(source_map), format_func=source_map.get,
+                                   key='assistant-poc-source-' + scope_key)
+        document_ids = st.multiselect('Document filter', list(doc_map), format_func=doc_map.get,
+                                     key='assistant-poc-document-' + scope_key)
+        st.caption('Both filters apply to every answering capability. Empty selection means the full pinned scope.')
+        st.json(binding.value)
+    definitions = corpora(os.environ.get('KF_CORPORA_CONFIG'))
+    graph = graph_path(full, definitions.get(full['corpus'], {}))
+    if graph and st.sidebar.button('Open provenance graph'):
+        show_graph(graph)
+    config = load_config(os.environ.get('KF_RETRIEVAL_CONFIG'))
+    if not os.environ.get('OPENAI_API_KEY') and config['answer']['provider'] == 'openai':
+        config['answer']['provider'] = 'extractive'
+        st.caption('Language service is not configured. Standalone questions show exact source excerpts; follow-ups may require clarification.')
+    if selected:
+        for message in store.assistant_history(selected, token, binding.value):
+            with st.chat_message(message['role']):
+                if message['role'] == 'user':
+                    st.text(message['content'])
                 else:
-                    st.write_stream(chunks())
-            except Exception as exc:
-                # Do not expose database connection strings or provider payloads.
-                st.error('The request could not complete. Check the selected mode, configured embeddings, API key and request budgets.')
-                if isinstance(exc, ValueError):
-                    st.caption(str(exc))
+                    render_answer(message, store, selected, token, feedback=False)
+    inventory_request = st.button('Documents in corpus')
+    question = st.chat_input('Ask a question · Posez votre question',
+                             max_chars=config['budget']['max_question_tokens'] * 8)
+    if inventory_request:
+        question = 'Documents in corpus'
+    if question:
+        if selected is None:
+            selected = store.new_assistant_conversation(token, binding.value)
+            st.session_state['assistant-poc-source-' + selected] = source_ids
+            st.session_state['assistant-poc-document-' + selected] = document_ids
+            st.query_params['conversation_id'] = selected
+        with st.chat_message('user'):
+            st.text(question)
+        with st.chat_message('assistant'):
+            try:
+                with st.status('Checking sources and preparing your answer', expanded=False) as status:
+                    Assistant(store, config, binding, checker=os.environ.get('OO_HORN'),
+                        output_dir=os.environ.get('KF_REASONING_OUTPUT'),
+                        progress=lambda text: status.update(label=text)).ask(
+                            question, token=token, conversation_id=selected,
+                            source_ids=source_ids or None, document_ids=document_ids or None,
+                            intent='document_inventory' if inventory_request else None)
+                    status.update(label='Answer checked and saved', state='complete')
+            except Exception:
+                st.error('The request could not complete. Check conversation access, pinned snapshots and configured limits. No automatic retry was made.')
                 st.stop()
         st.rerun()
 
