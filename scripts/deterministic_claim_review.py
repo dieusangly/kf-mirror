@@ -191,7 +191,6 @@ def _source_context(bundle, manifest_path, source_root):
 def _samples(context, sources, count):
     bundle, candidates, outcomes = context['bundle'], context['candidates'], context['outcomes']
     elements = {e['id']: e for e in bundle['elements']}
-    chunks = {c['id']: c for c in bundle['chunks']}
     order = {c['id']: i for i, c in enumerate(bundle['chunks'])}
     claims_by_chunk = defaultdict(list)
     rows = []

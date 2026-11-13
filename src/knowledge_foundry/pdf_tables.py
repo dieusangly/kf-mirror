@@ -319,7 +319,7 @@ def open_field_cells(native_cells, characters, geometry, box):
             len({c['row'] for c in native_cells}) < 3 or
             any(c['row_span'] != 1 or c['col_span'] != 1 or c.get('bbox') is None for c in native_cells)):
         return None
-    horizontal, vertical = table_rulings(geometry, box)
+    _, vertical = table_rulings(geometry, box)
     height = box[3] - box[1]
     columns = [x for x in _cluster([p for p, _, _ in vertical])
                if _coverage(vertical, x, box[1], box[3]) >= height - 4]

@@ -8,8 +8,6 @@ from pathlib import Path
 
 
 RECORD_TYPES = ("sources", "documents", "elements", "chunks", "claims", "topics")
-GROUPS = ("topic", "claim", "candidate", "summary", "summary_cluster", "semantic_cluster", "structural_chunk",
-          "chunk", "element", "document", "source")
 
 
 def _short(value, limit=72):

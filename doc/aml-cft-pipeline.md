@@ -2,7 +2,11 @@
 
 Run from the repository root. The pilot selects 13 originals in
 `data/manifest.json` (11 PDFs / 801 pages, two HTML articles).
-Results belong in [benchmarks](benchmarks.md); adapter details in [providers](providers.md).
+For a published corpus, go to [assistant startup](#8-run-the-document-assistant).
+To index saved outputs, set `RUN` to their directory and start at
+[PostgreSQL import](#7-rebuild-the-postgresql-search-projection), after the review
+gates below pass. Rebuild only the stages needed for changed inputs or settings.
+See [benchmarks](benchmarks.md) for results and [providers](providers.md) for adapters.
 
 ## 1. Install and select inputs
 
@@ -20,8 +24,8 @@ Ingest only for new source bytes/provenance; omit this for the retained snapshot
 .venv/bin/python scripts/ingest.py --config config/pipeline.json --output-dir artifacts/ingested
 ```
 
-Use a fresh run ID per provider/configuration execution (Europe/Paris date).
-Pin the snapshot rather than the changing `artifacts/ingested/report.json`:
+Use a fresh run ID per provider/configuration execution (Europe/Paris date);
+the example below names the retained run. Pin the ingestion snapshot:
 
 ```sh
 PROFILE=docling  # or unstructured (hi_res)
@@ -54,17 +58,17 @@ needs only `chunk.py` and saved parsing; preserve prior outputs.
 
 Follow the [review prompt](../src/knowledge_foundry/prompts/agent_prompt_document_structuring_review)
 with `RUN_ID`, `MODEL` and `MODEL_REASONING_EFFORT` matching the saved run and
-actual session. Codex orchestrates **prepare → inspect → finalize**; script
-checks/scoring are deterministic and make no model calls.
+actual session. The workflow is **prepare → inspect → finalize**; scripts make
+no model calls.
 
 ```sh
 .venv/bin/python scripts/deterministic_document_structuring_review.py prepare --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
 ```
 
-Prepare audits extraction/chunks, preserving judgments in `parsing-review/` and
-`chunk-review/` and refreshing stale empty templates. Stale files with findings
-require fresh `--parsing-review-dir` / `--chunk-review-dir` paths; reuse those
-paths for finalize.
+Prepare audits extraction/chunks and preserves judgments in `parsing-review/`
+and `chunk-review/`. Stale empty templates are refreshed; stale files with
+findings require fresh `--parsing-review-dir` / `--chunk-review-dir` paths,
+also used for finalize.
 
 Inspect every `to_review` sample against original sources and rendered layout
 under the prompt's completion rule. Save judgments, located notes and reviewer
@@ -75,30 +79,25 @@ or documented inspection blocker; automatic passes cannot replace inspection.
 .venv/bin/python scripts/deterministic_document_structuring_review.py finalize --run-id "$RUN_ID" --required-pages tests/fixtures/parsing-expanded-review-pages.json
 ```
 
-Finalize reruns checks and scores both reviews. It writes acceptance for the exact
-frozen output only when both gates pass; pending/failing results return exit 1,
-and invalidate any prior acceptance. Invalid inputs return exit 2. It never
-reparses or rechunks. For defects, use the
+Finalize reruns checks and accepts the exact frozen output only when both gates pass.
+Pending/failing results return exit 1 and invalidate prior acceptance; invalid
+inputs return exit 2. It never reparses or rechunks. For defects, use the
 [repair prompt](../src/knowledge_foundry/prompts/agent_prompt_repair_failed_review_findings)
-for diagnosis, corrections, focused regressions and reporting. Rebuilding from
-the recommended checkpoint and source/layout review are separate tasks; repair
-completion does not grant corpus acceptance.
+and then rebuild and review the affected output. Repair completion alone does
+not grant acceptance.
 
 The combined report is `document-structuring/document_structuring_review_report.json`;
-checkpoint folders retain their own `report.json`. The standalone claim evaluator
-defaults to `claim_review_report.json` in its classified directory. Both commands
-accept `--output` to select another report path.
+checkpoint folders retain their own `report.json`. Use `--output` for another path.
 
 ## 4. Generate semantic clusters, claims and recursive summaries (paid)
 
-Requires accepted structure and `OPENAI_API_KEY`; these commands make paid calls.
-Claims/topics and summaries are independent branches:
+Requires accepted structure and `OPENAI_API_KEY`. Claims/topics and summaries
+are independent branches; these commands make paid calls.
 
-Claims distinguish primary cluster evidence (`E`) from exact-span support (`S`):
-governing context, bounded neighbors and same-page notes from saved chunks.
-Support counts toward request size and may qualify claims, but cannot create
-them alone or expand primary coverage. Proximity does not establish applicability;
-spanless context remains non-citable.
+Claims use primary cluster evidence (`E`). Exact-span support (`S`) adds governing
+context, bounded neighbors and same-page notes. It counts toward request size and
+may qualify claims, but cannot create them alone or expand primary coverage.
+Proximity does not establish applicability; spanless context is non-citable.
 
 ```sh
 .venv/bin/python scripts/build_semantic_clusters.py --chunked-dir "$RUN/document-structuring/chunks" --output-dir "$RUN/semantic-clustering"
@@ -113,20 +112,18 @@ Claim and summary generation have no operational input cap; their complete reque
 must fit the configured model context window after output reservation and safety
 margin.
 
-Clustering, generation, classification and summaries default to four workers per
-command; use `--workers N` or `--workers 1` for serial execution. Clustering
-parallelizes singleton sizing, independent counts and final checks while keeping
-adaptive decisions deterministic and reusing cached embeddings. Classification
-requires complete generation; summaries run independently, parallel within each level.
+Each command defaults to four workers; use `--workers N` (`1` for serial execution).
+Clustering reuses cached embeddings and keeps adaptive decisions deterministic.
+Classification requires complete generation; summaries parallelize within each level.
 
-Identical candidate IDs are stored once, retaining every producing cluster link
-and its evidence accounting. Different wording or evidence remains separate.
+Identical candidate IDs retain all producing cluster links and evidence accounting;
+different wording or evidence remains separate.
 
 ### Resume and retry
 
-Stop the previous process before restarting. Keep inputs, settings, prompts,
-selection/reuse flags and taxonomy unchanged; concurrency can change. Saved
-successes are reused after validation; unsaved in-flight requests may repeat.
+Stop the previous process first. Resume requires unchanged inputs, settings,
+prompts, selection/reuse flags and taxonomy; worker count may change. Validated
+successes are reused; unsaved in-flight requests may repeat.
 
 For **interrupted claims or classification**, keep the output folder and add `--resume`:
 
@@ -145,26 +142,22 @@ candidates consumed by the old classification.
 .venv/bin/python scripts/classify_claims.py --candidates-dir "$RUN/claim-generation" --reuse-classification-from "$RUN/claim-classification" --reuse-candidates-dir "$RUN/claim-generation" --output-dir "$RUN/claim-classification-retry"
 ```
 
-For **interrupted summaries**, rerun with the same cache and an absent output folder;
-there is no `--resume` flag. Preserve the cache (default `artifacts/summary-cache`).
-To reuse the original output path, first archive or remove only its failed folder.
+For **interrupted summaries**, use the same cache and a fresh output folder;
+there is no `--resume` flag. The default cache is `artifacts/summary-cache`.
+Archive the failed folder before reusing its path.
 
 ```sh
 .venv/bin/python scripts/generate_summaries.py --context-dir "$RUN/semantic-clustering" --output-dir "$RUN/summary-generation-retry" --cache-dir artifacts/summary-cache
 ```
 
-For claim defects, use the repair workflow in section 3, then separately rebuild
-and review the affected claims.
-
-After a generation prompt, schema or source-context change, rebuild semantic
-clustering from the accepted chunks to recompute request sizes, then regenerate
-and reclassify. The same run ID can be reused: first move the superseded
-`semantic-clustering`, `claim-generation`, `claim-classification` and `claim-review`
-directories together into a timestamped `RUN/history/` directory, recording the
-repair reason. Rebuild into the now-empty canonical stage paths; do not resume
-old outputs with changed settings. Keep accepted Document Structuring outputs
-and the independent summary branch. A taxonomy-only repair can reclassify saved
-candidates, followed by a fresh review of that exact output.
+For claim defects, follow the repair prompt in section 3. A generation prompt,
+schema or source-context change requires rebuilding semantic clustering from
+accepted chunks, then regenerating and reclassifying. To reuse the run ID,
+archive `semantic-clustering`, `claim-generation`, `claim-classification` and
+`claim-review` together under timestamped `RUN/history/`, recording the reason.
+Rebuild into empty stage paths; preserve accepted structure and the independent
+summary branch. A taxonomy-only change can reclassify saved candidates. Review
+the resulting output in either case.
 
 ## 5. Review generated claims
 
@@ -183,6 +176,8 @@ against the saved sources, then evaluate its judgments:
 
 Continue only when both automatic and source-review gates pass. Retain earlier
 findings; initialization refuses to overwrite an existing review file.
+Without `--output`, the report defaults to `claim_review_report.json` in the
+classified directory.
 
 ## 6. Build the knowledge provenance graph
 
@@ -192,21 +187,26 @@ Include generated candidates, semantic clusters and recursive summaries:
 .venv/bin/python scripts/render_knowledge_graph.py --bundle "$RUN/claim-classification/artifact-bundle.json" --claim-generation-dir "$RUN/claim-generation" --summary-dir "$RUN/summary-generation" --output "$RUN/graphs/knowledge-provenance-graph.html"
 ```
 
-The renderer creates parent directories and replaces existing HTML. Open it in a
-browser; the run-level graph covers all artifact stages. Section 8 registers it
-for the assistant, which checks the claims manifest against the selected snapshot.
+The renderer creates parent directories and replaces existing HTML. Section 8
+registers the graph for the assistant, which checks its claims manifest against
+the selected snapshot.
 
 ## 7. Rebuild the PostgreSQL search projection
 
-Set `KF_DATABASE_URL` for an existing PostgreSQL database; see
-[.envrc.example](../.envrc.example). Migrations create repository tables and the
-pgvector extension, which must be installed and permitted for the database role.
+Configure `KF_DATABASE_URL` in `.envrc` using
+[.envrc.example](../.envrc.example), then load it in the launching shell.
+PostgreSQL must already exist with pgvector available and permitted for the role;
+migrations create the application tables and extension.
 
-Import creates an immutable snapshot or reuses an identical one, retaining older
-snapshots and conversation history. `--embed-missing` may make paid calls for
-records without compatible vectors; omit it to avoid new embedding calls.
+Import validates saved artifacts and creates or reuses an immutable snapshot,
+preserving older snapshots and conversation history. Validation can take several
+minutes. `--embed-missing` reuses cached vectors and may make paid calls for misses.
+For cached embeddings only, prefix the import command with `OPENAI_API_KEY=`;
+omitting `--embed-missing` keeps only vectors already exported in the artifacts.
+Preserve earlier import and evaluation reports when choosing output paths.
 
 ```sh
+source .envrc
 CORPUS=aml-cft-pilot-13
 export KF_RETRIEVAL_CONFIG=config/retrieval-multilingual.json
 .venv/bin/python scripts/index_artifacts.py migrate
@@ -230,72 +230,31 @@ vector/combined search can make paid query-embedding calls:
   --output "$RUN/retrieval-evaluation/123q-20261103/retrieval-report-rerank-four-modes.json"
 ```
 
-The retained [evaluation](retrieval-evaluation-123q-20261103.md) links the complete
-report and checkpoint in `123q-20261103/`. The dataset retains its stable `V2-…`
-question IDs and synthetic, unreviewed labels.
+The retained [evaluation](retrieval-evaluation-123q-20261103.md) links its report,
+checkpoint and synthetic, unreviewed `V2-…` questions. Reports include metrics,
+per-question results, usage, costs and warnings. `--trace` adds evidence and context
+diagnostics; `--check-excerpts` audits retained quotations and citations.
 
-`--workers` defaults to 1; `--sequence` requires 1. Progress goes to stderr
-(`--quiet` suppresses it). Each finished case is saved in a checkpoint directory
-beside the report, replacing its suffix with `.checkpoint`; override with
-`--checkpoint DIR`. Repeat the same command with `--resume` to skip successes
-and retry errors. Snapshot, cases, configuration and evaluation options must match;
-worker count may change. In-flight calls without a saved result may repeat.
-Existing checkpoints require `--resume` or a new path. Reports record `workers`
-and `resumed_cases`; concurrent latency includes contention from other cases.
+Evaluation defaults to one worker; `--sequence` requires one. Checkpoints default
+to the report path with a `.checkpoint` suffix; override with `--checkpoint DIR`.
+Use a fresh path or repeat with `--resume` to reuse successes and retry errors.
+Snapshot, cases, config and evaluation options must match; worker count may change.
+Unsaved in-flight calls may repeat. Progress goes to stderr; `--quiet` suppresses it.
 
-Reports retain metrics, per-question results, usage, costs and warnings. `--trace`
-adds candidate/evidence IDs, passage expansions, context decisions and excerpt
-text. `--check-excerpts` runs the same checks in either format.
+For fused retrieval, use `--mode passage-and-claim` for queries or
+`--modes passage-and-claim` for evaluation. Vector/combined search needs vectors for both
+passages and claims. LLM reranking requires `search.rerank: true` and
+`answer.provider: "openai"`; keyword and `--no-rerank` comparisons remain available.
+See [retrieval.json](../config/retrieval.json) for settings,
+the [retrieval pipeline](../src/knowledge_foundry/retrieval/pipeline.py) for candidate
+merging and budgets, and the [evaluator](../src/knowledge_foundry/retrieval/evaluation.py)
+for metric definitions.
 
-Use `--mode passage-and-claim` for queries, `--modes passage-and-claim` for
-evaluation, or set `search.mode` to `"passage-and-claim"` in
-[retrieval.json](../config/retrieval.json). Keep `search.rerank: true` and
-`answer.provider: "openai"` for shared LLM ranking.
-Both branches search concurrently using one query embedding and the same filters.
-Vector/combined methods require vectors for both record types. Keyword and
-`--no-rerank` comparisons remain available.
-
-Each branch fetches at most `candidate_k` records; the merged pool contains at
-most `candidate_k` unique record IDs, alternating passages and claims in branch
-rank order. Passages receive the extra slot for odd budgets; a sparse branch's
-unused slots go to the other branch. One ranking call admits complete candidates
-within the input/output token budgets and selects at most `top_k` records.
-Without ranking, the merged pool is also limited to `top_k`. Shared evidence
-does not collapse distinct navigation records; resolution deduplicates supporting
-passages before the existing citation and context assembly steps.
-
-Rows include total retrieval `estimated_cost_usd` for query embedding, rewriting
-and ranking. Method/mode metrics add `mean_latency_seconds`, nearest-rank
-`p95_latency_seconds`, `costed_cases` and total `estimated_cost_usd` over completed
-questions. An unpriced stage makes the question's cost unknown; a total is null
-unless every completed question has a known cost. Answer generation is excluded.
-
-Evidence coverage requires every entry in `grounding`, falling back to the
-top-level reference when absent or empty. Each requires its source, any listed
-page (empty means unrestricted), an allowed evidence ID if specified, and all
-text anchors. Anchors normalize Unicode composition, case, whitespace and
-apostrophes. Each must occur within one matching element; different anchors may
-use different elements, and evidence may satisfy multiple groundings.
-
-Rows retain `retrieved_evidence_coverage` and, with `--check-excerpts`,
-`excerpts.evidence_coverage`, in both compact and trace reports. These contain
-required/covered counts, fractional `coverage`, conjunctive `all_groundings_hit`,
-and per-grounding locator/anchor results with missing anchors. Retrieved coverage
-includes context supplied to the answerer; extractive coverage uses retained
-citations, so output-budget omissions can reduce it.
-
-For each method/mode, `retrieved_*` and `extractive_*` metrics report
-`coverage_cases`, `required_groundings`, `covered_groundings`,
-`grounding_coverage` (covered / required across completed questions),
-`all_groundings_hits`, and `all_groundings_hit_rate` (fully covered / completed
-questions). Errors are excluded; inspect `completed`, `cases` and error rows.
-Without excerpt checks, extractive counts are zero and rates/hits are null;
-rates/hits are also null when no questions complete. Existing `hit`,
-`text_anchor_hit` and excerpt anchor metrics keep their top-level semantics.
-
-Coverage measures mechanical reference recovery, not semantic completeness or
-entailment. It does not validate document versions, original hashes, bounding
-boxes or exact source spans.
+Inspect completed/error counts before comparing metrics. Coverage checks require
+all annotated groundings, but measure mechanical reference recovery rather than
+semantic completeness or answer correctness. Reported latency includes worker
+contention; retrieval costs exclude answer generation and are unknown when a
+stage is unpriced.
 
 Publication explicitly selects the snapshot available to the assistant; it does
 not approve every claim or summary:
@@ -307,8 +266,29 @@ not approve every claim or summary:
 
 ## 8. Run the document assistant
 
-Register the run once (or after changing paths) to enable its provenance graph.
-This preserves other configured corpora/runs and does not import or publish data:
+The retained Docling run is already registered in
+[retrieval-corpora.json](../config/retrieval-corpora.json). Once its snapshot is
+published, start the app from a shell with `.envrc` loaded:
+
+```sh
+source .envrc
+.venv/bin/python -m streamlit run apps/chat/app.py
+```
+
+Open `http://localhost:8501` and select the corpus/published snapshot.
+**Open provenance graph** shows lineage. The app inherits `KF_DATABASE_URL` and
+`KF_RETRIEVAL_CONFIG`; `KF_CORPORA_CONFIG` selects another corpus catalog.
+With `OPENAI_API_KEY`, answers and vector/combined search may incur costs;
+without it, the app uses keyword search and exact excerpts.
+
+- **`KF_DATABASE_URL is required`**: load `.envrc` in the same terminal and restart.
+- **Database unavailable or migrations missing**: check the connection and run
+  section 7's migrations.
+- **No published snapshots**: complete import, evaluation and publication in
+  section 7, then refresh the app. Source files on disk alone do not populate it.
+
+For a new or relocated run, register its paths before startup. This preserves
+other catalog entries and does not import or publish data:
 
 ```sh
 .venv/bin/python - "$RUN_ID" "$RUN" "$CORPUS" <<'PYTHON'
@@ -326,20 +306,13 @@ catalog[sys.argv[3]]['runs'][run_id] = {
 }
 path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n')
 PYTHON
-.venv/bin/python -m streamlit run apps/chat/app.py
 ```
-
-Open `http://localhost:8501` and select the corpus/published snapshot.
-**Open provenance graph** shows lineage. The app inherits `KF_DATABASE_URL` and
-`KF_RETRIEVAL_CONFIG`, defaulting to `config/retrieval-corpora.json` for the catalog.
-`OPENAI_API_KEY` enables paid answers and vector/combined search; without it,
-the app uses keyword search and exact excerpts.
 
 ## Back up results and PostgreSQL
 
-Keep the selected run directory, `artifacts/ingested/`, and the repository version
-with its configuration and `data/manifest.json`. Optional embedding and summary
-caches avoid repeated work and paid calls during regeneration.
+Keep the run directory, `artifacts/ingested/`, and the repository version with
+its configuration and `data/manifest.json`. Embedding and summary caches avoid
+repeated work and paid calls.
 
 To preserve all database corpora, snapshots, vectors, chat history and feedback,
 use PostgreSQL client tools compatible with the server:
@@ -352,9 +325,9 @@ pg_dump --dbname="$KF_DATABASE_URL" --format=custom --file="$DUMP"
 pg_restore --list "$DUMP" > /dev/null
 ```
 
-Upload the dump alongside the artifact backup. Listing checks archive readability,
-not a full restore. Restore the original directory layout; saved metadata may
-contain absolute paths. Recreate credentials separately; do not include `.envrc`.
+Store the dump with the artifact backup. Listing checks readability, not a full
+restore. Preserve the original directory layout because metadata may contain
+absolute paths. Recreate credentials separately; exclude `.envrc` from backups.
 
 ## Validate or compare saved runs
 
