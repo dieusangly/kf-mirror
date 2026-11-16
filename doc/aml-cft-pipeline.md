@@ -266,6 +266,11 @@ not approve every claim or summary:
 
 ## 8. Run the document assistant
 
+For the new unified chat with synthetic reasoning, document assistance and general
+explanations, see the separate [reasoning assistant runbook](reasoning-assistant.md).
+Run it with `streamlit run apps/assistant/app.py --server.port 8502` after loading
+`.envrc`. The existing Document Assistant below remains independently available.
+
 The retained Docling run is already registered in
 [retrieval-corpora.json](../config/retrieval-corpora.json). Once its snapshot is
 published, start the app from a shell with `.envrc` loaded:

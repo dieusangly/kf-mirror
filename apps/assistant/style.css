@@ -1,0 +1,223 @@
+/* App-local palette and component system; no effect on the original Document Assistant. */
+:root {
+  color-scheme: dark;
+  --kf-bg: #14181d;
+  --kf-surface: #20262e;
+  --kf-hover: #29333e;
+  --kf-ink: #edf2f7;
+  --kf-muted: #a8b4c2;
+  --kf-accent: #40b8c8;
+  --kf-line: #38434f;
+}
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
+[data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {
+  background: var(--kf-bg);
+  color: var(--kf-ink);
+}
+/* Native bottom wrappers also inherit the active Streamlit theme. */
+[data-testid="stBottom"] > div { background: var(--kf-bg); }
+body { background: var(--kf-bg); }
+[data-testid="stMarkdownContainer"] { color: var(--kf-ink); }
+.stApp, .stApp button, .stApp textarea, .stApp input,
+.stApp p, .stApp h1, .stApp h2, .stApp h3 {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+/* Keep framework navigation, theme controls and developer tools out of the chat. */
+[data-testid="stHeader"], [data-testid="stToolbar"],
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+[data-testid="stMainMenuPopover"], [data-testid="stAppDeployButton"],
+[data-testid="stDecoration"], footer { display: none !important; }
+[data-testid="stMainBlockContainer"] {
+  max-width: none;
+  padding: 2.2rem 2rem 9rem;
+}
+.st-key-app-header {
+  border-bottom: 1px solid var(--kf-line);
+  padding-bottom: 1rem;
+  margin-bottom: 1.75rem;
+}
+.st-key-app-header h1 {
+  color: var(--kf-ink);
+  font-size: 1.4rem;
+  font-weight: 650;
+  letter-spacing: -.025em;
+  padding: 0;
+}
+[data-testid="stCaptionContainer"] { opacity: 1; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--kf-muted); }
+[data-testid="stCaptionContainer"] p { font-size: .82rem; line-height: 1.5; }
+.stApp button {
+  color: var(--kf-ink);
+  background: var(--kf-surface);
+  border-color: var(--kf-line);
+  border-radius: 9px;
+  transition: border-color 150ms, background-color 150ms;
+}
+.stApp button p { font-size: .9rem; font-weight: 550; }
+.stApp button:is(:hover, :focus, :active) {
+  border-color: var(--kf-accent);
+  color: var(--kf-accent);
+  background: var(--kf-hover);
+}
+.stApp button:disabled {
+  color: var(--kf-muted);
+  background: var(--kf-surface);
+  border-color: var(--kf-line);
+}
+.stApp button:focus-visible, .stApp summary:focus-visible {
+  outline: 3px solid var(--kf-accent);
+  outline-offset: 3px;
+}
+.st-key-welcome {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding-top: clamp(3rem, 13vh, 9rem);
+  text-align: center;
+}
+.st-key-welcome h2 {
+  max-width: 1020px;
+  margin: 0 auto;
+  color: var(--kf-ink);
+  font-size: clamp(2rem, 3vw, 3rem);
+  font-weight: 650;
+  letter-spacing: -.04em;
+  line-height: 1.18;
+  padding-bottom: .7rem;
+}
+.st-key-welcome-intro [data-testid="stMarkdownContainer"] > p {
+  color: var(--kf-muted);
+  font-size: 1.1rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.st-key-starters { margin: 1.8rem 0 1rem; }
+.st-key-starters button { min-height: 76px; padding: .9rem .7rem; background: var(--kf-surface); }
+.st-key-starters button p { font-size: 1rem; font-weight: 600; color: var(--kf-ink); }
+.st-key-starters [data-testid="stIconMaterial"] { margin-right: .35rem; font-size: 1.5rem; }
+.st-key-conversation { max-width: 856px; margin: 0 auto; }
+[data-testid="stChatMessage"] {
+  background: transparent;
+  padding: 1.1rem 0;
+  border-radius: 12px;
+  gap: .85rem;
+}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  background: var(--kf-surface);
+  padding: 1.1rem 1.15rem;
+  margin-bottom: .8rem;
+}
+[data-testid="stChatMessageAvatarCustom"] { background: #203940; color: var(--kf-accent); }
+[data-testid="stChatMessageAvatarCustom"] [data-testid="stIconMaterial"] { color: var(--kf-accent); }
+[data-testid="stChatMessageAvatarUser"] { background: #344354; color: var(--kf-ink); }
+[data-testid="stText"] {
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--kf-ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+[data-testid="stText"] > span { font: inherit; color: inherit; }
+[data-testid="stExpander"] details {
+  border: 0;
+  border-bottom: 1px solid var(--kf-line);
+  border-radius: 0;
+  background: transparent;
+}
+[data-testid="stExpander"] summary { color: var(--kf-muted); padding: .7rem .15rem; }
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary:hover,
+[data-testid="stExpander"] summary:focus,
+[data-testid="stExpander"] summary:active,
+[data-testid="stExpander"] details[open] > summary { background: var(--kf-bg); }
+[data-testid="stExpander"] summary [data-testid="stMarkdownContainer"] { color: inherit; }
+[data-testid="stExpander"] summary p { font-size: .85rem; font-weight: 500; }
+[data-testid="stExpanderDetails"] { padding: .6rem .25rem 1rem; }
+[data-testid="stVerticalBlockBorderWrapper"],
+/* Proof cards contain a direct child element with the step's bold heading. */
+[data-testid="stExpanderDetails"] [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] strong) {
+  border-color: var(--kf-line);
+  background: var(--kf-surface);
+}
+[data-testid="stAlert"] { color: var(--kf-ink); }
+[data-testid="stAlertContainer"] { color: var(--kf-ink); background: #223440; }
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+  background: #3b3020;
+  border-left: 3px solid #e5bb78;
+}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+  background: #3b252a;
+  border-left: 3px solid #eea0aa;
+}
+/* Help tooltips are portalled outside the app; keep the same charcoal palette. */
+[role="tooltip"], [data-testid="stTooltipContent"] {
+  color: var(--kf-ink);
+  background: var(--kf-surface);
+  color-scheme: dark;
+}
+[role="tooltip"] {
+  border: 1px solid var(--kf-line);
+  border-radius: 9px;
+  box-shadow: 0 4px 16px #00000030;
+}
+[data-testid="stTooltipContent"] {
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+}
+[role="tooltip"] [data-testid="stMarkdownContainer"],
+[role="tooltip"] [data-testid="stMarkdownContainer"] p { color: var(--kf-ink); }
+[data-testid="stBottomBlockContainer"] { max-width: 920px; padding: 1rem 2rem; }
+[data-testid="stChatInput"] {
+  border: 1px solid var(--kf-line);
+  border-radius: 16px;
+  background: var(--kf-surface);
+  box-shadow: 0 3px 12px #00000020;
+  padding: .5rem;
+}
+[data-testid="stChatInput"]:focus-within { border-color: var(--kf-accent); }
+[data-testid="stChatInput"] > div {
+  background: var(--kf-surface);
+  border: 0;
+  box-shadow: none;
+  flex-direction: row;
+  align-items: center;
+}
+[data-testid="stChatInput"] textarea {
+  color: var(--kf-ink);
+  font-size: 1rem;
+  background: var(--kf-surface);
+}
+[data-testid="stChatInput"] textarea::placeholder { color: var(--kf-muted); }
+[data-testid="stChatInputSubmitButton"] {
+  color: var(--kf-bg) !important;
+  background: var(--kf-accent) !important;
+  border-radius: 50% !important;
+}
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding: 1.8rem 1.1rem 8rem; }
+  .st-key-app-header { flex-direction: column; align-items: flex-start; gap: .75rem; }
+  .st-key-app-header > div { width: 100% !important; flex: none !important; }
+  .st-key-app-header h1 { font-size: 1.15rem; }
+  .st-key-welcome { padding-top: 2rem; }
+  .st-key-welcome h2 { max-width: 330px; font-size: 2.05rem; }
+  .st-key-welcome-intro [data-testid="stMarkdownContainer"] > p { font-size: .98rem; }
+  .st-key-starters { flex-direction: column; gap: .6rem; }
+  .st-key-starters > div { width: 100% !important; flex: none !important; }
+  .st-key-starters button { min-height: 50px; }
+  [data-testid="stBottomBlockContainer"] { padding: .6rem 1rem 1rem; }
+  [data-testid="stChatInput"] > div > div {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+  }
+  [data-testid="stChatInput"] > div > div > div:first-child { flex: 1; min-width: 0; }
+  [data-testid="stChatInput"] > div > div > div:last-child { width: auto; flex: 0 0 auto; }
+  [data-testid="stChatMessage"] { gap: .55rem; }
+  [data-testid="stText"] { font-size: .95rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stApp button { transition: none; }
+}

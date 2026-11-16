@@ -1,0 +1,21 @@
+{
+  "version": "reasoning-datasets-v1",
+  "datasets": [
+    {
+      "id": "synthetic-v1",
+      "dataset_id": "aml-cft-synthetic-eight-families",
+      "version": "1.0.0",
+      "context_kind": "synthetic",
+      "acceptance_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/acceptance.json",
+      "acceptance_sha256": "f59c2ccb94488e78fe4956778427bd65cb6596fec96de7106500510cffdb4546",
+      "status_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/evaluation-status.json",
+      "status_sha256": "2a8392e64aab54e77c10f2f32e4807cea6515307f8f2bd82628f544a21cd60fc",
+      "inputs_path": "artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/inputs-v1.jsonl",
+      "encodings_path": "artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl",
+      "manifest_path": "artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json",
+      "engine_config_path": "artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json",
+      "engine_path": "scripts/aml_cft_reasoning.py",
+      "schema_path": "schemas/aml-cft-reasoning-schema-v1.json"
+    }
+  ]
+}
