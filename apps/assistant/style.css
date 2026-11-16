@@ -102,7 +102,11 @@ body { background: var(--kf-bg); }
   gap: .85rem;
 }
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-  background: var(--kf-surface);
+  background: #263849;
+  border: 1px solid #49647e;
+  width: fit-content;
+  max-width: 88%;
+  margin-left: auto;
   padding: 1.1rem 1.15rem;
   margin-bottom: .8rem;
 }
@@ -195,6 +199,7 @@ body { background: var(--kf-bg); }
   border-radius: 50% !important;
 }
 @media (max-width: 640px) {
+  [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) { max-width: 94%; }
   [data-testid="stMainBlockContainer"] { padding: 1.8rem 1.1rem 8rem; }
   .st-key-app-header { flex-direction: column; align-items: flex-start; gap: .75rem; }
   .st-key-app-header > div { width: 100% !important; flex: none !important; }
