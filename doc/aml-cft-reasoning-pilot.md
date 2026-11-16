@@ -1,7 +1,6 @@
 # AML/CFT reasoning pilot
 
-Updated: 2026-11-13. **Execution not started.** This guide defines the workflow;
-no dataset, engine setup, formalization or reasoning results exist under this plan.
+Updated: 2026-11-15.
 
 Keep this guide in `doc/` for version control; run outputs belong in
 `artifacts/aml-cft-reasoning-pilot/`. Repository paths in this guide start at the
@@ -12,16 +11,21 @@ artifact directory.
 
 | Stage | Status | Required before starting |
 | --- | --- | --- |
-| 1 | Not started | Agree generation scope/model/budget for all eight families; create `01-dataset-run-001/run.json`, draft 96 bilingual cases and version inputs/questions/proposed references; stop for 2 |
-| 2 | Not started | Versioned dataset; agree selected families and exact case IDs for an execution batch; configure/reuse support for their declared semantics |
-| 3 | Not started | Selected batch's readable inputs/questions and pinned Stage 2 setup; generate only selected cases and stop for 4 |
-| 4 Execute | Not started | Generated encodings/queries or recorded generation failures, proposed references and pinned engine/checker; always hand off for review |
-| 4 Review and repair | Not started | Mandatory initial review of readable cases, encodings and execution evidence; optional repair and independent recheck within the shared budget |
-| 5 | Not started | Accepted synthetic suite for the agreed scope and selected original source passages |
+| 1 | Accepted for preparation; references accepted in Stage 4 | All eight families, 12 cases each / 192 language versions. [Run](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/run.json), [dataset v1.0.0](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json), [acceptance evidence](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/preparation-acceptance-v1.json). |
+| 2 | Setup complete; hand off to 3 | `synthetic-v1-batch-001`: KYC, BO, PEP, RISK, MON, TFS, PAY, CORR; all 96 cases / 192 language versions. [Batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/execution-batch.json), [pinned setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/run.json), [setup evidence](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/setup-validation-v1.json), [handoff](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/handoff.json). 27 controls passed; deterministic replay matched. |
+| 3 | Generated; fidelity accepted in Stage 4 | `synthetic-v1-batch-001`, all eight families, 96 cases / 192 versions. [Run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/run.json), [encodings](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl), [queries](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl), [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/validation-v1.json), [failures](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/failures-v1.json). All 192 passed structural validation; 11 controls passed; fresh replay matched. |
+| 4 Execute | Complete; independently reviewed | `synthetic-v1-batch-001`, all eight families, 96 cases / 192 versions. [Run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/run.json), [results and certificates](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/results-v1.json), [proof checks](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/proof-checks-v1.json), [provisional comparisons](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/provisional-comparisons-v1.json), [failures](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/failures-v1.json). 192 executed and checked; all status comparisons match; replay matched. |
+| 4 Review and repair | Accepted — initial review 100% | `synthetic-v1-batch-001`, v1.0.0, all eight families, 96/96 cases / 192/192 versions. [Authoritative status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/evaluation-status.json), [acceptance/hashes](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/acceptance.json), [independent judgments](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/independent-judgments.jsonl), [verdicts](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/per-case-verdicts.jsonl), [scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/initial-scores.json). One completed evaluation pass, zero findings/repairs; both shared repair rounds unused. |
+| 5 | Not started — source selection next | Synthetic prerequisite accepted for all eight families. Agree original source passages, selected families, model, local budget and file-change plan before drafting a new source-backed dataset. [Exact next-session prompt](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/next-session-prompt.txt). |
 
 At every handoff, update this table with the dataset version, selected families,
 batch/run, artifact/status links, acceptance evidence or blockers, remaining repair
 allowance and one exact next stage/role. Completion alone does not mean acceptance.
+
+The initial independent review saved all readable-source derivations before
+opening proposed references or Execute results, then checked every reference,
+encoding/query and proof. No review or repair is active. No paid/external calls
+occurred.
 
 ## Objective and boundaries
 
@@ -109,9 +113,13 @@ Stage 4 has two grouped roles: Execute, then Review and repair. Within Review an
 repair, use separate sessions for the initial independent review, author repair
 and independent recheck. The reviewer does not repair its findings; the author
 does not approve its repairs. Stage 2 must document install, validation and
-engine/checker commands before later agents execute them. No reasoning-pilot CLI
-exists yet; the [existing pipeline commands](aml-cft-pipeline.md) serve the document
-pipeline, not this reasoning pilot. Do not advance automatically.
+engine/checker commands before later agents execute them. The isolated
+`scripts/aml_cft_reasoning.py` CLI and its
+[setup runbook](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/README.md)
+provide those commands. Stage 3's `scripts/aml_cft_formalization.py` CLI generates
+encodings and queries using local deterministic mappings. The
+[document pipeline commands](aml-cft-pipeline.md) serve a separate workflow.
+Do not advance automatically.
 
 ## Agent responsibilities and reproducible commands
 
@@ -159,11 +167,28 @@ reviewer independence, repair limits and execution budgets.
 
 ## Stage 1 — Draft the readable dataset
 
-**No engine is required for Stage 1.** The author (GPT-6.1 Sol High) drafts fictional,
-self-contained French/English policy and fact versions, paired questions and
-proposed reference answers/proofs. Version and hash the draft; accept it for
-downstream preparation and stop for Stage 2. References remain provisional until
-Stage 4 independently checks them. Model agreement does not establish correctness.
+Stage 1 writes the cases in readable language: what the policy says, which facts
+are supplied, and which question to ask. **No engine is required.**
+
+**Inputs:** the agreed eight-family scope, generation budget and author setting
+(GPT-6.1 Sol High). The author drafts fictional, self-contained French/English
+cases and separate proposed answers/proofs.
+
+**Outputs:** a versioned dataset with stable IDs and hashes:
+
+- [Readable inputs](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/inputs-v1.jsonl):
+  `scope`, `policy_clauses` and `scenario_facts` describe each case.
+- [Questions](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/questions-v1.jsonl):
+  `question_id` and `text` identify what to answer.
+- [Proposed references](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/proposed-references-v1.jsonl):
+  `expected_status`, `expected_conclusions` and source-linked `proof_steps`, stored
+  separately from the inputs/questions.
+- [Dataset manifest](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json):
+  dataset ID/version, family/case mappings, language versions and file/record hashes.
+
+Accept the draft for downstream preparation and stop for Stage 2. References
+remain provisional until Stage 4 independently checks them. Model agreement does
+not establish correctness.
 
 Generate **all eight families**, with **12 semantic cases per family: two
 structurally distinct cases per category below**, each in French and English.
@@ -319,37 +344,78 @@ Stage 5 creates a new batch while preserving synthetic results.
 
 ## Stage 2 — Set up the engine
 
-Read the versioned Stage 1 or Stage 5 dataset. Before setup, record the agreed
-families, exact case IDs and both language versions in the execution manifest.
-Use only those cases' declared semantics; correctness remains provisional.
-Select/configure an engine, implement its minimal adapter and proof checks, and
-document the representation/query schema, versions, configuration and unsupported
-behavior. Support the declared readable semantics; never change them or weaken
-expectations merely to fit engine limitations.
+Stage 2 defines the structured data model and prepares the reasoning software
+that will consume it. Stage 3 will perform the readable-text-to-structure mappings.
 
-Record runnable local commands and setup evidence before handoff. Reuse compatible
-setup with exact versions/hashes. Schema changes require affected encodings/queries
+**Inputs:** the versioned Stage 1 or Stage 5 dataset and agreed family/case
+selection. Before setup, record the families, exact case IDs and both language
+versions in the [execution manifest](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/execution-batch.json).
+Use only those cases' declared semantics; correctness remains provisional.
+
+Define and document these components:
+
+- **Contract:** the structured data model and its rules. The
+  [representation/query schema](../schemas/aml-cft-reasoning-schema-v1.json)
+  defines fields such as `entities`, `facts`, `rules`, `incompatibilities` and
+  separate `queries`. Document types, required fields and supported meaning,
+  including missing facts, scope, exceptions and conflict behavior.
+- **Engine:** the reasoning software that consumes structured facts, rules and
+  queries to derive conclusions. Select/configure the engine and record its identity.
+- **Adapter:** the bridge from the contract to the engine's native format when
+  they differ, including structural validation and result conversion as needed.
+- **Proof checker:** verifies that recorded deduction steps follow from the
+  supplied premises and rules. Document what its checks establish and their limits.
+
+Implement the minimal adapter and proof checks. Support the declared readable
+semantics; never change them or weaken expectations to fit engine limitations.
+
+**Outputs:** versioned contract, engine, adapter, checker and configuration;
+the execution manifest; setup validation evidence; and runnable install,
+validation, engine and checker commands. The
+[setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/run.json)
+pins component versions/hashes; the
+[configuration](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json)
+records settings and resource limits. Document unsupported behavior explicitly.
+
+Save commands and setup evidence before handing off to Stage 3. Reuse compatible
+setup with exact versions/hashes. Contract changes require affected encodings/queries
 to be regenerated and checked in Stage 4; engine/adapter/checker changes require
 affected Stage 4 results to be re-evaluated. Setup completion alone does not
 establish reasoning correctness; Stage 4 tests it using the generated Stage 3 output.
 
 ## Stage 3 — Generate the encoding and queries
 
-Build/run the formalizer using Stage 2's schema and only the readable cases named
-in the execution manifest. Verify dataset/revision hashes and selection before
-generation. Give it only readable rules/facts, scope, source IDs, target schema
-and general encoding instructions.
+Stage 3 implements and runs the mappings from readable cases to the structured
+representation defined in Stage 2:
+
+- Readable policies/facts → structured entities, facts, rules, guards/scope and
+  incompatibilities, preserving their source links.
+- Readable questions → separate structured queries describing what to ask the engine.
+
+**Inputs:** only the execution manifest's selected readable cases/questions and
+the pinned Stage 2 contract/setup. Verify dataset/revision hashes and selection
+before generation. Build/configure and run the formalizer against that contract.
+Give the facts/rules generator only readable rules/facts, scope, source IDs, target
+schema and general encoding instructions.
 **Exclude expected answers, reference proofs and case-specific evaluation hints.**
 The formalizer produces representations, not answers.
 
-Generate entities, facts, rules, guards/scope and source links. Validate syntax,
-references and variable binding; save outputs and failures without silent retries.
-Prepare structured queries separately from versioned questions, without inserting
-expected answers. Questions/queries go to the engine, not the facts/rules generator.
-Natural-language query interpretation and assistant UI/routing remain later work.
-Version/hash all outputs and stop for Stage 4 Execute. Generation and structural
-validation do not establish reference correctness, encoding fidelity or successful
-reasoning.
+**Outputs:** versioned
+[encodings](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl),
+[queries](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl)
+and validation/failure records. In the contract, a fact has an `atom`; a rule has
+premises in `body` and a conclusion in `head`; a query has a `target` and optional
+answer variables in `select`. `source_ids` and `question_id` connect these to the
+readable inputs and questions.
+
+Validate syntax, references and variable binding; save outputs and failures
+without silent retries. Prepare queries separately from versioned questions,
+without inserting expected answers. Questions go to the query pipeline, not the
+facts/rules generator; the engine consumes the resulting structured queries.
+General natural-language question interpretation and assistant UI/routing remain
+later work. Version/hash all outputs and stop for Stage 4 Execute. Generation and
+structural validation do not establish reference correctness, encoding fidelity or
+successful reasoning.
 
 **Repair the producing pipeline, not saved outputs.** For evidenced encoding/query
 defects, fix the responsible code, prompts, configuration or mappings, regenerate
@@ -368,48 +434,119 @@ Evidenced defects → author repair → independent recheck + affected engine/ch
 
 ## Stage 4 — Execute, then Review and repair
 
+Stage 4 runs the reasoning engine on Stage 3's structured data, then independently
+checks that the readable cases, encodings, queries and results agree.
+
+**Inputs:** selected encodings/queries and generation/validation failure records,
+pinned Stage 2 setup, original readable cases/questions and proposed references.
+
+**Outputs:** engine conclusions and proof certificates, proof-check outcomes,
+provisional comparisons, independent review verdicts and the authoritative batch
+status. Execute produces evidence; the independent reviewer decides acceptance.
+
 ### Execute
 
 Verify selected case IDs, versioned inputs, encoding/query hashes and pinned setup.
 Run Stage 2's engine/checker commands on the generated encodings and queries.
-Keep every agreed case, including generation/validation errors; record
-non-executable cases as failures and continue executable cases for diagnostic evidence.
+The engine applies rules to supported premises, chaining deductions where needed,
+and answers the structured queries using the configured handling of missing
+premises, exceptions and conflicts. The checker verifies the saved proof steps
+against the encodings and queries. Keep every agreed case in the denominator,
+including generation/validation errors. Record cases that cannot execute as
+failures and continue running the others to collect diagnostic evidence.
+
+**Reading a proof certificate:** it is the engine's structured record of the facts
+and rule applications supporting its conclusions. In
+[`results-v1.json`](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/results-v1.json),
+each case/language record contains `results` with per-query statuses, answer
+bindings and `supported_atoms` (the conclusions answering the query).
+`candidate_certificate` records support before conflicting statements are blocked;
+`usable_certificate` records the facts and deductions remaining after that blocking.
+
+The fields used in certificate steps are:
+
+| Field | Meaning |
+| --- | --- |
+| `fact_id` | The encoded supplied fact supporting an assertion step. |
+| `rule_id` | The encoded policy rule applied in a deduction step. |
+| `binding` | The entities assigned to the rule's variables, such as `?c = A`. |
+| `premises` | Statements already supported and used by that rule application. |
+| `atom` | The statement established by this step, expressed as a predicate and arguments. |
+
+Assertion steps have `fact_id` and `atom`; deduction steps have `rule_id`,
+`binding`, `premises` and `atom`. In
+[`encodings-v1.jsonl`](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl),
+`facts[].source_ids` and `rules[].source_ids` link these encoded IDs to
+`scenario_facts[].id` and `policy_clauses[].id` in
+[`inputs-v1.jsonl`](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/inputs-v1.jsonl),
+where `text` contains the readable wording. For example, `KYC-OH-01` traces:
+**A's identity document is verified → apply the identity-check policy → A's
+identity check is complete.** The checker verifies the encoded derivation;
+independent review checks that the encoding faithfully represents the readable text.
 
 Save commands/logs, results, proofs, proof-check outcomes and comparisons with
-proposed reference answers. These comparisons are provisional. Set `pending-review`
-and stop for a fresh Review and repair session, even if all comparisons match.
-Execute cannot declare acceptance or skip independent review.
+the Stage 1 proposed reference answers. State exactly what each comparison checks:
+matching statuses (`entailed`, `unknown`, `conflict`) alone does not establish that
+the conclusions or proofs have the same meaning. All Execute comparisons remain
+provisional. Set `pending-review` and stop for a fresh independent review session,
+even if every comparison matches. Execute cannot accept the batch.
 
 ### Review and repair
 
-This role includes **mandatory initial review → optional author repair →
-independent recheck**, with separate sessions for each action. Use the status
-record to select the next action; reviewers do not repair and repairing authors
-do not approve their work. Initial review and permitted rechecks assess:
+The sequence is **mandatory initial review → author repair if needed → independent
+recheck after repair**, with a separate session for each action. The authoritative
+status record selects the next action. Reviewers do not repair their findings;
+repairing authors do not approve their own changes.
 
-1. **Reference correctness:** independently derive outcomes from original readable
-   policies/facts and questions before inspecting proposed answers/proofs or saved
-   engine results. Check every proof step, condition, exception, source link and
-   French/English equivalence. Each case needs an unambiguous result and traceable
-   proof or justified unknown/conflict. For real claims, check exact original
-   passages and stipulated synthetic facts. Save independent judgments separately
-   from the author's proposed references; model agreement is not proof.
-2. **Encoding/query fidelity:** compare actual generated artifacts with the readable
-   cases. Check entity identity, scope, every condition/exception, source links,
-   question meaning, language equivalence and invented premises. Syntax alone is
-   insufficient. Judge meaning rather than preferred identifiers; no second
-   reference encoding is required. Record verdicts and the hashes checked.
-3. **Executable reasoning:** verify saved engine/checker evidence against current
-   artifact/setup hashes and independently checked references. Rerun affected
-   commands after repairs, saving new results and proofs. Record all errors and
-   non-executable cases as failures. A reference/fidelity defect prevents a case
-   from passing, even if engine output matches the draft.
+This review checks the selected outputs of **Stage 1 (readable cases and reference
+answers), Stage 3 (encodings and queries), and Stage 4 Execute (engine answers and
+proofs)**. Review every selected case in both languages, using these four steps:
+
+1. **Derive answers independently from the readable cases.** Read the original
+   policies, facts and questions in English/French. Derive a supported answer with
+   a source-linked justification, or explain why the answer is unknown or conflicted.
+   For real claims, use exact original passages and the stipulated synthetic facts.
+   Save these independent judgments separately **before opening the proposed
+   reference answers/proofs or saved engine results**.
+2. **Review Stage 1's reference answers and proofs.** Compare them with the
+   independent judgments from step 1. Check every proof step, required condition,
+   exception, source link, missing premise and withheld conclusion, including
+   English/French equivalence. Together, steps 1–2 assess **reference correctness**.
+3. **Review Stage 3's encodings and queries against the readable cases.** Check
+   that the symbolic facts, rules and queries preserve entity identity, scope,
+   every condition/exception, source links and question meaning in both languages,
+   without invented premises. This assesses **encoding/query fidelity**. Valid
+   syntax does not establish faithful meaning. Different identifiers are acceptable
+   when they preserve meaning; no second reference encoding is required.
+4. **Review Stage 4's engine answers and proofs.** Compare each status, answer
+   binding and supported atom with the meaning of the independently checked
+   reference answer. Inspect the actual proof steps: do the applied rules and
+   supported premises justify the conclusions, including missing-premise,
+   exception and conflict behavior? Verify the saved engine/checker evidence
+   against current artifact/setup hashes. This assesses **executable reasoning**.
+   Record all errors and cases that cannot execute as failures. After repairs,
+   rerun affected commands and save new results and proofs.
+
+The reviewer supplies the semantic judgments in steps 1–3 and the comparison of
+symbolic conclusions with readable answers in step 4. Automated checks can compare
+statuses (`entailed`, `unknown`, `conflict`) and verify symbolic proof certificates;
+they do not establish that the symbols faithfully express the readable meaning.
+Model agreement is not proof. Record per-case reference, fidelity and execution
+verdicts with the artifact hashes checked. A wrong reference or unfaithful encoding
+prevents a case from passing, even if engine output matches the draft answer.
+
+For example, an engine answer containing `activation_eligible(A)` must mean
+“A is eligible for activation” in that case. The reviewer checks that meaning and
+the rules and premises used to derive it; the checker verifies the encoded proof.
+Matching an `entailed` status alone does not establish this agreement.
 
 Acceptance requires:
 
-- Every expected status and conclusion matches; no unsupported conclusions.
-- Real one-hop/multi-hop derivations and accepted proof certificates. Stored facts,
-  empty certificates and LLM proof narratives do not count as deductions.
+- Every query status and conclusion agrees with the independently checked
+  reference; no unsupported conclusions.
+- Cases requiring one-hop/multi-hop deductions contain actual rule applications
+  and valid proof certificates. Supplied facts support direct lookups, but supplied
+  facts alone, empty certificates and LLM-written narratives do not prove deductions.
 - Missing-premise, exception and conflict controls behave as specified. Unknown
   identifies the documented missing premise; it is not a negative conclusion.
 - Equivalent French/English policies and facts yield equivalent outcomes for the
@@ -417,51 +554,56 @@ Acceptance requires:
   natural-language question interpretation requires a separate later test.
 - All reference, fidelity and execution checks pass for every agreed case.
 
-Check actual premise–rule–conclusion support; allow alternative valid derivations
-and wording. Distinguish assertions from inferences. The engine/checker execute code;
-no LLM is needed to derive results. Optional prose must add no new conclusions.
-Only the independent reviewer freezes accepted references and results with hashes.
+Check that each applied rule and its premises support the conclusion; allow
+alternative valid derivations and wording. Distinguish supplied assertions from
+deductions. The engine and checker run code; no LLM is needed to derive results.
+Optional prose must add no new conclusions. Only the independent reviewer records
+acceptance and the hashes of the accepted references and results.
 
 #### Scores and failure report
 
-Report initial and post-repair outcomes separately, with the artifact/reference
-versions used. Label Execute comparisons as provisional; initial pass scores
-come from the first independent review. For each review/recheck, report:
+Report the first independent review separately from later rechecks after repair,
+with the artifact/reference versions used. Execute comparisons are provisional
+and do not supply independent pass scores. For each review/recheck, report:
 
-- Overall pass percentage: fully passing semantic cases / all selected semantic cases
-  fixed in the batch manifest.
+- Overall pass percentage: 100 × fully passing semantic cases / all selected
+  semantic cases in the batch manifest. Keep that denominator fixed.
   A semantic case passes only when reference, fidelity and execution checks pass in
   both languages. For a synthetic batch selecting N families, the denominator is
   12 × N semantic cases, with 24 × N language versions reported separately. Real-claim
-  batches use their agreed case counts. Translations never inflate the semantic count.
+  batches use their agreed case counts. English/French versions of the same case
+  count as one semantic case.
 - Counts/percentages by selected family and category, and separate
   reference/fidelity/execution and language results. Keep errors, ambiguous cases
   and unexecuted cases in the agreed totals; report missing coverage. A specified
   unknown/conflict outcome can pass.
-- Failures and diagnoses: dataset/reference, formalization, engine/adapter,
-  evidence, checker or language interpretation. Record proof checks, latency,
-  provider usage, defect origins and rework effort.
+- For each failure, identify the responsible layer: dataset/reference,
+  formalization, engine/adapter, evidence, checker or language interpretation.
+  Record proof checks, latency, provider usage, where the defect originated and
+  the effort spent repairing it.
 
 Pass scores measure progress; batch acceptance requires 100% of selected cases
 and their required coverage to pass. At the repair limit, finish with scores and
-remaining failures. `completed-with-failures` establishes no passing result for
-that scope and does not authorize its real-claim transfer or assistant integration.
+remaining failures. `completed-with-failures` means the selected batch is not
+accepted; it does not authorize moving to real claims or assistant integration.
 
 #### Repair and independent recheck
 
-The reviewer records evidenced defects and stops. A separate repairing author
-uses the remaining shared budget to fix the responsible layer. Encoding/query
-defects require changes to the producing code, prompts, configuration or mappings,
+The reviewer records defects with supporting evidence and stops. A separate author
+fixes the responsible layer within the batch's remaining shared repair rounds
+(at most two in total). Encoding/query defects require changes to the producing
+code, prompts, configuration or mappings,
 followed by regeneration. Engine/adapter/checker defects require versioned setup
 changes. Dataset/reference defects require a source-linked counterexample and a
 versioned correction, preserving original expectations; never change an answer
-merely to fit engine output. Changes to agreed scope or semantics need a user decision.
+merely to fit engine output. Changes to agreed scope or how facts and rules are
+interpreted need a user decision.
 
 Return repairs to a fresh Stage 4 Review and repair session for independent
-recheck. Recheck changed references, encodings or setup and their affected
-dependencies, then rerun affected reasoning checks. Retain unchanged valid
-judgments; report initial and repaired outcomes separately. There is no additional
-pre-execution reviewer session.
+recheck. Review the changed references, encodings or setup and any cases affected
+by shared changes, then rerun affected reasoning checks. Retain unaffected valid
+judgments; report initial and repaired outcomes separately. The initial independent
+review follows Execute; do not add a separate review before execution.
 
 ## Stage 5 — Repeat with real claims and synthetic facts
 
