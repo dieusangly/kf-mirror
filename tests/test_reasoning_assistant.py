@@ -29,8 +29,7 @@ class FixtureEmbeddings:
                    for index, cid in enumerate(cases)}
         self.text_vectors = {scenario_text(row): vectors[row['candidate_id'].split('/')[1]] for row in records.values()}
         self.query_vectors = {r['text']: vectors[f"{r['family_id']}-{r['category']}-01"]
-                              for r in QUESTIONS.values() if r['question_type'] == 'reworded'
-                              and f"{r['family_id']}-{r['category']}-01" in vectors}
+                              for r in QUESTIONS.values() if f"{r['family_id']}-{r['category']}-01" in vectors}
         self.default = vectors['KYC-OH-01']
         self.vectors = vectors
         self.telemetry = {'provider': 'fixture', 'model': 'controlled-vectors',
@@ -56,13 +55,12 @@ class FakeDocuments:
         return {'status': self.status, 'text': 'Fixture document answer.', 'citations': []}
 
 
-EVALUATION = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001'
-QUESTIONS = {r['question_id']: r for r in [json.loads(line) for line in
-             (EVALUATION / 'questions-v1.jsonl').read_text().splitlines()]}
+RUNTIME_FIXTURES = ROOT / 'tests/fixtures/reasoning-assistant-runtime-v1.json'
+QUESTIONS = {r['question_id']: r for r in json.loads(RUNTIME_FIXTURES.read_text())}
 
 
-def frozen(family='KYC', category='OH', language='en', question_type='reworded'):
-    return QUESTIONS[f'RAE1-{question_type}-{family}-{category}-{language}']['text']
+def runtime_prompt(family='KYC', category='OH', language='en'):
+    return QUESTIONS[f'runtime-{family}-{category}-{language}']['text']
 
 
 def evidence(quote, message_id='current'):
@@ -73,7 +71,7 @@ def decision(case=None, *, route='reasoning', language='en', candidate_id=None, 
              general_requested=False, text=None, facts=None, entities=None, variables=None, select=None):
     if case:
         candidate_id, predicate, args = 'synthetic-v1/KYC-OH-01/en', 'identity_check_complete', ['A']
-    text = text or frozen()
+    text = text or runtime_prompt()
     if route == 'reasoning':
         candidate_id = candidate_id or 'synthetic-v1/KYC-OH-01/en'
         predicate, args = predicate or 'identity_check_complete', args or ['A']
@@ -178,20 +176,20 @@ def test_all_192_baseline_versions_reproduce_accepted_results(registry):
         assert result == expected[identity]
 
 
-CASES = [{'question': frozen(), 'case_id': 'KYC-OH-01', 'route': 'reasoning'}]
+CASES = [{'question': runtime_prompt(), 'case_id': 'KYC-OH-01', 'route': 'reasoning'}]
 
 
 def test_supplied_text_constructs_runtime_facts_and_provenance(registry):
     assistant, models = make_assistant(registry, decision())
-    answer = assistant.ask(frozen())
+    answer = assistant.ask(runtime_prompt())
     assert answer['route'] == 'reasoning'
     assert answer['status'] == 'entailed'
     assert answer['checker']['valid']
     assert answer['context']['case_id'].startswith('user-')
     assert answer['encoding']['facts'] == [{'id': 'user-fact-1-e1', 'source_ids': ['user-fact-1'],
         'atom': {'predicate': 'document_verified', 'args': ['A']}}]
-    assert answer['input_provenance']['facts'][0]['text'] in frozen()
-    assert answer['input_provenance']['question']['text'] == frozen().split('\n\n')[-1]
+    assert answer['input_provenance']['facts'][0]['text'] in runtime_prompt()
+    assert answer['input_provenance']['question']['text'] == runtime_prompt().split('\n\n')[-1]
     assert all(s['source_ids'][0].startswith('user-fact-') for s in answer['proof_steps'] if s['kind'] == 'assertion')
     payload = json.loads(models.requests[0]['input'])
     assert all('scenario_facts' not in c and 'entities' not in c['vocabulary'] for c in payload['candidates'])
@@ -204,7 +202,7 @@ def test_supplied_text_constructs_runtime_facts_and_provenance(registry):
                                ('identity_unverified', ['A'], "A's identity is explicitly unverified.")], 'conflict'),
 ])
 def test_unknown_and_conflict_are_terminal(registry, category, predicate, facts, status):
-    text = frozen(category=category)
+    text = runtime_prompt(category=category)
     value = decision(candidate_id=f'synthetic-v1/KYC-{category}-01/en', predicate=predicate, facts=facts,
                      entities=[('A', facts[0][2])], text=text)
     assistant, models = make_assistant(registry, value, CoveredDocuments())
@@ -231,7 +229,7 @@ def test_unsupported_interpretations_clarify_without_execution(registry, mutatio
     else:
         value['variables'] = [{'name': '?x', 'type': 'entity'}] * 2
     assistant, models = make_assistant(registry, value)
-    answer = assistant.ask(frozen())
+    answer = assistant.ask(runtime_prompt())
     assert answer['route'] == 'clarify'
     assert 'result' not in answer
     assert len(models.requests) == 1
@@ -241,7 +239,7 @@ def test_invalid_wording_preserves_checked_result(registry):
     def corrupt(value):
         value['status'] = 'conflict'
     assistant, _ = make_assistant(registry, decision(), wording=corrupt)
-    answer = assistant.ask(frozen())
+    answer = assistant.ask(runtime_prompt())
     assert answer['status'] == 'entailed'
     assert answer['checker']['valid']
     assert 'Supported conclusion' in answer['text']
@@ -349,15 +347,15 @@ def test_preview_searches_content_terms_instead_of_english_question_words(monkey
 
 def test_history_excludes_assistant_conclusions_and_empty_history_isolates(registry):
     assistant, models = make_assistant(registry, decision())
-    first = assistant.ask(frozen())
-    history = [{'role': 'user', 'text': frozen()}, {'role': 'assistant', 'text': 'INVENTED CONCLUSION',
+    first = assistant.ask(runtime_prompt())
+    history = [{'role': 'user', 'text': runtime_prompt()}, {'role': 'assistant', 'text': 'INVENTED CONCLUSION',
                'candidate_id': first['candidate_id'], 'route': 'reasoning'}]
-    second = assistant.ask(frozen(), history)
+    second = assistant.ask(runtime_prompt(), history)
     assert second['encoding']['case_id'] != first['encoding']['case_id']
     payload = json.loads(models.requests[2]['input'])
     assert 'INVENTED CONCLUSION' not in json.dumps(payload)
     assert all(m['role'] == 'user' for m in payload['history'])
-    independent = assistant.ask(frozen(), history=[])
+    independent = assistant.ask(runtime_prompt(), history=[])
     assert independent['encoding']['case_id'] not in {first['encoding']['case_id'], second['encoding']['case_id']}
     assert json.loads(models.requests[4]['input'])['history'] == []
 

@@ -1,10 +1,10 @@
-"""Frozen input path, case construction and runner checks; no real-model scoring."""
+"""Development fixtures, case construction and runner checks; no real-model scoring."""
 import json
 
 import pytest
 
-from scripts.evaluate_reasoning_assistant_inputs import execute_questions, load_questions, validate_agreement
-from test_reasoning_assistant import (QUESTIONS, decision, evidence, frozen, make_assistant, registry,
+from scripts.evaluate_reasoning_assistant_inputs import execute_questions, validate_agreement
+from test_reasoning_assistant import (QUESTIONS, decision, evidence, runtime_prompt, make_assistant, registry,
                                       deduction_starter_decision)
 
 
@@ -47,7 +47,7 @@ def test_broad_fact_citation_still_cannot_import_the_question(registry):
 
 
 def test_direct_lookup_has_no_rules_and_binds_document(registry):
-    text = frozen(category='DL')
+    text = runtime_prompt(category='DL')
     value = decision(candidate_id='synthetic-v1/KYC-DL-01/en', text=text,
         predicate='identity_document', args=['A', '?document'],
         variables=[{'name': '?document', 'type': 'entity'}], select=['?document'],
@@ -61,7 +61,7 @@ def test_direct_lookup_has_no_rules_and_binds_document(registry):
 
 
 def test_engine_binds_control_chain_without_identity_mapping(registry):
-    text = frozen('BO', 'MH')
+    text = runtime_prompt('BO', 'MH')
     value = decision(candidate_id='synthetic-v1/BO-MH-01/en', text=text,
         predicate='controller_verification_required', args=['P', 'A'],
         facts=[('controls', ['P', 'H'], 'P controls H.'), ('controls', ['H', 'A'], 'H controls A.')],
@@ -73,7 +73,7 @@ def test_engine_binds_control_chain_without_identity_mapping(registry):
 
 
 def test_exception_cannot_supply_clearance_by_silence(registry):
-    text = frozen(category='EX')
+    text = runtime_prompt(category='EX')
     value = decision(candidate_id='synthetic-v1/KYC-EX-01/en', text=text,
         predicate='identity_action', args=['A', '?action'],
         variables=[{'name': '?action', 'type': 'entity'}], select=['?action'],
@@ -87,7 +87,7 @@ def test_exception_cannot_supply_clearance_by_silence(registry):
 
 
 def test_french_lookup_preserves_literal_document_entity(registry):
-    text = frozen(category='DL', language='fr')
+    text = runtime_prompt(category='DL', language='fr')
     value = decision(candidate_id='synthetic-v1/KYC-DL-01/fr', language='fr', text=text,
         predicate='identity_document', args=['A', '?document'],
         variables=[{'name': '?document', 'type': 'entity'}], select=['?document'],
@@ -103,7 +103,7 @@ def test_saved_customer_assertions_are_not_runtime_input(registry, monkeypatch):
         monkeypatch.setitem(row, 'scenario_facts', [{'id': 'FORBIDDEN', 'text': 'SAVED CUSTOMER POISON'}])
         monkeypatch.setitem(row['encoding'], 'facts', [{'id': 'FORBIDDEN'}])
     assistant, models = make_assistant(registry, decision())
-    answer = assistant.ask(frozen())
+    answer = assistant.ask(runtime_prompt())
     assert answer['status'] == 'entailed'
     assert 'SAVED CUSTOMER POISON' not in json.dumps(answer)
     assert 'SAVED CUSTOMER POISON' not in json.dumps(models.requests)
@@ -112,20 +112,20 @@ def test_saved_customer_assertions_are_not_runtime_input(registry, monkeypatch):
 
 def test_no_supplied_facts_yields_unknown_even_when_saved_case_has_facts(registry):
     value = decision(facts=[])
-    answer = run(registry, frozen(), value)
+    answer = run(registry, runtime_prompt(), value)
     assert answer['status'] == 'unknown'
     assert answer['encoding']['facts'] == []
     # This is a deliberately incomplete mocked interpretation, not model quality.
 
 
 def test_different_named_entity_is_declared_from_literal_user_text_only(registry):
-    # The same frozen direct-lookup prompt also names a document. Every entity is
+    # The same development direct-lookup prompt also names a document. Every entity is
     # new to the empty policy template; none is copied from the pilot declaration.
     assert registry.policies['synthetic-v1/KYC-DL-01/en']['template']['entities'] == {}
     value = decision()
     value['entities'][0]['name'] = 'Bob'
     assistant, _ = make_assistant(registry, value)
-    assert assistant.ask(frozen())['route'] == 'clarify'
+    assert assistant.ask(runtime_prompt())['route'] == 'clarify'
 
 
 def test_fact_evidence_cannot_hide_inside_the_interrogative(registry):
@@ -134,25 +134,25 @@ def test_fact_evidence_cannot_hide_inside_the_interrogative(registry):
     # Deliberately shorten query evidence to test the sentence-level guard too.
     value['question_evidence'] = evidence('Under this policy')
     assistant, _ = make_assistant(registry, value)
-    assert assistant.ask(frozen())['route'] == 'clarify'
+    assert assistant.ask(runtime_prompt())['route'] == 'clarify'
 
 
 def test_history_evidence_requires_explicit_continuation_in_same_policy(registry):
     value = decision()
     value['facts'][0]['evidence']['message_id'] = 'history-0'
     assistant, _ = make_assistant(registry, value)
-    history = [{'role': 'user', 'text': frozen()},
+    history = [{'role': 'user', 'text': runtime_prompt()},
                {'role': 'assistant', 'text': 'Not evidence', 'candidate_id': value['candidate_id']}]
-    assert assistant.ask(frozen(), history)['route'] == 'clarify'
+    assert assistant.ask(runtime_prompt(), history)['route'] == 'clarify'
     value['use_history'] = True
-    answer = assistant.ask(frozen(), history)
+    answer = assistant.ask(runtime_prompt(), history)
     assert answer['status'] == 'entailed'
     assert answer['input_provenance']['facts'][0]['message_id'] == 'history-0'
-    assert assistant.ask(frozen(), history=[])['route'] == 'clarify'
+    assert assistant.ask(runtime_prompt(), history=[])['route'] == 'clarify'
 
 
 def test_runner_submits_only_original_text_with_empty_history_and_retains_failures(tmp_path):
-    questions = load_questions()
+    questions = list(QUESTIONS.values())
     calls = []
 
     class FakeAssistant:
@@ -166,8 +166,8 @@ def test_runner_submits_only_original_text_with_empty_history_and_retains_failur
     summary = execute_questions(FakeAssistant(), questions, output, {'pin': 'code'},
                                  max_prompts=3, budget=2, reserve=.5)
     assert calls == [(q['text'], []) for q in questions[:3]]
-    assert summary['denominator'] == 288 and summary['failed'] == 1
-    assert len(summary['unexecuted']) == 285
+    assert summary['denominator'] == len(QUESTIONS) and summary['failed'] == 1
+    assert len(summary['unexecuted']) == len(QUESTIONS) - 3
     assert 'secret provider body' not in (output / 'responses.jsonl').read_text()
     resumed = execute_questions(FakeAssistant(), questions, output, {'pin': 'code'},
                                 max_prompts=3, budget=2, reserve=.5, resume=True)
@@ -180,7 +180,7 @@ def test_runner_submits_only_original_text_with_empty_history_and_retains_failur
 
 def test_runner_records_real_runtime_encoding_query_and_checker_with_mocked_model(registry, tmp_path):
     assistant, _ = make_assistant(registry, decision())
-    question = QUESTIONS['RAE1-reworded-KYC-OH-en']
+    question = QUESTIONS['runtime-KYC-OH-en']
     execute_questions(assistant, [question], tmp_path / 'run', {'mocked_models': True},
                       max_prompts=1, budget=1, reserve=1)
     row = json.loads((tmp_path / 'run/responses.jsonl').read_text())
@@ -198,16 +198,16 @@ def test_snapshot_failure_stops_before_submission(tmp_path):
     def unavailable():
         raise ValueError('snapshot changed')
 
-    summary = execute_questions(Forbidden(), load_questions(), tmp_path / 'run', {}, max_prompts=288,
+    summary = execute_questions(Forbidden(), list(QUESTIONS.values()), tmp_path / 'run', {}, max_prompts=len(QUESTIONS),
                                 budget=1, reserve=.1, verify_snapshot=unavailable)
     assert summary['attempted'] == 0
-    assert len(summary['unexecuted']) == 288
+    assert len(summary['unexecuted']) == len(QUESTIONS)
 
 
 def test_failed_checker_withholds_conclusion_and_retains_input_trace(registry, monkeypatch):
     monkeypatch.setattr(registry.engine, 'check_result', lambda *args: {'valid': False})
     assistant, models = make_assistant(registry, decision())
-    answer = assistant.ask(frozen())
+    answer = assistant.ask(runtime_prompt())
     assert answer['route'] == 'error'
     assert 'result' not in answer and 'proof_steps' not in answer
     assert answer['encoding']['facts'][0]['source_ids'] == ['user-fact-1']
@@ -219,12 +219,12 @@ def test_policy_clause_cannot_be_encoded_as_customer_fact(registry):
     value = decision()
     value['facts'][0]['evidence'] = evidence("If a customer's identity document is verified, that customer's identity check is complete.")
     assistant, _ = make_assistant(registry, value)
-    assert assistant.ask(frozen())['route'] == 'clarify'
+    assert assistant.ask(runtime_prompt())['route'] == 'clarify'
 
 
 def test_reset_discards_private_query_cache(registry):
     assistant, _ = make_assistant(registry, decision())
-    registry.searcher.embedder.queries = {frozen(): [1, 0]}
+    registry.searcher.embedder.queries = {runtime_prompt(): [1, 0]}
     assistant.clear_case_context()
     assert registry.searcher.embedder.queries == {}
 
@@ -288,7 +288,7 @@ def test_snapshot_change_during_request_records_failure(tmp_path):
         def ask(self, text, history):
             return {'route': 'documents', 'status': 'draft', 'text': 'Untrusted after snapshot change'}
 
-    summary = execute_questions(Backend(), load_questions(), tmp_path / 'run', {}, max_prompts=288,
+    summary = execute_questions(Backend(), list(QUESTIONS.values()), tmp_path / 'run', {}, max_prompts=len(QUESTIONS),
                                 budget=1, reserve=.1, verify_snapshot=verify)
     assert summary['attempted'] == 1 and summary['failed'] == 1
     row = json.loads((tmp_path / 'run/responses.jsonl').read_text())

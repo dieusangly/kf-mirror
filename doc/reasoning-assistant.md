@@ -147,17 +147,17 @@ rendering remains unvalidated. The assistant never updates pilot acceptance/stat
 
 ```sh
 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.py tests/test_reasoning_assistant_search.py tests/test_reasoning_assistant_ui.py tests/test_reasoning_assistant_inputs.py -q
-.venv/bin/python scripts/evaluate_reasoning_assistant.py --output /tmp/reasoning-assistant-evaluation-NEW.json
+.venv/bin/python scripts/replay_reasoning_pilot.py --output /tmp/reasoning-pilot-replay-NEW.json
 ```
 
-Use a fresh output filename. The existing evaluator is a **saved-query baseline
-replay**: it verifies 192 accepted language versions and their certificates without
+Use a fresh output filename. The pilot replay script verifies 192 accepted
+language versions and their certificates without
 API calls. It does not validate natural-language fact formalization.
 
-For the frozen 288-prompt natural-language path, commands, offline evidence and
-separate reference-compatibility findings, see the
-[evaluation protocol](aml-cft-reasoning-assistant-evaluation.md). Mocked checks validate
-orchestration, runtime facts/provenance and isolation; real-model retrieval,
-interpretation and wording quality remain unmeasured. No paid execution is authorized
-by these commands; agree the effective providers/models, API budget/reservations and
-published document snapshot first.
+For the version 1 evaluation of new cases, their fact-change variants, and routing,
+see the [evaluation protocol](aml-cft-reasoning-assistant-evaluation.md). Stage 1
+produces engine-checked proposed references; independent semantic review is still
+required. Runtime tests use separate development fixtures. Offline checks establish
+orchestration and data integrity; real-model retrieval, interpretation and wording
+quality remain unmeasured. Live runs require agreed providers, budget reservations
+and a published document snapshot.

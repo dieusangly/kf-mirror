@@ -195,11 +195,11 @@ def test_local_embedding_http_uses_no_cloud_key_or_redirects(tmp_path, monkeypat
         thread.join(timeout=2)
 
 
-def test_offline_evaluator_never_requests_embeddings(monkeypatch):
-    from scripts.evaluate_reasoning_assistant import evaluate, ROOT
+def test_pilot_replay_never_requests_embeddings(monkeypatch):
+    from scripts.replay_reasoning_pilot import evaluate, ROOT
 
     def forbidden(*args):
-        raise AssertionError('Offline evaluation must not call an embedding model')
+        raise AssertionError('Pilot replay must not call an embedding model')
 
     monkeypatch.setattr(EmbeddingAdapter, '_request', forbidden)
     monkeypatch.setattr(ScenarioEmbeddings, '_request', forbidden)

@@ -9,7 +9,7 @@ from knowledge_foundry.assistant.service import DocumentEvidence
 from knowledge_foundry.assistant.llm import LanguageModels
 from knowledge_foundry.assistant.search import ScenarioSearch
 from test_reasoning_assistant import (CASES, CoveredDocuments, FixtureEmbeddings, FixtureModels,
-                                      decision, deduction_starter_decision, frozen)
+                                      decision, deduction_starter_decision, runtime_prompt)
 
 
 @pytest.fixture
@@ -98,7 +98,7 @@ def test_deduction_example_submits_context_and_question(ui_models):
      'conflict', 'Conflicting information'),
 ])
 def test_unknown_and_conflict_remain_visible(ui_models, category, predicate, facts, status, notice):
-    text = frozen(category=category)
+    text = runtime_prompt(category=category)
     ui_models.value = decision(candidate_id=f'synthetic-v1/KYC-{category}-01/en', predicate=predicate, facts=facts,
                                entities=[('A', facts[0][2])], text=text)
     view = app()

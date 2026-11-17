@@ -1,4 +1,4 @@
-"""Frozen natural-language path runner. No references/queries enter Assistant.ask.
+"""Version 1 natural-language evaluation runner. No references/queries enter Assistant.ask.
 
 Default: inventory only, no external calls. --execute requires an agreed config,
 budget reservation and (when enabled) verified published document snapshot.
@@ -17,13 +17,15 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
 
 from knowledge_foundry.assistant.config import load_config
 from knowledge_foundry.assistant.datasets import digest
 from knowledge_foundry.assistant.service import Assistant
 
-DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001'
+from scripts.validate_reasoning_assistant_evaluation import load_submission
+from scripts.generate_reasoning_assistant_evaluation import DATASET, FILES
 
 
 def read(path):
@@ -35,16 +37,7 @@ def save(path, value):
 
 
 def load_questions(directory=DATASET):
-    manifest = read(directory / 'dataset-manifest-v1.json')
-    for name, info in manifest['files'].items():
-        if digest(directory / name) != info['sha256']:
-            raise ValueError('frozen dataset hash differs: ' + name)
-    questions = [json.loads(line) for line in (directory / 'questions-v1.jsonl').read_text().splitlines()]
-    if len(questions) != 288 or len({q['question_id'] for q in questions}) != 288:
-        raise ValueError('expected all 288 unique frozen questions')
-    # Read the question file only; manifest source mappings and references never
-    # leave this input validation boundary.
-    return questions
+    return load_submission(directory)[0]
 
 
 def identity(config, agreement, directory=DATASET):
@@ -57,7 +50,7 @@ def identity(config, agreement, directory=DATASET):
     for package in registry['datasets']:
         files += [ROOT / package[field] for field in ('inputs_path', 'encodings_path', 'manifest_path',
                   'engine_config_path', 'engine_path', 'schema_path', 'acceptance_path', 'status_path')]
-    return {'questions_sha256': digest(directory / 'questions-v1.jsonl'),
+    return {'questions_sha256': digest(directory / FILES['questions']),
             'manifest_sha256': digest(directory / 'dataset-manifest-v1.json'),
             'config': config, 'agreement': agreement,
             'code_and_inputs': {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(files))},
@@ -169,25 +162,27 @@ def execute_questions(assistant, questions, output, run_identity, *, max_prompts
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config')
+    parser.add_argument('--dataset', type=Path, default=DATASET)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--agreement', type=Path)
-    parser.add_argument('--max-prompts', type=int, default=288)
+    parser.add_argument('--max-prompts', type=int)
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
     try:
-        questions, config = load_questions(), load_config(args.config)
-        if args.max_prompts < 1 or args.max_prompts > 288:
-            raise ValueError('max-prompts must be between 1 and 288')
+        questions, config = load_questions(args.dataset), load_config(args.config)
+        maximum = args.max_prompts if args.max_prompts is not None else len(questions)
+        if maximum < 1 or maximum > len(questions):
+            raise ValueError('max-prompts must be between 1 and the dataset size')
         if not args.execute:
             if args.resume or args.agreement:
                 raise ValueError('inventory does not accept execution/resume options')
             args.output.mkdir(parents=True, exist_ok=False)
-            save(args.output / 'inventory.json', {'denominator': 288, 'executed': 0, 'external_calls': 0,
-                'quality_scores': None, 'questions_sha256': digest(DATASET / 'questions-v1.jsonl'),
+            save(args.output / 'inventory.json', {'denominator': len(questions), 'executed': 0, 'external_calls': 0,
+                'quality_scores': None, 'questions_sha256': digest(args.dataset / FILES['questions']),
                 'unexecuted': [{'question_id': q['question_id'], 'reason': 'No live provider/budget execution agreed.'}
                                for q in questions]})
-            print('288 frozen prompts verified; 288 unexecuted; no external calls.')
+            print(f'{len(questions)} frozen prompts verified; all unexecuted; no external calls.')
             return 0
         if not args.agreement:
             raise ValueError('--execute requires a separately agreed --agreement JSON')
@@ -199,9 +194,9 @@ def main():
         if assistant.documents:
             snapshot_digest = assistant.documents.pin_snapshot(agreement['snapshot_id'])
             verify = assistant.documents.verify_snapshot
-        run_identity = identity(config, agreement) | {'snapshot_digest': snapshot_digest}
+        run_identity = identity(config, agreement, args.dataset) | {'snapshot_digest': snapshot_digest}
         summary = execute_questions(assistant, questions, args.output, run_identity,
-            max_prompts=args.max_prompts, budget=agreement['api_budget_usd'],
+            max_prompts=maximum, budget=agreement['api_budget_usd'],
             reserve=agreement['reserve_usd_per_prompt'], verify_snapshot=verify, resume=args.resume)
         print(json.dumps({k: summary[k] for k in ('denominator', 'attempted', 'failed', 'reserved_usd', 'stop_reason')}))
         return 1 if summary['failed'] or summary['unexecuted'] else 0

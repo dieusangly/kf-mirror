@@ -45,7 +45,7 @@ def evaluate(registry_path, cases_path):
             records.append({'candidate_id': key, 'passed': passed, 'error': error,
                             'latency_seconds': round(time.monotonic() - case_started, 6)})
     passed = all(row['passed'] for row in records)
-    return {'version': 'assistant-offline-evaluation-v1', 'passed': passed,
+    return {'version': 'pilot-symbolic-replay-v1', 'passed': passed,
             'dataset_registry_sha256': digest(project_path(registry_path)), 'fixtures_sha256': digest(Path(cases_path)),
             'baseline': {'language_versions': len(records), 'passed': sum(r['passed'] for r in records), 'records': records},
             'candidate_recall_at_6': None,
