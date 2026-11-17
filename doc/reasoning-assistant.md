@@ -1,7 +1,7 @@
 # Reasoning assistant
 
 Ask naturally in English or French. The chat app uses accepted reasoning
-scenarios, the published document corpus or labelled general knowledge, without
+policies, the published document corpus or labelled general knowledge, without
 requiring family, category or language selection. Conversation history supports
 clarification and follow-up questions.
 
@@ -23,7 +23,7 @@ and general answers. `KF_DATABASE_URL` and a published `aml-cft-pilot-13` snapsh
 enable the document route; see [publication](aml-cft-pipeline.md#7-rebuild-the-postgresql-search-projection).
 Without that database, document requests report unavailability. Startup makes no
 model calls; submitted questions can incur embedding and LLM costs. The first
-question embeds uncached scenarios; later questions reuse those vectors.
+question embeds uncached policy contexts; later questions reuse those vectors.
 
 The existing Document Assistant remains independently runnable at port 8501 using
 `apps/chat/app.py`. The new app reuses its retrieval/generation services without
@@ -37,41 +37,45 @@ Try:
 
 ## How reasoning works
 
-1. **Vector search retrieves up to six candidate scenarios.** The original user
-   question is embedded and compared with cached scenario vectors using cosine
-   similarity. Explicit case IDs and established conversation context take
-   priority; English/French variants are deduplicated. Embedding inputs contain
-   readable scope, facts and policies, never saved questions or reference answers.
-2. **The first LLM selects one candidate and generates a structured query.** It
-   receives the original question, bounded history, the candidates' readable
-   facts/policies and declared predicates/entities, plus document previews. In one
-   call it chooses a route and, for reasoning, returns one candidate ID, query
-   predicate/arguments/variables and a short readable restatement. The whole
-   dataset is not sent to this LLM.
-3. **The application adapter constructs the engine query.** It receives the LLM's
-   structured output, checks candidate membership and applicability fields, and
-   adds trusted dataset identifiers and the engine's schema wrapper. The
-   restatement is displayed for interpretation review; it is not engine input.
-4. **The engine executes the encoded query with the selected scenario's already
-   encoded facts and policy rules.** These encodings come from the accepted
-   formalization stage; the first LLM does not recreate them. The engine validates
-   schema, vocabulary, types and bindings, then returns a conclusion/status and
-   proof certificate. No LLM executes the deduction.
-5. **Code checks the proof certificate** and prepares the relevant proof steps
-   with their exact fact/policy source references. Unknown or conflicting results
-   remain explicit outcomes, without switching to a general answer.
-6. **The second LLM produces the chatbot's readable answer and proof explanation.**
-   It receives the engine's conclusion/status, proof steps and source text. Code
-   checks that the wording preserves the status and proof-step identities/order;
-   the UI displays the answer, interpreted question, scenario facts, explained
-   proof and exact sources. If wording fails, checked results and source text are
-   shown instead. The LLM explains the proof; it does not create or verify it.
+1. **Retrieve policy contexts.** Vector inputs contain accepted scope, policy
+   clauses and vocabulary meanings/signatures, never pilot customer facts, saved
+   queries or answers. Identical policy variants are deduplicated. The embedding
+   preprocessing version separates these inputs from the former scenario cache.
+2. **Interpret supplied context and question.** The interpretation LLM receives up
+   to six policy candidates, ordered predicate arguments/types, required policy
+   constants, bounded user history and document previews. It chooses one coherent
+   policy, declares case entities, cites exact user excerpts for facts and translates
+   the question separately. It clarifies ambiguous applicability, unsupported
+   policies/logic or unresolved identities. New customer facts are supported;
+   missing premises under an established policy remain an engine question.
+3. **Build a fresh case in code.** The adapter copies only selected accepted rules,
+   incompatibilities, vocabulary and required rule constants. Customer assertions
+   come exclusively from cited user text. It validates citation locations, literal
+   entity mentions, predicate arity/types and query variables. A broad question
+   citation is narrowed only when it contains one explicit question sentence.
+   Questions and conditionals cannot supply facts; assistant messages are excluded
+   from this interpretation input. No customer identity is mapped to a pilot identity.
+4. **Execute and check.** The unchanged symbolic engine binds variables and applies
+   rules to this runtime encoding, including direct lookup with zero rules. Missing
+   premises yield unknown; explicit negatives, positive exception clearance and
+   conflicts retain their accepted semantics. Code checks the proof against this
+   exact encoding and query before displaying a result.
+5. **Explain and inspect.** A second LLM explains the checked result. The UI shows
+   supplied excerpts, encoded facts/entities, interpreted query, proof and sources.
+   Fact proof steps cite user text; policy steps retain accepted source IDs. Wording
+   with a changed status or proof-step list falls back to the checked result.
 
-Synthetic scenarios are separate fictional contexts. The assistant cannot change
-their facts or combine cases. Changed facts or ambiguous applicability require
-clarification. Similarity and structural checks do not establish that a scenario
-matches the user's situation, that the query captures their meaning, or that the
-generated explanation is faithful; these still require semantic review.
+Policies remain fictional demonstrations unless registered as accepted source-backed
+policies. Encoding an assertion does not verify its truth. Citation/structural checks
+cannot establish semantic fact/query fidelity or explanation accuracy: these require
+real-model evaluation and independent review. Models can still omit or mistranslate
+assertions despite using valid citations.
+
+Each request builds a new case identity; the service stores no case encoding between
+calls. A clear follow-up may cite prior user assertions only within the established
+policy context. **New conversation** clears the history, pending question and private
+query cache. Empty history always starts an independent case. Ambiguous corrections
+or temporal changes require clarification rather than combining assessment scopes.
 
 ## Other routes
 
@@ -98,11 +102,12 @@ differ. Set `KF_ASSISTANT_CONFIG` to override the file and restart to reload.
 
 `scenario_search` uses `text-embedding-3-small` at 1536 dimensions. Its persistent
 cache is `artifacts/reasoning-assistant/embeddings`, keyed by text, provider,
-endpoint, model, dimensions and preprocessing version. Question vectors stay in
-session memory. Embedding failures stop the request without fallback. Service
-responses retain retrieval, routing, API usage, latency and estimated LLM cost
-for diagnostics; raw technical details are not shown in chat. The document route
-has its own retrieval configuration.
+endpoint, model, dimensions and preprocessing version. These vectors retrieve
+policies; the engine consumes the fresh symbolic case, not vectors.
+Question vectors stay in session memory. Embedding failures stop the request
+without fallback. Service responses retain retrieval, routing, API usage, latency
+and estimated LLM cost for diagnostics; raw technical details are not shown in
+chat. The document route has its own retrieval configuration.
 
 For local operation:
 
@@ -126,8 +131,11 @@ production authentication/access controls.
 
 [`config/reasoning-datasets.json`](../config/reasoning-datasets.json) owns package
 paths and pinned acceptance/status hashes. Loading checks prerequisite hashes and
-accepted cases/languages. Runtime uses readable inputs and accepted encodings,
-not reference answers, saved queries or results.
+accepted cases/languages. Runtime projects accepted policies and vocabulary from
+readable inputs/encodings; it never executes their saved customer facts. Reference
+answers, saved queries and results are excluded from request processing.
+`config/reasoning-vocabulary.json` defines predicate meanings and argument roles;
+keep it aligned with accepted signatures.
 
 Stage 5 remains deferred. After an independent Stage 4 review accepts a new batch,
 register its manifest, inputs, encodings, acceptance/status, engine config and
@@ -138,16 +146,18 @@ rendering remains unvalidated. The assistant never updates pilot acceptance/stat
 ## Validate offline
 
 ```sh
-PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.py tests/test_reasoning_assistant_search.py tests/test_reasoning_assistant_ui.py -q
+PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.py tests/test_reasoning_assistant_search.py tests/test_reasoning_assistant_ui.py tests/test_reasoning_assistant_inputs.py -q
 .venv/bin/python scripts/evaluate_reasoning_assistant.py --output /tmp/reasoning-assistant-evaluation-NEW.json
 ```
 
-Use a fresh output filename. The evaluator checks hashes, replays all 192 accepted
-language versions, checks certificates and compares complete results, without API
-calls. Exit codes: 0 pass, 1 failures, 2 input/I/O error.
+Use a fresh output filename. The existing evaluator is a **saved-query baseline
+replay**: it verifies 192 accepted language versions and their certificates without
+API calls. It does not validate natural-language fact formalization.
 
-Tests use controlled vectors and mocked LLM outputs. Real-model candidate recall,
-routing, interpretation and wording quality remain unmeasured. Before relying on
-them, agree an API budget and assess unseen bilingual paraphrases, ambiguity,
-changed facts, misleading instructions and mixed-source questions. Independently
-review semantic fidelity and measure end-to-end latency.
+For the frozen 288-prompt natural-language path, commands, offline evidence and
+separate reference-compatibility findings, see the
+[evaluation protocol](aml-cft-reasoning-assistant-evaluation.md). Mocked checks validate
+orchestration, runtime facts/provenance and isolation; real-model retrieval,
+interpretation and wording quality remain unmeasured. No paid execution is authorized
+by these commands; agree the effective providers/models, API budget/reservations and
+published document snapshot first.

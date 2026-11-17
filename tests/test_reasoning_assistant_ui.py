@@ -8,7 +8,8 @@ from knowledge_foundry.assistant.config import ROOT
 from knowledge_foundry.assistant.service import DocumentEvidence
 from knowledge_foundry.assistant.llm import LanguageModels
 from knowledge_foundry.assistant.search import ScenarioSearch
-from test_reasoning_assistant import CASES, CoveredDocuments, FixtureEmbeddings, FixtureModels, decision
+from test_reasoning_assistant import (CASES, CoveredDocuments, FixtureEmbeddings, FixtureModels,
+                                      decision, deduction_starter_decision, frozen)
 
 
 @pytest.fixture
@@ -54,7 +55,7 @@ def test_reasoning_proof_sources_details_and_reset(ui_models):
     assert len(view.chat_message) == 2
     assert any('Under the example policy: entailed' in element.value for element in view.text)
     assert any('Engine-checked proof · Supported' in element.value for element in view.caption)
-    assert any('synthetic scenario facts' in element.value for element in view.caption)
+    assert any('user-supplied case facts' in element.value for element in view.caption)
     assert {'Question interpretation', 'Show deduction', 'View sources'} == {
         element.label for element in view.expander}
     assert any('identity document is verified' in element.value for element in view.text)
@@ -70,27 +71,38 @@ def test_reasoning_proof_sources_details_and_reset(ui_models):
     assert any(element.value == 'What would you like to understand?' for element in view.header)
 
 
-@pytest.mark.parametrize('index,case_index', [(0, 12), (1, 5), (2, 8)])
-def test_examples_submit_the_real_question_through_the_assistant(ui_models, index, case_index):
+def test_deduction_example_submits_context_and_question(ui_models):
     import json
-
-    ui_models.value = decision(CASES[case_index])
+    # This checks orchestration only; model quality on starter prose is unmeasured.
+    ui_models.value = deduction_starter_decision()
     view = app()
-    next(button for button in view.button if button.label == EXAMPLES[index][0]).click().run()
+    next(button for button in view.button if button.label == EXAMPLES[1][0]).click().run()
     assert not view.exception
     assert len(view.chat_message) == 2
-    assert json.loads(ui_models.requests[0]['input'])['question'] == EXAMPLES[index][2]
-    assert not view.header  # Welcome content disappears once the conversation starts.
+    assert json.loads(ui_models.requests[0]['input'])['question'] == EXAMPLES[1][2]
+    answer = view.session_state.assistant_messages[-1]['answer']
+    assert answer['route'] == 'reasoning'
+    assert answer['status'] == 'entailed'
+    assert answer['checker']['valid']
+    assert answer['encoding']['facts'][0]['atom'] == {'predicate': 'pep', 'args': ['un client']}
+    assert answer['query']['queries'][0]['target'] == {'predicate': 'approval_required', 'args': ['un client']}
+    assert any(step['kind'] == 'deduction' for step in answer['proof_steps'])
+    assert not view.header
 
 
-@pytest.mark.parametrize('cid,predicate,args,status,notice', [
-    ('KYC-MP-01', 'onboarding_complete', ['A'], 'unknown', 'Insufficient information'),
-    ('TFS-CF-01', 'sanctions_match_entry', ['A', 'E'], 'conflict', 'Conflicting information'),
+@pytest.mark.parametrize('category,predicate,facts,status,notice', [
+    ('MP', 'onboarding_complete', [('identity_check_complete', ['A'], "A's identity check is complete.")],
+     'unknown', 'Insufficient information'),
+    ('CF', 'identity_verified', [('identity_verified', ['A'], "A's identity is verified."),
+                               ('identity_unverified', ['A'], "A's identity is explicitly unverified.")],
+     'conflict', 'Conflicting information'),
 ])
-def test_unknown_and_conflict_remain_visible_with_collapsed_proofs(ui_models, cid, predicate, args, status, notice):
-    ui_models.value = decision(candidate_id=f'synthetic-v1/{cid}/en', predicate=predicate, args=args)
+def test_unknown_and_conflict_remain_visible(ui_models, category, predicate, facts, status, notice):
+    text = frozen(category=category)
+    ui_models.value = decision(candidate_id=f'synthetic-v1/KYC-{category}-01/en', predicate=predicate, facts=facts,
+                               entities=[('A', facts[0][2])], text=text)
     view = app()
-    view.chat_input[0].set_value(f'Under the example policy for {cid}, assess {predicate}.').run()
+    view.chat_input[0].set_value(text).run()
     assert not view.exception
     assert any(notice in element.value for element in view.caption)
     alerts = view.warning if status == 'conflict' else view.info

@@ -48,14 +48,60 @@ class DatasetRegistry:
         self.definition = read(self.path)
         if self.definition['version'] != 'reasoning-datasets-v1':
             raise ValueError('unsupported dataset registry version')
-        self.records, self.packages = {}, {}
+        self.records, self.packages, self.policies = {}, {}, {}
+        self.vocabulary = read(ROOT / 'config/reasoning-vocabulary.json')['predicates']
         self.engine = None
         for entry in self.definition['datasets']:
             self._load(entry)
         if not self.records:
             raise ValueError('no accepted reasoning datasets registered')
-        self.searcher = ScenarioSearch(self.records, search_config or load_config()['scenario_search'],
+        self._policy_contexts()
+        self.searcher = ScenarioSearch(self.policies, search_config or load_config()['scenario_search'],
                                        local_only=local_only, embedder=embedder)
+
+    def _policy_contexts(self):
+        """Project accepted policies; customer assertions/identities never cross this boundary."""
+        signatures = set()
+        for key, row in sorted(self.records.items()):
+            encoding = row['encoding']
+            policy_ids = {s['id'] for s in row['policy_clauses']}
+            items = encoding['rules'] + encoding['incompatibilities']
+            if any(not set(item['source_ids']) <= policy_ids for item in items):
+                raise ValueError('policy depends on customer provenance')
+            constants = {}
+            for item in items:
+                atoms = item['body'] + [item['head']] if 'body' in item else [item['left'], item['right']]
+                for atom in atoms:
+                    for arg in atom['args']:
+                        if not arg.startswith('?'):
+                            constants[arg] = encoding['entities'][arg]
+            meanings = {}
+            for name, types in encoding['predicates'].items():
+                definition = self.vocabulary[name]
+                if [arg['type'] for arg in definition['arguments']] != types:
+                    raise ValueError('vocabulary signature differs')
+                meanings[name] = definition
+            policy_structure = [{k: v for k, v in item.items() if k not in {'id', 'source_ids'}}
+                                for item in items]
+            signature = json.dumps({
+                'package': row['package_id'], 'language': row['language'], 'scope': row['scope']['text'],
+                'predicates': encoding['predicates'],
+                'policy': policy_structure
+            }, sort_keys=True)
+            if signature in signatures:
+                continue
+            signatures.add(signature)
+            self.policies[key] = deepcopy({k: row[k] for k in (
+                'candidate_id', 'package_id', 'context_kind', 'language', 'dataset_id', 'dataset_version',
+                'scope', 'policy_clauses')} | {
+                    'policy_identity': hashlib.sha256(json.dumps({
+                        'package': row['package_id'], 'scope_id': row['scope']['id'],
+                        'predicates': encoding['predicates'],
+                        'policy': policy_structure}, sort_keys=True).encode()).hexdigest(),
+                    'vocabulary': {'predicates': meanings, 'policy_constants': constants},
+                    'template': {'schema_version': encoding['schema_version'], 'scope_id': encoding['scope_id'],
+                                 'predicates': encoding['predicates'], 'entities': constants,
+                                 'rules': encoding['rules'], 'incompatibilities': encoding['incompatibilities']}})
 
     def _load(self, entry):
         acceptance_path = project_path(entry['acceptance_path'])
@@ -114,13 +160,20 @@ class DatasetRegistry:
         return [self.candidate(key) for key in self.searcher.search(question, limit, preferred)]
 
     def candidate(self, key):
-        row = self.records[key]
-        # Only readable inputs and declared vocabulary; no category, saved query or reference hints.
+        row = self.policies[key]
         return deepcopy({k: row[k] for k in ('candidate_id', 'context_kind', 'language', 'scope',
-                                            'policy_clauses', 'scenario_facts')} | {
-            'vocabulary': {k: row['encoding'][k] for k in ('entities', 'predicates')}})
+                                            'policy_clauses', 'vocabulary')})
+
+    def execute_case(self, key, encoding, query):
+        config = self.packages[self.policies[key]['package_id']]['engine_config']
+        result = self.engine.solve(encoding, query, config)
+        checked = self.engine.check_result(encoding, query, config, result)
+        if not checked['valid']:
+            raise ValueError('runtime proof check failed')
+        return result, checked
 
     def execute(self, key, query):
+        """Explicit frozen-baseline replay only; Assistant uses execute_case instead."""
         row = self.records[key]
         config = self.packages[row['package_id']]['engine_config']
         result = self.engine.solve(row['encoding'], query, config)

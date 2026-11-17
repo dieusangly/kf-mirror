@@ -1,9 +1,8 @@
-"""Cached scenario embeddings and exact cosine ranking, without reference answers."""
+"""Cached policy embeddings and exact cosine ranking, without customer assertions."""
 from copy import deepcopy
 from http.client import HTTPException
 import json
 import math
-import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -16,8 +15,10 @@ from .llm import NoRedirect
 
 
 def scenario_text(row):
-    return '\n'.join([row['scope']['text']] +
-                     [s['text'] for kind in ('scenario_facts', 'policy_clauses') for s in row[kind]])
+    # Versioned policy-only inputs: never embed saved customer assertions.
+    vocabulary = row.get('vocabulary', {})
+    return '\n'.join([row['scope']['text']] + [s['text'] for s in row['policy_clauses']] +
+                     [json.dumps(vocabulary, ensure_ascii=False, sort_keys=True)])
 
 
 class ScenarioEmbeddings(EmbeddingAdapter):
@@ -30,7 +31,7 @@ class ScenarioEmbeddings(EmbeddingAdapter):
         self.queries = {}
 
     def embed_query(self, text):
-        # User questions stay in memory; the persistent cache contains scenarios only.
+        # User questions stay in memory; the persistent cache contains policies only.
         if text in self.queries:
             self.telemetry['cache_hits'] += 1
             return self.queries[text]
@@ -98,18 +99,15 @@ class ScenarioSearch:
             query = normalized(self.embedder.embed_query(question))
             if any(len(vector) != len(query) for vector in self.vectors.values()):
                 raise ValueError('query and scenario embedding dimensions differ')
-            mentioned = {key for key, row in self.records.items() if re.search(
-                r'(?<![\w-])' + re.escape(row['case_id']) + r'(?![\w-])', question, re.IGNORECASE)}
             scores = {key: math.fsum(a * b for a, b in zip(query, vector))
                       for key, vector in self.vectors.items()}
-            # Explicit IDs and established conversation context stay discoverable.
-            # Other candidates are ranked solely by cosine similarity.
+            # A follow-up may retain its policy, never a saved customer scenario.
             ranked = sorted(self.records, key=lambda key: (
-                key not in mentioned, key != preferred, -scores[key], key))
+                key != preferred, -scores[key], key))
             picked, seen = [], set()
             for key in ranked:
                 row = self.records[key]
-                identity = row['package_id'], row['case_id']
+                identity = row['package_id'], row.get('policy_identity', row.get('case_id'))
                 if identity in seen:
                     continue
                 seen.add(identity)
@@ -118,7 +116,7 @@ class ScenarioSearch:
                     break
             self.telemetry.update(status='completed', candidates=[
                 {'candidate_id': key, 'cosine_similarity': scores[key],
-                 'explicit_id': key in mentioned, 'conversation_context': key == preferred} for key in picked])
+                 'conversation_context': key == preferred} for key in picked])
             return picked
         except Exception as exc:
             self.telemetry['status'] = 'failed'

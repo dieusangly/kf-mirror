@@ -1,9 +1,11 @@
 """Evidence-aware orchestration with terminal unknown/conflict/error outcomes."""
 from copy import deepcopy
+import hashlib
 import json
 import time
 
 from .config import ROOT, load_config
+from .cases import InterpretationError, build_case
 from .datasets import DatasetRegistry, terms
 from .llm import LanguageModels, ModelError, ROUTE_SCHEMA, TEXT_SCHEMA, WORDING_SCHEMA
 
@@ -17,6 +19,24 @@ class DocumentEvidence:
     def __init__(self, config):
         self.config = config
         self.assistant = None
+        self.snapshot_id = None
+        self.snapshot_digest = None
+
+    def pin_snapshot(self, snapshot_id):
+        self.snapshot_id = snapshot_id
+        self.snapshot_digest = self.verify_snapshot()
+        return self.snapshot_digest
+
+    def verify_snapshot(self):
+        assistant = self._assistant()
+        snapshot = assistant.store.snapshot(self.config['corpus'], self.snapshot_id)
+        active = assistant.store.snapshot(self.config['corpus'])
+        if not self.snapshot_id or active['id'] != self.snapshot_id or snapshot['id'] != self.snapshot_id:
+            raise ValueError('evaluation requires the selected published active snapshot')
+        digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
+        if self.snapshot_digest is not None and digest != self.snapshot_digest:
+            raise ValueError('published snapshot identity changed')
+        return digest
 
     def _assistant(self):
         if self.assistant is None:
@@ -30,14 +50,17 @@ class DocumentEvidence:
     def preview(self, question):
         try:
             assistant = self._assistant()
+            if self.snapshot_id:
+                self.verify_snapshot()
             from knowledge_foundry.retrieval.service import DocumentAssistant
             config = deepcopy(assistant.config)
             config['answer']['provider'] = 'extractive'
             config['search']['rerank'] = False
             query_terms = terms(question)
             keyword_query = ' '.join(sorted(query_terms)) or question
+            options = {'snapshot_id': self.snapshot_id} if self.snapshot_id else {}
             preview = DocumentAssistant(assistant.store, config).retrieve(
-                self.config['corpus'], keyword_query, method='keyword', history=[])
+                self.config['corpus'], keyword_query, method='keyword', history=[], **options)
             # Context expansion can put surrounding headings/paragraphs first.
             # Give the router matching anchors before filling its bounded preview.
             evidence = sorted(preview['evidence'], key=lambda e: (
@@ -54,11 +77,15 @@ class DocumentEvidence:
     def answer(self, question, history, snapshot_id=None):
         from knowledge_foundry.retrieval.answering import generate
         assistant = self._assistant()
+        if self.snapshot_id:
+            self.verify_snapshot()
+            if snapshot_id != self.snapshot_id:
+                raise ValueError('document answer snapshot differs')
         retrieved = assistant.retrieve(self.config['corpus'], question, history=history,
                                        snapshot_id=snapshot_id, route_inventory=True)
         if retrieved.get('intent') == 'document_inventory':
             from knowledge_foundry.retrieval.service import inventory_answer
-            return inventory_answer(retrieved['documents'])
+            return {**inventory_answer(retrieved['documents']), 'snapshot_id': retrieved['snapshot_id']}
         for event in generate(assistant.config, retrieved['payload'], retrieved['evidence'], assistant.answer_stream):
             if event['type'] == 'answer':
                 return {**event['answer'], 'snapshot_id': retrieved['snapshot_id'],
@@ -77,6 +104,13 @@ class Assistant:
         enabled = self.config['documents']['enabled'] and not self.config['local_only']
         self.documents = (documents or DocumentEvidence(self.config['documents'])) if enabled else None
 
+    def clear_case_context(self):
+        # No case encodings are retained. Discard private question-vector inputs
+        # too; accepted policy vectors can safely remain cached.
+        queries = getattr(self.registry.searcher.embedder, 'queries', None)
+        if queries is not None:
+            queries.clear()
+
     def ask(self, question, history=None):
         question = question.strip()
         if not question or len(question) > self.config['max_question_characters']:
@@ -84,10 +118,14 @@ class Assistant:
         started = time.monotonic()
         start_calls = len(self.models.records)
         history = list(history or [])[-2 * self.config['history_turns']:]
-        context = [dict(role=m['role'], text=m['text'][:6000], route=m.get('route'),
-                        candidate_id=m.get('candidate_id')) for m in history
-                   if m.get('role') in {'user', 'assistant'}]
-        preferred = next((m.get('candidate_id') for m in reversed(context) if m.get('candidate_id')), None)
+        # Assistant prose/conclusions are never evidence for fact interpretation.
+        context = [dict(role='user', text=m['text'][:6000], message_id=f'history-{i}')
+                   for i, m in enumerate(history) if m.get('role') == 'user']
+        conversation = [dict(role=m['role'], text=m['text'][:6000]) for m in history
+                        if m.get('role') in {'user', 'assistant'}]
+        preferred = next((m.get('candidate_id') for m in reversed(history)
+                          if m.get('role') == 'assistant' and m.get('candidate_id')), None)
+        messages = {m['message_id']: m['text'] for m in context} | {'current': question}
         try:
             candidates = self.registry.search(question, self.config['candidate_limit'], preferred)
         except ValueError:
@@ -102,8 +140,12 @@ class Assistant:
         decision = None
         try:
             decision = self.models.call('question_interpretation', 'assistant_route_v1.txt',
-                {'question': question, 'history': context, 'candidates': candidates, 'documents': document_preview}, ROUTE_SCHEMA)
-            answer = self._dispatch(question, context, candidates, document_preview, decision)
+                {'question': question, 'message_id': 'current', 'history': context,
+                 'previous_policy': preferred, 'candidates': candidates, 'documents': document_preview}, ROUTE_SCHEMA)
+            answer = self._dispatch(question, conversation, candidates, document_preview, decision, messages, preferred)
+        except InterpretationError as exc:
+            answer = {'route': 'clarify', 'status': 'clarification', 'language': decision['language'],
+                      'interpretation': decision['interpretation'], 'text': str(exc), 'warnings': []}
         except (ValueError, KeyError, TypeError):
             answer = {'route': 'error', 'status': 'error',
                       'text': 'The request could not be validated or completed. Check the model/corpus configuration and try again.',
@@ -114,19 +156,22 @@ class Assistant:
                                'document_answer': document_telemetry,
                                'document_check': answer.pop('document_check', None),
                                'routing': {'proposed': decision['route'] if decision else None, 'selected': answer['route']},
+                               'interpretation': deepcopy(decision),
                                'document_preview': {k: document_preview[k] for k in
                                    ('available', 'corpus', 'snapshot_id', 'reason') if k in document_preview} | {
                                    'passage_labels': [p['label'] for p in document_preview['passages']]},
                                'latency_seconds': round(time.monotonic() - started, 3)}
         return answer
 
-    def _dispatch(self, question, history, candidates, preview, decision):
+    def _dispatch(self, question, history, candidates, preview, decision, messages, preferred):
         route, language = decision['route'], decision['language']
         base = {'route': route, 'language': language, 'interpretation': decision['interpretation'], 'warnings': []}
         if route != 'general' and decision['general_requested']:
             raise ValueError('general-knowledge preference on a non-general route')
         if route != 'reasoning' and (decision['candidate_id'] is not None or decision['predicate'] is not None
-                                    or decision['args'] or decision['variables'] or decision['select']):
+                                    or decision['args'] or decision['variables'] or decision['select']
+                                    or decision['facts'] or decision['entities'] or decision['question_evidence']
+                                    or decision['use_history']):
             raise ValueError('non-reasoning route contains an executable query')
         if route == 'clarify':
             if not decision['clarification'] or not decision['clarification'].strip():
@@ -137,19 +182,16 @@ class Assistant:
         if route == 'reasoning':
             key = decision['candidate_id']
             if key not in {c['candidate_id'] for c in candidates}:
-                raise ValueError('selected scenario was not retrieved')
-            if decision['context_match'] not in {'same_scenario', 'illustration'}:
-                raise ValueError('scenario applicability was not established')
-            row = self.registry.records[key]
-            variables = {v['name']: v['type'] for v in decision['variables']}
-            if len(variables) != len(decision['variables']):
-                raise ValueError('duplicate query variables')
-            query = {k: row['encoding'][k] for k in (*self.registry.engine.IDENTITY, 'schema_version')}
-            query['queries'] = [{'id': 'assistant-query', 'question_id': 'assistant-question',
-                                 'target': {'predicate': decision['predicate'], 'args': decision['args']},
-                                 'variables': variables, 'select': decision['select']}]
-            result, checked = self.registry.execute(key, query)
-            return {**base, **self._reasoning(question, row, query, result, checked, language)}
+                raise InterpretationError('Please clarify the intended policy; it was not among the supported contexts retrieved.')
+            row, query, provenance = build_case(self.registry, key, decision, messages, preferred)
+            try:
+                result, checked = self.registry.execute_case(key, row['encoding'], query)
+            except ValueError:
+                return {**base, 'route': 'error', 'status': 'error',
+                        'text': 'Runtime reasoning or proof validation failed; no conclusion was established.',
+                        'encoding': row['encoding'], 'query': query, 'input_provenance': provenance}
+            return {**base, **self._reasoning(question, row, query, result, checked, language),
+                    'encoding': row['encoding'], 'input_provenance': provenance}
         if route == 'documents':
             return {**base, **self._document_answer(question, history, preview, language)}
         if route == 'general':
@@ -162,7 +204,8 @@ class Assistant:
                 # Only an explicit insufficient-evidence outcome permits this
                 # proposed general route to continue. Failures remain terminal.
                 base['document_check'] = {'status': checked['status'], 'snapshot_id': preview.get('snapshot_id'),
-                                          'answer_telemetry': checked.get('telemetry')}
+                                          'answer_telemetry': checked.get('telemetry'),
+                                          'retrieval': checked.get('retrieval')}
             value = self.models.call('general', 'assistant_general_v1.txt',
                                      {'question': question, 'history': history, 'language': language}, TEXT_SCHEMA)
             return {**base, 'status': 'general', 'text': value['text']}

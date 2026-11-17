@@ -28,7 +28,7 @@ def render_welcome():
     with st.container(key='welcome'):
         with st.container(key='welcome-intro'):
             st.header('What would you like to understand?')
-            st.markdown('Ask a question. Explore the answer and its evidence.')
+            st.markdown('Supply your context and question together. Explore the facts, answer and evidence.')
         with st.container(horizontal=True, key='starters', gap='medium'):
             for index, (label, icon, question) in enumerate(EXAMPLES):
                 st.button(label, icon=icon, help=question, key=f'example-{index}', width='stretch',
@@ -38,6 +38,8 @@ def render_welcome():
 def new_conversation():
     st.session_state.assistant_messages = []
     st.session_state.pop('assistant_pending_question', None)
+    if 'assistant_service' in st.session_state:
+        st.session_state.assistant_service.clear_case_context()
 
 
 def render_answer(answer):
@@ -52,15 +54,15 @@ def render_answer(answer):
         st.caption('General LLM answer · no document evidence or engine-checked proof.')
     if route == 'reasoning':
         context = answer['context']
-        st.caption('Fictional demonstration policy · synthetic scenario facts.' if context['context_kind'] == 'synthetic'
-                   else 'Source-backed rules · inspect applicability and synthetic customer assumptions.')
+        st.caption('Fictional demonstration policy · user-supplied case facts.' if context['context_kind'] == 'synthetic'
+                   else 'Source-backed rules · inspect applicability and user-supplied case assumptions.')
         if status == 'conflict':
             st.warning('Conflicting information · no supported conclusion can be relied on. Open the deduction to inspect the conflict.')
         elif status == 'unknown':
             st.info('Insufficient information · open the deduction to see which facts are missing.')
         with st.expander('Show deduction', icon=':material/account_tree:'):
             generated = any('generated_text' in step for step in answer['proof_steps'])
-            st.caption('Proof checked by code · LLM-written explanation.' if generated
+            st.caption('Proof checked against this case · LLM-written explanation.' if generated
                        else 'Proof checked by code · source text and template explanation.')
             if status == 'conflict':
                 st.info('These steps show candidate support. Conflicting premises and dependent conclusions are withheld.')
@@ -84,7 +86,9 @@ def render_answer(answer):
             st.caption('LLM interpretation · check it matches your question.')
             for fact in context['scenario_facts']:
                 st.text('• ' + fact['text'])
-            st.caption('Facts copied from the selected dataset scenario.')
+            st.json({'facts': answer['encoding']['facts'], 'entities': answer['encoding']['entities'],
+                     'query': answer['query']['queries'][0]})
+            st.caption('Facts interpreted from your text · check the encoding and entity identities.')
     if route == 'documents':
         with st.expander('View sources', icon=':material/menu_book:'):
             for citation in answer.get('citations', []):

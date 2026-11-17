@@ -28,18 +28,27 @@ def object_schema(properties):
 
 
 TEXT_SCHEMA = object_schema({'text': {'type': 'string', 'minLength': 1}})
+EVIDENCE_SCHEMA = object_schema({'message_id': {'type': 'string'},
+                                 'quote': {'type': 'string', 'minLength': 1}})
 ROUTE_SCHEMA = object_schema({
     'route': {'type': 'string', 'enum': ['reasoning', 'documents', 'general', 'clarify']},
     'language': {'type': 'string', 'enum': ['en', 'fr']},
     'general_requested': {'type': 'boolean'},
     'candidate_id': {'type': ['string', 'null']},
-    'context_match': {'type': 'string', 'enum': ['same_scenario', 'illustration', 'ambiguous', 'different_facts', 'none']},
+    'context_match': {'type': 'string', 'enum': ['supported_policy', 'ambiguous', 'unsupported', 'none']},
+    'use_history': {'type': 'boolean'},
     'interpretation': {'type': 'string', 'minLength': 1},
     'clarification': {'type': ['string', 'null']},
     'predicate': {'type': ['string', 'null']},
     'args': {'type': 'array', 'items': {'type': 'string'}},
     'variables': {'type': 'array', 'items': object_schema({'name': {'type': 'string'}, 'type': {'type': 'string'}})},
     'select': {'type': 'array', 'items': {'type': 'string'}},
+    'entities': {'type': 'array', 'maxItems': 48, 'items': object_schema({
+        'name': {'type': 'string', 'minLength': 1}, 'type': {'type': 'string'}, 'evidence': EVIDENCE_SCHEMA})},
+    'facts': {'type': 'array', 'maxItems': 96, 'items': object_schema({
+        'predicate': {'type': 'string'}, 'args': {'type': 'array', 'items': {'type': 'string'}},
+        'evidence': EVIDENCE_SCHEMA})},
+    'question_evidence': {'anyOf': [EVIDENCE_SCHEMA, {'type': 'null'}]},
 })
 
 WORDING_SCHEMA = object_schema({

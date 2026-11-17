@@ -1,6 +1,6 @@
 # AML/CFT reasoning pilot
 
-Updated: 2026-11-15.
+Updated: 2026-11-17.
 
 Keep this guide in `doc/` for version control; run outputs belong in
 `artifacts/aml-cft-reasoning-pilot/`. Repository paths in this guide start at the
@@ -52,16 +52,25 @@ or all families from that versioned dataset. Acceptance covers only selected cas
   does not authorize paid calls, database writes or application integration.
   Agree execution scope/budget and follow applicable approval rules.
 
-Regulatory documents contain facts and rules but often lack customer-specific
-facts. Diagnose missing inputs separately from wrong rules, faulty formalization
-and engine defects. French/English pairs test language effects without assuming
-French causes failures.
+The 13-document corpus contains factual assertions (such as publication dates)
+as well as rules, but often lacks customer-specific facts. Diagnose missing inputs
+separately from wrong rules, faulty formalization and engine defects.
+French/English pairs test language effects without assuming French causes failures.
 
-**Terms:** a fact states something; evidence supports it; a rule connects premises
-(required statements/conditions) to a conclusion. Fictional example: “A is high
-risk” + “High-risk customers require enhanced review” ⇒ “A requires enhanced review.”
-A fact may be `(A, riskCategory, HighRisk)`; a rule is an implication between patterns,
-not an isolated triple.
+**Terms:** a fact is a supplied assertion; evidence supports it; a rule connects
+premises (required conditions) to a conclusion. Encoding a fact does not verify
+its truth. In simplified notation, a fictional policy and customer fact are:
+
+```text
+Rule:  high_risk(?customer) → requires_enhanced_review(?customer)
+Fact:  high_risk(Alice)
+```
+
+`?` marks a variable in rules or queries; supplied facts name particular entities.
+The engine binds `?customer = Alice` and derives `requires_enhanced_review(Alice)`.
+The translator encodes statements; the engine binds variables and applies rules.
+A rule can be encoded without customer facts; applying it requires support for
+all its premises. These examples abbreviate the structured JSON contract below.
 
 ## Run layout and records
 
@@ -185,6 +194,10 @@ cases and separate proposed answers/proofs.
   separately from the inputs/questions.
 - [Dataset manifest](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json):
   dataset ID/version, family/case mappings, language versions and file/record hashes.
+
+Every case has facts; direct lookups need no rules. Policies and facts share an
+input record but remain distinct fields. Separate question files organize the
+pilot and isolate query translation; the engine does not require that file split.
 
 Accept the draft for downstream preparation and stop for Stage 2. References
 remain provisional until Stage 4 independently checks them. Model agreement does
@@ -345,7 +358,10 @@ Stage 5 creates a new batch while preserving synthetic results.
 ## Stage 2 — Set up the engine
 
 Stage 2 defines the structured data model and prepares the reasoning software
-that will consume it. Stage 3 will perform the readable-text-to-structure mappings.
+that will consume it. Cases inform requirements and setup tests; concrete customer
+facts are not inherently required to define the contract or encode a rule.
+Stage 3 performs the readable-text-to-structure mappings and declares each case's
+vocabulary.
 
 **Inputs:** the versioned Stage 1 or Stage 5 dataset and agreed family/case
 selection. Before setup, record the families, exact case IDs and both language
@@ -408,13 +424,28 @@ premises in `body` and a conclusion in `head`; a query has a `target` and option
 answer variables in `select`. `source_ids` and `question_id` connect these to the
 readable inputs and questions.
 
+Each encoding declares one shared predicate vocabulary with argument order/types,
+and its particular entities. Facts and rules both contribute predicates; a
+facts-only lookup contributes vocabulary without a rule. Rules alone can supply
+their predicates, but need not cover predicates used only for lookups. Translation
+must preserve predicate meanings and entity identities. Validation rejects
+undeclared predicates or entities; the engine does not infer synonym mappings.
+
+For `KYC-DL-01`, “Customer A supplied a passport” becomes
+`identity_document(A, passport)` with no rules. The query
+`identity_document(A, ?document)` returns `?document = passport` by assertion,
+without deduction. Asking about Bob must preserve Bob: an undeclared Bob fails
+validation; a declared Bob with no supporting fact yields unknown, not A's answer.
+
 Validate syntax, references and variable binding; save outputs and failures
 without silent retries. Prepare queries separately from versioned questions,
 without inserting expected answers. Questions go to the query pipeline, not the
 facts/rules generator; the engine consumes the resulting structured queries.
-General natural-language question interpretation and assistant UI/routing remain
-later work. Version/hash all outputs and stop for Stage 4 Execute. Generation and
-structural validation do not establish reference correctness, encoding fidelity or
+The separate [assistant input path](reasoning-assistant.md#how-reasoning-works) now
+constructs fresh user cases from accepted policies/vocabulary and supplied text.
+This does not alter these frozen pilot encodings or their acceptance.
+Version/hash all outputs and stop for Stage 4 Execute. Generation and structural
+validation do not establish reference correctness, encoding fidelity or
 successful reasoning.
 
 **Repair the producing pipeline, not saved outputs.** For evidenced encoding/query

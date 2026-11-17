@@ -14,7 +14,7 @@
       "endpoint": "https://api.openai.com/v1/embeddings",
       "dimensions": 1536,
       "expected_dimensions": 1536,
-      "preprocessing_version": "reasoning-scenario-text-v1",
+      "preprocessing_version": "reasoning-policy-text-v2",
       "tokenizer": "cl100k_base",
       "max_input_tokens": 8192,
       "max_request_inputs": 32,

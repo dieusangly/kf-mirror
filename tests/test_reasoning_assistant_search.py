@@ -47,13 +47,21 @@ def test_cosine_ranking_without_word_overlap_and_bilingual_deduplication():
     assert len(embedder.inputs) == 3  # Corpus vectors are retained in memory.
 
 
-def test_exact_case_ids_take_precedence_without_matching_longer_ids():
+def test_only_established_policy_context_takes_precedence():
     records = {cid: record(cid, 'en', 'A supplied fact.') for cid in ('KYC-01', 'KYC-010', 'OTHER')}
     embedder = ControlledEmbeddings({'KYC-01': [0, 1], 'KYC-010': [1, 0], 'OTHER': [1, 0]}, [1, 0])
     search = ScenarioSearch(records, load_config()['scenario_search'], embedder=embedder)
-    assert search.search('Explain kyc-01.', limit=1, preferred='OTHER') == ['KYC-01']
-    assert search.search('Explain KYC-010.', limit=1) == ['KYC-010']
+    assert search.search('Explain kyc-01.', limit=1, preferred='OTHER') == ['OTHER']
     assert search.search('And what about its approval?', limit=1, preferred='KYC-01') == ['KYC-01']
+
+
+def test_customer_facts_cannot_change_policy_embeddings():
+    from knowledge_foundry.assistant.search import scenario_text
+    row = record('ONE', 'en', 'Private customer fact')
+    before = scenario_text(row)
+    row['scenario_facts'] = [{'text': 'Completely different private fact'}]
+    assert scenario_text(row) == before
+    assert 'Private customer' not in before
 
 
 def embedding_config():
@@ -122,7 +130,7 @@ def registry():
     from knowledge_foundry.assistant.datasets import DatasetRegistry
 
     registry = DatasetRegistry()
-    registry.searcher.embedder = FixtureEmbeddings(registry.records)
+    registry.searcher.embedder = FixtureEmbeddings(registry.policies)
     return registry
 
 
