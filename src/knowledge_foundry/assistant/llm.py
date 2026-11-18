@@ -12,6 +12,7 @@ import jsonschema
 from knowledge_foundry.embeddings import token_count
 from knowledge_foundry.openai_tools import _output_text, _usage_record, response_payload
 from .config import ROOT, local_endpoint
+from .diagnostics import exception_diagnostic
 
 
 class ModelError(ValueError):
@@ -81,6 +82,12 @@ class LanguageModels:
         started = time.monotonic()
         try:
             body = (self.transport or self._request)(payload, step)
+            if isinstance(body, dict):
+                record['response_status'] = body.get('status') if body.get('status') in {
+                    'completed', 'incomplete', 'failed', 'cancelled', 'queued', 'in_progress'} else 'unknown'
+                reason = (body.get('incomplete_details') or {}).get('reason')
+                if reason in {'max_output_tokens', 'content_filter'}:
+                    record['incomplete_reason'] = reason
             if not isinstance(body, dict) or body.get('status') != 'completed':
                 raise ModelError('model response was refused or incomplete')
             record.update(model=body.get('model', step['model']), usage=_usage_record(body))
@@ -105,6 +112,7 @@ class LanguageModels:
             return value
         except (ValueError, TypeError, KeyError, jsonschema.ValidationError, RuntimeError) as exc:
             record['status'] = 'failed'
+            record['diagnostic'] = exception_diagnostic(exc, role)
             raise ModelError('model output could not be validated') from exc
         finally:
             record['latency_seconds'] = round(time.monotonic() - started, 3)

@@ -19,8 +19,21 @@ Routes:
   or manual family/category selection. Missing premises under an established policy
   are unknown: translate the supplied facts and let the engine decide.
 
+Recorded relationships are also reasoning questions: a direct lookup needs no
+deduction rule. If a retrieved vocabulary represents the requested relation,
+translate all recorded bindings rather than asking whether to summarise them or
+using general conversation. Evaluate an explicit supplied if/then policy against
+the accepted conjunctive policy; do not ask again whether its stated premises
+are sufficient when their meaning and applicability are already established.
+
+Each candidate.scope_ref points to its full accepted scope in the scopes map.
+Apply that scope together with the candidate vocabulary and clauses.
+
 For reasoning set context_match to supported_policy and candidate_id to one supplied
 candidate. Use only its vocabulary: meanings, ordered arguments and types are given.
+Entity and variable types must be copied from the vocabulary argument types,
+not inferred from real-world roles. For example, when a person or customer role
+has type "entity", declare "entity", never an invented "person" or "customer" type.
 policy_constants are fixed action/field names required by accepted rules, not saved
 customer identities. Preserve their exact symbols when their meaning is intended.
 Declare every other case entity in entities: name equals an exact literal mention
@@ -28,7 +41,8 @@ in a user message, with the given type and a unique containing excerpt as eviden
 citation. Never replace Bob with A or guess equivalence between names. Use the same
 declared name throughout; if pronouns/aliases cannot be resolved from the user's
 text, clarify. Do not declare
-policy constants again. New unnamed subjects can use their exact descriptive mention.
+policy constants again. Declare each nonconstant entity only once, even when it
+occurs in several assertions. New unnamed subjects can use their exact descriptive mention.
 
 facts contains ONLY assertions supplied by the user, each with predicate, ordered
 args and evidence {message_id, quote}. quote must be an exact, unique, contiguous
@@ -39,6 +53,12 @@ must remain a query even if it would complete a missing premise. Encode explicit
 negative assertions only using declared negative predicates. Absence supplies
 neither negation nor exception/authorisation clearance. Extract all relevant
 assertions, including both sides of declared conflicts. Do not execute deductions.
+Copy evidence excerpts character for character, including apostrophes, accents,
+hyphens and punctuation. Do not translate, repair grammar, rewrite identifiers or
+join separated excerpts. Check that each quote occurs exactly once in the entire
+message; if a short quote repeats, extend it with adjacent original text until
+unique. Repeated use of the same unique sentence for its entities and facts is
+allowed. A sentence with several assertions may support each of those assertions.
 
 question_evidence cites ONLY the question portion of the current user message,
 never the entire request when it also contains asserted context. Fact evidence
@@ -49,6 +69,24 @@ comme PPE. Une approbation sénior est-elle requise ? Montre la déduction.", ci
 "Une approbation sénior est-elle requise ?" for question_evidence. Preserve the
 literal entity "Un client" consistently; approval_required is the query, never
 a supplied fact. "Montre la déduction." is a request, not an assertion.
+Before returning a reasoning interpretation, check every fact and query against
+that candidate vocabulary: the args length must equal its declared argument
+count, with one argument per ordered role. Never add a field/action argument to
+a unary predicate or omit a role from a binary predicate. Preserve the stated
+direction of relationships when translating possessive questions; grammatical
+word order does not reverse the vocabulary roles. For a lookup asking which
+entities or values are recorded, select every requested unknown position rather
+than turning one chosen binding into a yes/no query.
+
+Validate every evidence message_id against the supplied messages (the independent
+current question uses exactly "current"). Check literal quote membership and
+uniqueness before returning; use a complete original assertion sentence when a
+short name or fragment repeats. Check entity declarations and question_evidence
+the same way. Do not repair an awkward source sentence inside its quotation.
+The additional rule-free candidates contain accepted lookup vocabularies; their
+absence of clauses is intentional and supports recorded-fact queries. They
+provide no deduction rules and must never be combined with another policy.
+
 Translate that question into predicate, args, variables
 (array of name/type declarations) and select. Variables start with ?. Ground
 queries have empty variables/select. The engine binds variables and applies rules.

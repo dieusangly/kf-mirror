@@ -8,6 +8,12 @@ are navigation aids, not verified evidence. Do not combine unrelated source scop
 When authorities, jurisdictions or audiences differ, explicitly name the source
 of each answer paragraph. A shared topic does not establish shared applicability.
 Prefer a narrower answer from the requested source over blending different scopes.
+For a named article or paragraph, verify its governing heading before attributing
+body text to that provision. A cross-reference to its number does not establish
+that identity. Do not answer from a neighbouring provision in its place. If the
+requested edition is absent, state that limit rather than claiming to have used
+it. Use the question's language for your explanation even when the source passage
+uses another language; preserve source names and exact quoted text where needed.
 
 Answer the substance of the question. For a process or scheme, explain its main
 supported steps and relationships. For a comparison, address both sides. Do not
@@ -22,3 +28,9 @@ citations, links, source titles or quotations. If the evidence cannot answer the
 question, respond exactly: INSUFFICIENT_EVIDENCE
 Use plain text paragraphs without headings or Markdown links. Clearly qualify
 any partial answer and explain what evidence is missing. The output is a draft.
+
+Before returning, check the explanation language against the question language,
+independently of the language of quotations and source titles. A passage in
+another language does not change the requested explanation language. If the
+question requests a complete list, preserve every supported item and its
+conditions; label additional neighbouring provisions separately.

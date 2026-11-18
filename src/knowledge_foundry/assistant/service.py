@@ -5,6 +5,7 @@ import json
 import time
 
 from .config import ROOT, load_config
+from .diagnostics import exception_diagnostic
 from .cases import InterpretationError, build_case
 from .datasets import DatasetRegistry, terms
 from .llm import LanguageModels, ModelError, ROUTE_SCHEMA, TEXT_SCHEMA, WORDING_SCHEMA
@@ -70,9 +71,11 @@ class DocumentEvidence:
                 {'label': e['label'], 'text': e['text'], 'source': e['source'], 'location': e['location'],
                  'element_kind': e.get('element_kind'), 'is_context': bool(e.get('is_context'))}
                 for e in evidence[:5]]}
-        except Exception:
+        except Exception as exc:
+            diagnostic = exception_diagnostic(exc, "document_preview")
             # Connection strings and provider payloads must never enter model input/errors.
-            return {'available': False, 'passages': [], 'reason': 'Published document corpus unavailable.'}
+            return {'available': False, 'passages': [], 'reason': 'Published document corpus unavailable.',
+                    'diagnostic': diagnostic}
 
     def answer(self, question, history, snapshot_id=None):
         from knowledge_foundry.retrieval.answering import generate
@@ -128,6 +131,8 @@ class Assistant:
         messages = {m['message_id']: m['text'] for m in context} | {'current': question}
         try:
             candidates = self.registry.search(question, self.config['candidate_limit'], preferred)
+            existing = {c['candidate_id'] for c in candidates}
+            candidates += [c for c in self.registry.lookup_candidates() if c['candidate_id'] not in existing]
         except ValueError:
             return {'route': 'error', 'status': 'error',
                     'text': 'Scenario search is unavailable. Check the embedding provider and cache, then try again.',
@@ -137,19 +142,30 @@ class Assistant:
         document_preview = self.documents.preview(question) if self.documents else {
             'available': False, 'passages': [], 'reason': 'Document route disabled by configuration/privacy policy.'}
         document_preview['corpus'] = self.config['documents']['corpus']
+        # Share identical accepted scope text once; the lookup catalog otherwise
+        # repeats it for every rule-free vocabulary and can crowd out the request.
+        scopes, model_candidates = {}, []
+        for candidate in candidates:
+            scope = candidate['scope']
+            scope_ref = hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
+            scopes[scope_ref] = scope
+            model_candidates.append({k: v for k, v in candidate.items() if k != 'scope'} |
+                                    {'scope_ref': scope_ref})
         decision = None
         try:
             decision = self.models.call('question_interpretation', 'assistant_route_v1.txt',
                 {'question': question, 'message_id': 'current', 'history': context,
-                 'previous_policy': preferred, 'candidates': candidates, 'documents': document_preview}, ROUTE_SCHEMA)
+                 'previous_policy': preferred, 'candidates': model_candidates, 'scopes': scopes,
+                 'documents': {k: v for k, v in document_preview.items() if k != 'diagnostic'}}, ROUTE_SCHEMA)
             answer = self._dispatch(question, conversation, candidates, document_preview, decision, messages, preferred)
         except InterpretationError as exc:
             answer = {'route': 'clarify', 'status': 'clarification', 'language': decision['language'],
                       'interpretation': decision['interpretation'], 'text': str(exc), 'warnings': []}
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError) as exc:
             answer = {'route': 'error', 'status': 'error',
                       'text': 'The request could not be validated or completed. Check the model/corpus configuration and try again.',
-                      'warnings': ['No fallback answer was generated.']}
+                      'warnings': ['No fallback answer was generated.'],
+                      'diagnostic': exception_diagnostic(exc, 'interpretation_dispatch')}
         document_telemetry = answer.get('telemetry') if answer['route'] == 'documents' else None
         answer['telemetry'] = {'calls': deepcopy(self.models.records[start_calls:]),
                                'scenario_search': deepcopy(self.registry.searcher.telemetry),
@@ -158,7 +174,7 @@ class Assistant:
                                'routing': {'proposed': decision['route'] if decision else None, 'selected': answer['route']},
                                'interpretation': deepcopy(decision),
                                'document_preview': {k: document_preview[k] for k in
-                                   ('available', 'corpus', 'snapshot_id', 'reason') if k in document_preview} | {
+                                   ('available', 'corpus', 'snapshot_id', 'reason', 'diagnostic') if k in document_preview} | {
                                    'passage_labels': [p['label'] for p in document_preview['passages']]},
                                'latency_seconds': round(time.monotonic() - started, 3)}
         return answer
@@ -219,8 +235,8 @@ class Assistant:
         try:
             return self.documents.answer(question, [m['text'] for m in history
                 if m['role'] == 'user'], preview.get('snapshot_id'))
-        except Exception:
-            return {'status': 'error', 'text': (
+        except Exception as exc:
+            return {'status': 'error', 'diagnostic': exception_diagnostic(exc, 'document_answer'), 'text': (
                 'L’assistance documentaire n’a pas pu aboutir. Aucune réponse générale ne lui a été substituée.' if language == 'fr'
                 else 'Document assistance could not complete. No general answer was substituted.')}
 

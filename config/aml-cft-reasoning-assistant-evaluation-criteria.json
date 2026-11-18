@@ -1,0 +1,164 @@
+{
+  "schema_version": "1.0",
+  "selected_on": "2026-11-18",
+  "timing": "after Stage 3 execution; before Stage 4 correctness review",
+  "source": "doc/aml-cft-reasoning-assistant-evaluation.md",
+  "fixed_denominators": {
+    "prompts": 288,
+    "bilingual_pairs": 144,
+    "base_variant_groups": 48,
+    "routing_pairs": 48
+  },
+  "gates": {
+    "overall": {
+      "required": 260,
+      "total": 288
+    },
+    "question_type": {
+      "new": {
+        "required": 82,
+        "total": 96
+      },
+      "variant": {
+        "required": 82,
+        "total": 96
+      },
+      "routing": {
+        "required": 82,
+        "total": 96
+      }
+    },
+    "language": {
+      "en": {
+        "required": 123,
+        "total": 144
+      },
+      "fr": {
+        "required": 123,
+        "total": 144
+      }
+    },
+    "family": {
+      "KYC": {
+        "required": 29,
+        "total": 36
+      },
+      "BO": {
+        "required": 29,
+        "total": 36
+      },
+      "PEP": {
+        "required": 29,
+        "total": 36
+      },
+      "RISK": {
+        "required": 29,
+        "total": 36
+      },
+      "MON": {
+        "required": 29,
+        "total": 36
+      },
+      "TFS": {
+        "required": 29,
+        "total": 36
+      },
+      "PAY": {
+        "required": 29,
+        "total": 36
+      },
+      "CORR": {
+        "required": 29,
+        "total": 36
+      }
+    },
+    "actual_category": {
+      "DL": {
+        "required": 26,
+        "total": 32
+      },
+      "OH": {
+        "required": 26,
+        "total": 32
+      },
+      "EX": {
+        "required": 26,
+        "total": 32
+      },
+      "MH": {
+        "required": 52,
+        "total": 64
+      },
+      "MP": {
+        "required": 13,
+        "total": 16
+      },
+      "CF": {
+        "required": 13,
+        "total": 16
+      }
+    },
+    "routing_kind": {
+      "ambiguous": {
+        "required": 28,
+        "total": 32
+      },
+      "unsupported": {
+        "required": 28,
+        "total": 32
+      },
+      "documents": {
+        "required": 28,
+        "total": 32
+      }
+    },
+    "bilingual_pairs": {
+      "required": 123,
+      "total": 144
+    },
+    "base_variant_groups": {
+      "required": 39,
+      "total": 48
+    },
+    "critical_errors": {
+      "maximum": 0
+    }
+  },
+  "decision": "all gates must pass; unresolved dataset/reference findings block acceptance; Session A post-repair checks provisional only",
+  "fully_correct": "Appropriate route; preserves supplied facts; complete supported bindings and required explanations. Clarification identifies unresolved issue and useful follow-up. Documents require supported answers and citations. Equivalent wording, symbols and proof paths accepted; minor style recorded separately.",
+  "critical_errors": [
+    "invented customer premises",
+    "fictional rules presented as law",
+    "invalid proofs accepted",
+    "unknown/conflict presented as supported conclusion"
+  ],
+  "failure_accounting": "Invalid references, execution errors, unresolved judgments and unexecuted prompts stay in fixed denominators and cannot pass. Valid-reference diagnostic denominators explicitly reported.",
+  "review_areas": [
+    "dataset validity, novelty, category, bilingual equivalence and controlled variant relationship",
+    "reference facts/query/bindings fidelity and valid pinned certificates",
+    "retrieval/routing/entities/provenance/query/policy interpretation",
+    "complete answers/proofs/missing and conflicting premises/explanations/fictional labels/document evidence"
+  ],
+  "scoring_dimensions": [
+    "type",
+    "family",
+    "actual_category",
+    "language"
+  ],
+  "metrics": [
+    "routing",
+    "query",
+    "full_bindings",
+    "proof_validity",
+    "explanation_provenance",
+    "document_support",
+    "latency",
+    "available_costs"
+  ],
+  "pair_rule": "both prompts pass",
+  "group_rule": "both bilingual pairs pass and answer relationship correct",
+  "routing_category": null,
+  "latency_cost_hard_threshold": null,
+  "shared_repair_round_limit": 2,
+  "session_a_repair_round_limit": 1
+}

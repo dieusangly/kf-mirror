@@ -4,25 +4,93 @@
 
 Version **1.0.0** contains **288 prompts / 144 bilingual
 pairs**. It tests new customer fact configurations under accepted pilot policies.
-Stage 1 generates questions and separate engine-checked proposed references.
-Preparation and offline runner checks do not establish real-model performance.
-References remain provisional until independent review.
+Stages 1–4 are complete. The final independent decision on 2026-11-18 is
+**not accepted — `completed-with-failures`**. Both shared repair rounds are
+exhausted. Dataset validity and reference fidelity passed independent review for
+all prompts; assistant quality and construction compatibility did not meet every
+acceptance requirement.
 
-Evidence lives under
-[`artifacts/aml-cft-reasoning-assistant-evaluation/`](../artifacts/aml-cft-reasoning-assistant-evaluation/):
+The reviewed candidate uses
+[`01-dataset-run-005`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-005/dataset-manifest-v1.json)
+and [`03-live-run-004`](../artifacts/aml-cft-reasoning-assistant-evaluation/03-live-run-004/run.json).
+The authoritative final review is
+[`04-review-run-003`](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-003/evaluation-status.json):
+[report](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-003/report.md),
+[scores and slices](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-003/scores.json),
+[findings](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-003/findings.json).
 
-- [`01-dataset-run-002/questions-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/questions-v1.jsonl): submitted prompts.
-- [`01-dataset-run-002/dataset-manifest-v1.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/dataset-manifest-v1.json): versions, hashes, source mappings and variant links.
-- [`01-dataset-run-002/proposed-references-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/proposed-references-v1.jsonl): expected routes, outcomes and source evidence; accompanying `reference-encodings-v1.jsonl`, `reference-queries-v1.jsonl` and `reference-results-v1.jsonl` contain symbolic inputs and checked certificates.
-- [`01-dataset-run-002/preparation-checks.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/preparation-checks.json) and [`run.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/run.json): Stage 1 checks and handoff.
-- [`02-offline-run-002/report.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/02-offline-run-002/report.json): offline verification and reproduction commands.
+| Measure | Final result | Required |
+| --- | ---: | ---: |
+| Fully correct prompts overall | **264/288 (91.67%)** | 260/288 |
+| New / variant / routing prompts | 90/96 · 94/96 · **80/96** | 82/96 each |
+| English / French prompts | 134/144 · 130/144 | 123/144 each |
+| Ambiguous / unsupported / document prompts | **25/32** · 32/32 · **23/32** | 28/32 each |
+| Passing bilingual pairs | 124/144 | 123/144 |
+| Passing base/variant groups | 41/48 | 39/48 |
+| Critical errors | 0 | 0 |
+| Construction answer/status/proof fidelity | **191/192** | 192/192 |
+| Construction full response fidelity | **190/192** | 192/192 |
 
-Stages 1 and 2 are complete. Stage 3 uses the
-[`stage3-agreement.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/stage3-agreement.json)
-configuration and budget pins; attempts are recorded in
-[`03-live-run-001/responses.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/03-live-run-001/responses.jsonl).
-Independent review and quality scoring remain pending in Stage 4. The shared
-repair counter is zero.
+All 288 prompts remain in the denominators: 11 execution failures, 13 completed
+incorrect answers and no unexecuted prompts. The execution failures comprise nine
+confirmed interpretation input-token guard rejections and two incomplete model
+outputs (`max_output_tokens`). No unresolved dataset/reference defects were found.
+
+Conclusions:
+
+- **Strong synthetic reasoning performance:** new cases and variants together
+  achieved 184/192 fully correct responses (95.83%). This supports a promising
+  prototype assessment for applying accepted policies to supplied synthetic facts.
+- **Useful policy boundaries:** every unsupported request received an appropriate
+  clarification, supporting the system's ability to avoid decisions outside its
+  accepted reasoning capabilities.
+- **Routing remains the main quality gap:** its total is two passes below the
+  floor; ambiguous requests and document answers are three and five passes below
+  their respective floors. Every language, family and actual reasoning-category
+  floor passes, but those successes do not override the failed gates.
+- **Construction compatibility independently blocks acceptance:** `BO-MH-02/fr`
+  returns clarification instead of its accepted reasoning result;
+  `RISK-MP-01/en` preserves the unknown result but incorrectly describes the
+  customer as a complex product in its explanation. Both regressions remain
+  unresolved.
+- **Correct proofs and citations are insufficient by themselves:** completed
+  failures include rejected interpretations, incorrect missing-premise wording,
+  unanswered or wrong-provision document questions, and a response-language error.
+  Full response fidelity must accompany correct symbolic results.
+- **The evidence supports a good synthetic pilot, with formal acceptance unmet.**
+  These cases were exposed during tuning, so their scores are regression evidence.
+  Generalization requires newly held-out cases.
+
+The final report retains validation, provenance, latency and
+incomplete cost estimates, including its historical **92 passed / 4 failed** test
+result caused by stale default-dataset source pins. That result is not rewritten
+by subsequent repository maintenance.
+
+The frozen criteria were selected **after the original Stage 3 execution**, before
+Stage 4 correctness review; thresholds and denominators were unchanged through
+repairs. The original execution remains preserved in
+[`03-live-run-001`](../artifacts/aml-cft-reasoning-assistant-evaluation/03-live-run-001/run.json):
+287 completed requests and one failure, under
+[`stage3-agreement.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/stage3-agreement.json).
+Its $8.64 reservation is not a billed-cost total.
+
+## Retained runs
+
+All paths below are relative to `artifacts/aml-cft-reasoning-assistant-evaluation/`.
+
+| Runs | Purpose |
+| --- | --- |
+| `01-dataset-run-005`, `03-live-run-004`, `04-review-run-003` | Reviewed candidate and authoritative final decision. |
+| `01-dataset-run-006` | Current offline default, regenerated after cleanup with updated code hashes; questions and references match run 005 byte for byte. This preparation-only run does not replace the reviewed candidate or reset its repair allowance. |
+| `01-dataset-run-002` through `004` | Historical source pins referenced by the initial reviews, repairs and final provenance audit. |
+| `03-live-run-001` through `003`, `stage3-agreement.json` | Original and repair attempts, including the aborted run and spending reconciliation. |
+| `04-review-run-001`, `04-review-run-002` | Initial findings, repair records, construction regressions, frozen inputs and cumulative budget evidence. |
+
+The superseded `02-offline-run-002`, `02-offline-run-003` and
+`02-offline-run-003-runtime-smoke` folders were removed. Retained Stage 2 evidence
+lives under `04-review-run-002/evidence/` (regression tests, runtime smoke and
+inventory), with independent checks in `04-review-run-003`. Older retained runs
+remain historical evidence even when their source pins differ from today's code.
 
 ## Dataset design
 
@@ -126,9 +194,11 @@ PYTHONPATH=src:tests .venv/bin/python tests/record_reasoning_input_smoke.py --ou
 .venv/bin/python scripts/evaluate_reasoning_assistant_inputs.py --output /tmp/assistant-evaluation-inventory-NEW
 ```
 
-The default runner performs an offline inventory. `--dataset` selects another
-compatible frozen dataset directory. Reference generation and preparation are
-separate from assistant execution.
+The generator, validator and runner default to `01-dataset-run-006`. On a fresh
+checkout, run the generator without `--output` to prepare that ignored directory;
+it refuses to overwrite an existing run. The runner defaults to offline inventory;
+`--dataset` selects another compatible frozen dataset. Preparation is separate
+from assistant execution.
 
 ## Stage 3 — Execute
 
@@ -167,6 +237,13 @@ establish quality from completion counts.
 
 ## Stage 4 — Independent review and bounded repair
 
+Before correctness review, record the thresholds below in
+`config/aml-cft-reasoning-assistant-evaluation-criteria.json` and freeze an identical
+copy as `04-review-run-001/acceptance-criteria.json`. Record their SHA-256 and the
+dataset, reference and response hashes in each review manifest and score file.
+Keep the criteria unchanged through repairs; their timing is recorded in
+[Status and purpose](#status-and-purpose).
+
 Use a fresh reviewer session. Before opening references, reference encodings,
 engine results or assistant traces, derive judgments from the submitted prompts,
 readable accepted policies, stipulated facts and original document evidence. Save
@@ -186,19 +263,43 @@ Then check:
 
 Allow equivalent policies, symbol names and proof paths when meaning is preserved.
 Classify failures as dataset/reference, retrieval, routing, interpretation,
-engine/checker, explanation, document evidence or infrastructure. Reviewers report
-findings and stop. Separate author sessions make versioned corrections, followed by
-fresh independent rechecks. Never change an expectation merely to fit a response.
+engine/checker, explanation, document evidence or infrastructure. Session A saves
+its initial judgments, verdicts and findings before switching to an author role
+for one repair round and rerun. Its post-repair checks are provisional; it cannot
+independently accept its own repairs. Session B, a fresh reviewer session, repeats
+the independent review of the candidate results and reports acceptance or findings
+without repairing. Preserve all initial findings and attempts. Never change an
+expectation merely to fit a response or special-case evaluation IDs.
+
+The synthetic pilot is the construction set. Every repair must preserve its
+accepted answers/statuses and valid proofs across all 96 cases / 192 language
+versions, using `scripts/replay_reasoning_pilot.py` and relevant regression tests.
+Retrieval, interpretation or wording repairs also require live natural-language
+regression on affected construction cases in both languages; broad shared changes
+require all 192 versions. Mocked fixtures alone do not establish this compatibility.
+Record coverage and results. Do not overwrite accepted baselines or acceptance
+pins to force a pass; genuine construction-set corrections need versioned,
+independent review. Unresolved construction regressions block acceptance.
+
+Regenerate/version Stage 1 artifacts when questions, references or pinned sources
+change. Repeat relevant Stage 2 checks after implementation changes; update the
+runner only if it is defective. Rerun Stage 3 in a fresh directory when assistant
+behavior or supplied questions change; shared runtime changes require all 288
+prompts. A reference-only correction may reuse responses if inputs and runtime are
+unchanged. Refresh run identities and agreements, and record one budget ledger
+across all new paid validation calls. Additional paid execution requires explicit
+budget authorization. Then hand off to Session B with candidate paths/hashes,
+construction regression evidence, changes, attempts and the repair counter;
+keep answer-free reviewer inputs separate from findings and expected answers.
 
 Allow at most **two shared repair rounds** across all layers. Keep initial and
-repaired results separate, preserve attempts, and rerun affected cases; broad shared
-changes may require the full batch. At the limit, record `completed-with-failures`.
-Tuning against this set makes subsequent scores regression evidence; generalization
-claims then require newly held-out cases.
+repaired results separate. At the limit, record `completed-with-failures`.
 
 Review outputs belong in a fresh review directory: `independent-judgments.jsonl`,
 `per-question-verdicts.jsonl`, `findings.json`, `scores.json` and
-`evaluation-status.json`, with artifact hashes and the repair counter.
+`evaluation-status.json`, with artifact hashes and the repair counter. Session A
+also saves a handoff manifest identifying the candidate and filtered review inputs;
+Session B uses a separate review directory and the same frozen criteria.
 
 ## Scores and decisions
 
@@ -219,11 +320,34 @@ only when both bilingual pairs pass and the answer relationship is correct. Ther
 are 48 linked groups of four prompts and 48 routing pairs; translations and variants
 are correlated observations, not independent sample replications.
 
-Proposed live-run thresholds, to confirm before execution: at least 95% fully correct
-prompts overall, 90% in each type/family/actual-category/language slice, and zero
-critical errors. Critical errors include invented customer premises, fictional rules
-presented as law, invalid proofs accepted, or unknown/conflict presented as supported
-conclusions. Aggregate scores cannot override invalid references or critical errors.
+The frozen criteria require:
 
-Each session performs only its authorized stage under `.agents/AGENTS.md`. This
-protocol does not authorize paid execution or modification of pilot acceptance.
+| Measure | Minimum | Required passes |
+| --- | ---: | ---: |
+| Fully correct prompts overall | 90% | 260/288 |
+| Fully correct prompts in each question type | 85% | 82/96 per type |
+| Fully correct prompts in each language | 85% | 123/144 per language |
+| Fully correct prompts in each family | 80% | 29/36 per family |
+| Fully correct prompts in each actual reasoning category | 80% | DL/OH/EX: 26/32; MH: 52/64; MP/CF: 13/16 |
+| Fully correct prompts in each routing kind | 85% | 28/32 each for ambiguous, unsupported and documents |
+| Passing bilingual pairs | 85% | 123/144 |
+| Passing base/variant groups, including the answer relationship | 80% | 39/48 |
+| Critical errors | Zero | 0 |
+
+All gates must pass. Apply slice floors separately by dimension, not to small
+intersections such as family × category × language. Round required pass counts
+upward, retaining the fixed denominators and failure accounting above.
+
+A fully correct response uses an appropriate route, preserves the supplied facts,
+and provides the complete supported answer and explanation required for its type.
+For clarification, assess the unresolved issue and useful follow-up; for document
+answers, assess source support and citations. Equivalent wording, symbol names and
+proof paths are acceptable. Record minor stylistic issues separately without
+failing an otherwise correct response. Report latency and costs without a hard
+acceptance threshold for this first live run.
+
+Critical errors include invented customer premises, fictional rules presented as
+law, invalid proofs accepted, or unknown/conflict presented as supported
+conclusions. Unresolved dataset/reference validity findings block acceptance and
+must be reported separately from assistant errors. Aggregate scores cannot
+override invalid references or critical errors.

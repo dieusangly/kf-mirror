@@ -159,6 +159,24 @@ class DatasetRegistry:
     def search(self, question, limit=6, preferred=None):
         return [self.candidate(key) for key in self.searcher.search(question, limit, preferred)]
 
+    def lookup_candidates(self):
+        """Expose rule-free accepted vocabularies without saved customer facts.
+
+        Vector similarity can miss a relation with no accompanying policy prose,
+        especially across languages. One context per equivalent vocabulary is
+        enough: symbols/argument meanings are shared between language versions.
+        """
+        seen, candidates = set(), []
+        for key, policy in sorted(self.policies.items()):
+            template = policy['template']
+            if template['rules'] or template['incompatibilities']:
+                continue
+            signature = policy['policy_identity']
+            if signature not in seen:
+                seen.add(signature)
+                candidates.append(self.candidate(key))
+        return candidates
+
     def candidate(self, key):
         row = self.policies[key]
         return deepcopy({k: row[k] for k in ('candidate_id', 'context_kind', 'language', 'scope',

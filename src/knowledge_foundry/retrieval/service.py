@@ -1,5 +1,6 @@
 """Reusable application boundary shared by the chatbot, CLIs and evaluation."""
 import time
+import re
 
 from knowledge_foundry.embeddings import EmbeddingAdapter, token_count
 from knowledge_foundry.retrieval.answering import generate
@@ -30,6 +31,37 @@ def inventory_answer(documents):
         'telemetry': {'model': 'snapshot-metadata-v1', 'usage': None, 'estimated_cost_usd': 0.}}
 
 
+def explicit_source_ids(question, snapshot):
+    """Resolve an explicit document number/edition against snapshot metadata only.
+
+    Ambiguous or unrecognised requests remain unfiltered. Never infer a source
+    from the answer language or from a topic, and never introduce external text.
+    """
+    numbers = set(re.findall(r'\b\d{4}/\d+\b', question))
+    if len(numbers) != 1:
+        return None
+    number = next(iter(numbers))
+    requested = set()
+    if re.search(r'\b(?:english|anglais|anglaise)\b', question, re.I):
+        requested.add('en')
+    if re.search(r'\b(?:french|français|française)\b', question, re.I):
+        requested.add('fr')
+    if len(requested) > 1:
+        return None
+    matches = []
+    for source in snapshot['identity'].get('sources', []):
+        if number not in set(re.findall(r'\b\d{4}/\d+\b', source['title'])):
+            continue
+        if requested:
+            language = next(iter(requested))
+            edition = source.get('version', '')
+            if not (edition.lower().endswith('-' + language) or
+                    re.search(r'\(' + language + r'\)', source['title'], re.I)):
+                continue
+        matches.append(source['id'])
+    return sorted(set(matches)) or None
+
+
 class DocumentAssistant:
     def __init__(self, store, config=None, *, embedding_fixture=None, answer_stream=None, query_stream=None, ranking_stream=None):
         self.store, self.config = store, config or load_config()
@@ -44,6 +76,8 @@ class DocumentAssistant:
         if not question.strip() or token_count(question, config['budget']['tokenizer']) > config['budget']['max_question_tokens']:
             raise ValueError('question is empty or exceeds the configured question budget')
         snapshot = self.store.snapshot(corpus, snapshot_id)
+        if source_ids is None and document_ids is None:
+            source_ids = explicit_source_ids(question, snapshot)
         turns = config['search']['followup_turns']
         history = list(history or [])[-turns:] if turns else []
         while history and token_count('\n'.join(history), config['budget']['tokenizer']) > config['budget']['history_tokens']:

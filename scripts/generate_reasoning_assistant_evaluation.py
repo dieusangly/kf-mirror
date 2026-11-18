@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from knowledge_foundry.assistant.datasets import DatasetRegistry, digest
 
 AUTHORING = ROOT / 'config/aml-cft-reasoning-assistant-evaluation-cases.jsonl'
-DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002'
+DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-006'
 VERSION = '1.0.0'
 FILES = {'questions': 'questions-v1.jsonl', 'references': 'proposed-references-v1.jsonl',
          'encodings': 'reference-encodings-v1.jsonl', 'queries': 'reference-queries-v1.jsonl',
