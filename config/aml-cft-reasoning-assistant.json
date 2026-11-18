@@ -5,9 +5,9 @@
   "candidate_limit": 6,
   "max_question_characters": 6000,
   "history_turns": 4,
-  "datasets_path": "config/reasoning-datasets.json",
+  "datasets_path": "config/aml-cft-reasoning-datasets.json",
   "scenario_search": {
-    "cache_dir": "artifacts/reasoning-assistant/embeddings",
+    "cache_dir": "artifacts/aml-cft-reasoning-assistant/embeddings",
     "embedding": {
       "provider": "openai",
       "model": "text-embedding-3-small",

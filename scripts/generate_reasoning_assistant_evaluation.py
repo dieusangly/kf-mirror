@@ -13,8 +13,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
 from knowledge_foundry.assistant.datasets import DatasetRegistry, digest
 
-AUTHORING = ROOT / 'config/reasoning-assistant-evaluation-cases.jsonl'
-DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001'
+AUTHORING = ROOT / 'config/aml-cft-reasoning-assistant-evaluation-cases.jsonl'
+DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002'
 VERSION = '1.0.0'
 FILES = {'questions': 'questions-v1.jsonl', 'references': 'proposed-references-v1.jsonl',
          'encodings': 'reference-encodings-v1.jsonl', 'queries': 'reference-queries-v1.jsonl',
@@ -85,7 +85,7 @@ def reference_case(case, language, registry):
 
 def source_paths(cases, registry):
     paths = {AUTHORING, Path(__file__), ROOT / 'scripts/validate_reasoning_assistant_evaluation.py',
-             registry.path, ROOT / 'config/reasoning-vocabulary.json',
+             registry.path, ROOT / 'config/aml-cft-reasoning-vocabulary.json',
              ROOT / 'src/knowledge_foundry/assistant/datasets.py',
              ROOT / 'src/knowledge_foundry/assistant/config.py',
              ROOT / 'tests/fixtures/reasoning-assistant-runtime-v1.json',

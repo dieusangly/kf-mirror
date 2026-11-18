@@ -11,15 +11,18 @@ References remain provisional until independent review.
 Evidence lives under
 [`artifacts/aml-cft-reasoning-assistant-evaluation/`](../artifacts/aml-cft-reasoning-assistant-evaluation/):
 
-- [`01-dataset-run-001/questions-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001/questions-v1.jsonl): submitted prompts.
-- [`01-dataset-run-001/dataset-manifest-v1.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001/dataset-manifest-v1.json): versions, hashes, source mappings and variant links.
-- [`01-dataset-run-001/proposed-references-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001/proposed-references-v1.jsonl): expected routes, outcomes and source evidence; accompanying `reference-encodings-v1.jsonl`, `reference-queries-v1.jsonl` and `reference-results-v1.jsonl` contain symbolic inputs and checked certificates.
-- [`01-dataset-run-001/preparation-checks.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001/preparation-checks.json) and [`run.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-001/run.json): Stage 1 checks and handoff.
-- [`02-offline-run-001/report.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/02-offline-run-001/report.json): offline verification and reproduction commands.
+- [`01-dataset-run-002/questions-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/questions-v1.jsonl): submitted prompts.
+- [`01-dataset-run-002/dataset-manifest-v1.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/dataset-manifest-v1.json): versions, hashes, source mappings and variant links.
+- [`01-dataset-run-002/proposed-references-v1.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/proposed-references-v1.jsonl): expected routes, outcomes and source evidence; accompanying `reference-encodings-v1.jsonl`, `reference-queries-v1.jsonl` and `reference-results-v1.jsonl` contain symbolic inputs and checked certificates.
+- [`01-dataset-run-002/preparation-checks.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/preparation-checks.json) and [`run.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-002/run.json): Stage 1 checks and handoff.
+- [`02-offline-run-002/report.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/02-offline-run-002/report.json): offline verification and reproduction commands.
 
-Next: agree effective providers/models, API budget, reservations and a verified
-published document snapshot before live execution. No paid calls or independent
-review have been performed. The shared repair counter starts at zero.
+Stages 1 and 2 are complete. Stage 3 uses the
+[`stage3-agreement.json`](../artifacts/aml-cft-reasoning-assistant-evaluation/stage3-agreement.json)
+configuration and budget pins; attempts are recorded in
+[`03-live-run-001/responses.jsonl`](../artifacts/aml-cft-reasoning-assistant-evaluation/03-live-run-001/responses.jsonl).
+Independent review and quality scoring remain pending in Stage 4. The shared
+repair counter is zero.
 
 ## Dataset design
 
@@ -62,7 +65,7 @@ conditions; this is a known-policy test, not an unseen-policy formalization test
 ## Stage 1 — Generate questions and proposed references
 
 The committed authoring source is
-[`config/reasoning-assistant-evaluation-cases.jsonl`](../config/reasoning-assistant-evaluation-cases.jsonl).
+[`config/aml-cft-reasoning-assistant-evaluation-cases.jsonl`](../config/aml-cft-reasoning-assistant-evaluation-cases.jsonl).
 It contains bilingual contexts, atomic fact statements, questions, reference fact
 atoms/queries, intended statuses, novelty rationales, variant operations and document
 evidence. Generated outputs belong in the ignored `artifacts/` directory. The

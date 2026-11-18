@@ -59,7 +59,7 @@ def evaluate(registry_path, cases_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--registry', default='config/reasoning-datasets.json')
+    parser.add_argument('--registry', default='config/aml-cft-reasoning-datasets.json')
     parser.add_argument('--cases', default=str(ROOT / 'tests/fixtures/reasoning-routing-v1.json'))
     parser.add_argument('--output', required=True)
     args = parser.parse_args()

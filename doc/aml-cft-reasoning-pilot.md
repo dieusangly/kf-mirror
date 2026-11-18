@@ -441,7 +441,7 @@ Validate syntax, references and variable binding; save outputs and failures
 without silent retries. Prepare queries separately from versioned questions,
 without inserting expected answers. Questions go to the query pipeline, not the
 facts/rules generator; the engine consumes the resulting structured queries.
-The separate [assistant input path](reasoning-assistant.md#how-reasoning-works) now
+The separate [assistant input path](aml-cft-reasoning-assistant.md#how-reasoning-works) now
 constructs fresh user cases from accepted policies/vocabulary and supplied text.
 This does not alter these frozen pilot encodings or their acceptance.
 Version/hash all outputs and stop for Stage 4 Execute. Generation and structural

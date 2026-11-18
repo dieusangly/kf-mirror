@@ -44,12 +44,12 @@ def terms(text):
 
 class DatasetRegistry:
     def __init__(self, path=None, *, search_config=None, local_only=False, embedder=None):
-        self.path = project_path(path or 'config/reasoning-datasets.json')
+        self.path = project_path(path or 'config/aml-cft-reasoning-datasets.json')
         self.definition = read(self.path)
         if self.definition['version'] != 'reasoning-datasets-v1':
             raise ValueError('unsupported dataset registry version')
         self.records, self.packages, self.policies = {}, {}, {}
-        self.vocabulary = read(ROOT / 'config/reasoning-vocabulary.json')['predicates']
+        self.vocabulary = read(ROOT / 'config/aml-cft-reasoning-vocabulary.json')['predicates']
         self.engine = None
         for entry in self.definition['datasets']:
             self._load(entry)

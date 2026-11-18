@@ -131,7 +131,7 @@ def test_changed_source_pin_blocks_submission(tmp_path):
     shutil.copytree(DATASET, folder)
     path = folder / 'dataset-manifest-v1.json'
     manifest = json.loads(path.read_text())
-    manifest['source_hashes']['config/reasoning-datasets.json']='0'*64
+    manifest['source_hashes']['config/aml-cft-reasoning-datasets.json']='0'*64
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError,match='pinned source changed'):
         load_submission(folder)

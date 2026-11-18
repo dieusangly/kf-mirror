@@ -16,7 +16,7 @@ def local_endpoint(url):
 
 def load_config(path=None):
     config = json.loads(Path(path or os.environ.get('KF_ASSISTANT_CONFIG') or
-                                  ROOT / 'config/reasoning-assistant.json').read_text())
+                                  ROOT / 'config/aml-cft-reasoning-assistant.json').read_text())
     if config['version'] != 'reasoning-assistant-v1':
         raise ValueError('unsupported assistant configuration version')
     if type(config['local_only']) is not bool:

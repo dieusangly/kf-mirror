@@ -94,14 +94,14 @@ General answers are labelled and carry no engine-checked proof.
 
 ## Configuration and local providers
 
-[`config/reasoning-assistant.json`](../config/reasoning-assistant.json) configures
+[`config/aml-cft-reasoning-assistant.json`](../config/aml-cft-reasoning-assistant.json) configures
 interpretation, wording and general conversation separately: GPT-6 Luna with
 medium, none and low effort respectively. Each role has input/output limits, a
 timeout and zero retries. Input estimates use `cl100k_base`; provider counts can
 differ. Set `KF_ASSISTANT_CONFIG` to override the file and restart to reload.
 
 `scenario_search` uses `text-embedding-3-small` at 1536 dimensions. Its persistent
-cache is `artifacts/reasoning-assistant/embeddings`, keyed by text, provider,
+cache is `artifacts/aml-cft-reasoning-assistant/embeddings`, keyed by text, provider,
 endpoint, model, dimensions and preprocessing version. These vectors retrieve
 policies; the engine consumes the fresh symbolic case, not vectors.
 Question vectors stay in session memory. Embedding failures stop the request
@@ -129,12 +129,12 @@ production authentication/access controls.
 
 ## Register another accepted dataset
 
-[`config/reasoning-datasets.json`](../config/reasoning-datasets.json) owns package
-paths and pinned acceptance/status hashes. Loading checks prerequisite hashes and
+[`config/aml-cft-reasoning-datasets.json`](../config/aml-cft-reasoning-datasets.json)
+owns package paths and pinned acceptance/status hashes. Loading checks prerequisite hashes and
 accepted cases/languages. Runtime projects accepted policies and vocabulary from
 readable inputs/encodings; it never executes their saved customer facts. Reference
 answers, saved queries and results are excluded from request processing.
-`config/reasoning-vocabulary.json` defines predicate meanings and argument roles;
+`config/aml-cft-reasoning-vocabulary.json` defines predicate meanings and argument roles;
 keep it aligned with accepted signatures.
 
 Stage 5 remains deferred. After an independent Stage 4 review accepts a new batch,
@@ -151,8 +151,8 @@ PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.p
 ```
 
 Use a fresh output filename. The pilot replay script verifies 192 accepted
-language versions and their certificates without
-API calls. It does not validate natural-language fact formalization.
+language versions and their certificates without API calls. It does not validate
+natural-language fact formalization.
 
 For the version 1 evaluation of new cases, their fact-change variants, and routing,
 see the [evaluation protocol](aml-cft-reasoning-assistant-evaluation.md). Stage 1

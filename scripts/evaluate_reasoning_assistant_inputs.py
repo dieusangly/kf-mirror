@@ -44,7 +44,7 @@ def identity(config, agreement, directory=DATASET):
     files = list((ROOT / 'src').rglob('*.py'))
     files += list((ROOT / 'scripts').glob('*.py'))
     files += list((ROOT / 'src/knowledge_foundry/prompts').glob('assistant_*.txt'))
-    files += [ROOT / 'config/reasoning-vocabulary.json', ROOT / config['datasets_path'],
+    files += [ROOT / 'config/aml-cft-reasoning-vocabulary.json', ROOT / config['datasets_path'],
               ROOT / config['documents']['retrieval_config']]
     registry = read(ROOT / config['datasets_path'])
     for package in registry['datasets']:

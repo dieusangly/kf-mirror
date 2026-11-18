@@ -147,7 +147,7 @@ def test_runtime_never_deserializes_answers_queries_or_saved_results(monkeypatch
 
 
 def test_accepted_prerequisites_and_unaccepted_packages_fail_closed(tmp_path):
-    config = read(ROOT / 'config/reasoning-datasets.json')
+    config = read(ROOT / 'config/aml-cft-reasoning-datasets.json')
     config['datasets'][0]['acceptance_sha256'] = '0' * 64
     path = tmp_path / 'registry.json'
     path.write_text(json.dumps(config))

@@ -203,7 +203,7 @@ def test_pilot_replay_never_requests_embeddings(monkeypatch):
 
     monkeypatch.setattr(EmbeddingAdapter, '_request', forbidden)
     monkeypatch.setattr(ScenarioEmbeddings, '_request', forbidden)
-    report = evaluate('config/reasoning-datasets.json', ROOT / 'tests/fixtures/reasoning-routing-v1.json')
+    report = evaluate('config/aml-cft-reasoning-datasets.json', ROOT / 'tests/fixtures/reasoning-routing-v1.json')
     assert report['passed']
     assert report['external_calls'] == 0
     assert report['baseline']['passed'] == 192
