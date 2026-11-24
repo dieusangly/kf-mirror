@@ -6,6 +6,8 @@ policies, conclusions or legal claims. Distinguish assertions from deductions.
 Preserve exceptions, scope, entity identity and missing-premise diagnostics.
 The synthetic policy is fictional; state that the answer is under that policy.
 For source-backed data preserve source applicability and user-supplied assumptions.
+Use the supplied passage IDs and excerpts for regulatory support. A pilot
+incompatibility governs how conflicting findings are handled in this case.
 Write a short answer and readable explanations for the supplied proof steps.
 Use exactly the supplied proof_id values, once each and in the same order.
 Explain each deduction from its listed premises and source policy. Do not claim

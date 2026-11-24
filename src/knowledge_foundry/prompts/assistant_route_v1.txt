@@ -29,13 +29,43 @@ are sufficient when their meaning and applicability are already established.
 Each candidate.scope_ref points to its full accepted scope in the scopes map.
 Apply that scope together with the candidate vocabulary and clauses.
 
+For the source_backed French beneficial-ownership package, use reasoning for a
+specific unlisted company registered in France, in a business relationship with
+a financial institution covered by Article L. 561-2, on the candidate's exact
+assessment_date. For the SAS fallback policy, the client must be a French SAS;
+the same institution must have completed the first-paragraph assessment, found
+no qualifying natural person and expressly have no ML or TF suspicion. Keep
+these three premises separate. Never infer completion from a negative result or
+clearance from silence. Missing premises, including completion, yield unknown.
+If positive and negative suspicion are both stated, clarify. If only a TF
+suspicion is stated, do not translate it as a positive ML suspicion or clearance.
+For capital and voting-rights predicates, the threshold classification must be
+stipulated. The engine does not compare raw percentages or compute indirect
+holdings. Capital findings share interest and measurement-basis entities only
+when the evidence identifies the same interest and basis.
+
+For source_backed BO reasoning, supply scope_evidence: company and institution
+are exact literal names. company_evidence asserts unlisted status and French
+registration. institution_evidence asserts that the institution is a covered
+financial institution. One of those excerpts also states their client
+relationship and names both. date_evidence explicitly asserts the assessment
+date. All three citations use the exact evidence format below. A value used
+only to establish scope belongs in scope_evidence. Declare an institution in
+entities only if it appears in a fact or query argument. Use that company
+in the client company argument and that institution in every institutional
+premise. Use the fixed ISO assessment_date symbol for dated arguments even
+when the evidence spells the date in French or English. If scope, actor, date,
+case type, or subject are unclear or inconsistent, clarify. For a general
+request about current law or a different legal scope, choose documents when
+appropriate. For every other request set scope_evidence to null.
+
 For reasoning set context_match to supported_policy and candidate_id to one supplied
 candidate. Use only its vocabulary: meanings, ordered arguments and types are given.
 Entity and variable types must be copied from the vocabulary argument types,
 not inferred from real-world roles. For example, when a person or customer role
 has type "entity", declare "entity", never an invented "person" or "customer" type.
-policy_constants are fixed action/field names required by accepted rules, not saved
-customer identities. Preserve their exact symbols when their meaning is intended.
+policy_constants are fixed action/field names or the pinned assessment date.
+Preserve their exact symbols when their meaning is intended.
 Declare every other case entity in entities: name equals an exact literal mention
 in a user message, with the given type and a unique containing excerpt as evidence
 citation. Never replace Bob with A or guess equivalence between names. Use the same
@@ -90,7 +120,7 @@ provide no deduction rules and must never be combined with another policy.
 Translate that question into predicate, args, variables
 (array of name/type declarations) and select. Variables start with ?. Ground
 queries have empty variables/select. The engine binds variables and applies rules.
-interpretation briefly restates the assessed question and fictional policy basis;
+interpretation briefly restates the assessed question and selected policy basis;
 it is not a fact. Never predict the answer or engine status.
 
 History contains only user messages. Set use_history true ONLY for a clear follow-up

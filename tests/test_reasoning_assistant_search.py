@@ -206,5 +206,9 @@ def test_pilot_replay_never_requests_embeddings(monkeypatch):
     report = evaluate('config/aml-cft-reasoning-datasets.json', ROOT / 'tests/fixtures/reasoning-routing-v1.json')
     assert report['passed']
     assert report['external_calls'] == 0
-    assert report['baseline']['passed'] == 192
+    assert report['baseline']['passed'] == 210
+    assert report['baseline']['packages'] == {
+        'synthetic-v1': {'language_versions': 192, 'passed': 192},
+        'real-claims-bo-v1': {'language_versions': 18, 'passed': 18},
+    }
     assert report['candidate_recall_at_6'] is None

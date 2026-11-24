@@ -19,21 +19,31 @@ def evaluate(registry_path, cases_path):
     started = time.monotonic()
     registry = DatasetRegistry(registry_path)
     records = []
+    packages = {}
     for package_id, package in registry.packages.items():
-        acceptance = package['acceptance']
-        pins = acceptance['exact_sha256']
-        query_names = [name for name in pins if Path(name).name == 'queries-v1.jsonl']
-        result_names = [name for name in pins if Path(name).name == 'results-v1.json']
-        if len(query_names) != 1 or len(result_names) != 1:
-            raise ValueError('acceptance must identify one query set and one baseline result set')
-        for name in query_names + result_names:
+        pins, artifacts = package['artifact_hashes'], package['accepted_artifacts']
+        if artifacts:
+            query_name = artifacts['queries']['path']
+            result_name = artifacts['results_and_certificates']['path']
+        else:
+            query_names = [name for name in pins if Path(name).name == 'queries-v1.jsonl']
+            result_names = [name for name in pins if Path(name).name == 'results-v1.json']
+            if len(query_names) != 1 or len(result_names) != 1:
+                raise ValueError('acceptance must identify one query set and one baseline result set')
+            query_name, result_name = query_names[0], result_names[0]
+        for name in (query_name, result_name):
             if digest(project_path(name)) != pins[name]:
                 raise ValueError('baseline input/result hash differs')
-        queries = rows(project_path(query_names[0]))
-        expected = {(r['case_id'], r['language']): r for r in read(project_path(result_names[0]))['records']}
-        for key, row in sorted(registry.records.items()):
-            if row['package_id'] != package_id:
-                continue
+        queries = rows(project_path(query_name))
+        baseline = read(project_path(result_name))
+        expected = {(r['case_id'], r['language']): r for r in baseline['records']}
+        selected = {key: row for key, row in registry.records.items() if row['package_id'] == package_id}
+        identities = {(row['case_id'], row['language']) for row in selected.values()}
+        if (baseline['batch_id'] != package['acceptance']['batch_id']
+                or len(expected) != len(baseline['records']) or set(expected) != identities or set(queries) != identities):
+            raise ValueError('accepted replay selection differs: ' + package_id)
+        passed_count = 0
+        for key, row in sorted(selected.items()):
             identity = row['case_id'], row['language']
             case_started = time.monotonic()
             try:
@@ -44,10 +54,13 @@ def evaluate(registry_path, cases_path):
                 passed, error = False, str(exc)
             records.append({'candidate_id': key, 'passed': passed, 'error': error,
                             'latency_seconds': round(time.monotonic() - case_started, 6)})
+            passed_count += passed
+        packages[package_id] = {'language_versions': len(selected), 'passed': passed_count}
     passed = all(row['passed'] for row in records)
     return {'version': 'pilot-symbolic-replay-v1', 'passed': passed,
             'dataset_registry_sha256': digest(project_path(registry_path)), 'fixtures_sha256': digest(Path(cases_path)),
-            'baseline': {'language_versions': len(records), 'passed': sum(r['passed'] for r in records), 'records': records},
+            'baseline': {'language_versions': len(records), 'passed': sum(r['passed'] for r in records),
+                         'packages': packages, 'records': records},
             'candidate_recall_at_6': None,
             'routing_accuracy': None, 'interpretation_accuracy': None, 'wording_fidelity': None,
             'limitations': ['No live embeddings or models called; vector candidate recall is not measured.',

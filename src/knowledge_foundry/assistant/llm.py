@@ -50,6 +50,13 @@ ROUTE_SCHEMA = object_schema({
         'predicate': {'type': 'string'}, 'args': {'type': 'array', 'items': {'type': 'string'}},
         'evidence': EVIDENCE_SCHEMA})},
     'question_evidence': {'anyOf': [EVIDENCE_SCHEMA, {'type': 'null'}]},
+    'scope_evidence': {'anyOf': [object_schema({
+        'company': {'type': 'string', 'minLength': 1},
+        'institution': {'type': 'string', 'minLength': 1},
+        'company_evidence': EVIDENCE_SCHEMA,
+        'institution_evidence': EVIDENCE_SCHEMA,
+        'date_evidence': EVIDENCE_SCHEMA,
+    }), {'type': 'null'}]},
 })
 
 WORDING_SCHEMA = object_schema({

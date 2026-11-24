@@ -8,7 +8,7 @@ from threading import Thread
 import pytest
 
 from knowledge_foundry.assistant.config import ROOT, load_config
-from knowledge_foundry.assistant.datasets import DatasetRegistry, digest, project_path, read, rows
+from knowledge_foundry.assistant.datasets import DatasetRegistry, digest, read
 from knowledge_foundry.assistant.llm import LanguageModels, ModelError, ROUTE_SCHEMA, TEXT_SCHEMA
 from knowledge_foundry.assistant.service import Assistant, DocumentEvidence
 from knowledge_foundry.assistant.search import scenario_text
@@ -83,6 +83,7 @@ def decision(case=None, *, route='reasoning', language='en', candidate_id=None, 
             'clarification': 'Which policy and customer facts should I use?' if route == 'clarify' else None,
             'predicate': predicate, 'args': args or [], 'variables': variables or [], 'select': select or [],
             'question_evidence': evidence(text.split('\n\n')[-1]) if route == 'reasoning' else None,
+            'scope_evidence': None,
             'entities': [{'name': name, 'type': 'entity', 'evidence': evidence(quote)} for name, quote in
                          (entities or [])] if route == 'reasoning' else [],
             'facts': [{'predicate': pred, 'args': arguments, 'evidence': evidence(quote)} for pred, arguments, quote in
@@ -142,8 +143,9 @@ def test_runtime_never_deserializes_answers_queries_or_saved_results(monkeypatch
 
     monkeypatch.setattr(Path, 'read_text', record)
     registry = DatasetRegistry()
-    assert len(registry.records) == 192
-    assert not any('reference' in name or name in {'results-v1.json', 'queries-v1.jsonl'} for name in opened)
+    assert len(registry.records) == 210
+    assert not any(name.startswith(('queries-', 'results-', 'proposed-answers-', 'proposed-proofs-'))
+                   or 'reference' in name for name in opened)
 
 
 def test_accepted_prerequisites_and_unaccepted_packages_fail_closed(tmp_path):
@@ -160,20 +162,37 @@ def test_accepted_prerequisites_and_unaccepted_packages_fail_closed(tmp_path):
         registry._load(config['datasets'][0])
 
 
-def test_all_192_baseline_versions_reproduce_accepted_results(registry):
-    package = registry.packages['synthetic-v1']
-    pins = package['acceptance']['exact_sha256']
-    query_path = project_path('artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl')
-    result_path = project_path('artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/results-v1.json')
-    for path in (query_path, result_path):
-        assert digest(path) == pins[str(path.relative_to(ROOT))]
-    queries = rows(query_path)
-    expected = {(r['case_id'], r['language']): r for r in read(result_path)['records']}
-    for key, row in registry.records.items():
-        identity = row['case_id'], row['language']
-        result, check = registry.execute(key, queries[identity])
-        assert check['valid']
-        assert result == expected[identity]
+@pytest.mark.parametrize('failure, expected', [
+    ('hash', 'accepted prerequisite hash differs: source_index_path'),
+    ('status', 'acceptance identity/selection differs'),
+    ('format', 'inconsistent acceptance format'),
+    ('passage', 'unresolved source passage'),
+])
+def test_bo_pins_and_provenance_fail_closed(monkeypatch, failure, expected):
+    from knowledge_foundry.assistant import datasets
+
+    entry = read(ROOT / 'config/aml-cft-reasoning-datasets.json')['datasets'][1]
+
+    def tampered_digest(path):
+        return '0' * 64 if str(path.relative_to(ROOT)) == entry['source_index_path'] else digest(path)
+
+    def inconsistent_record(path):
+        value = read(path)
+        name = str(path.relative_to(ROOT))
+        if failure == 'status' and name == entry['status_path']:
+            value['languages'] = ['fr']
+        elif failure == 'format' and name == entry['acceptance_path']:
+            value['decision'] = 'accepted'
+        elif failure == 'passage' and name == entry['source_index_path']:
+            del value['passages']['CMF-R561-1-P1']
+        return value
+
+    if failure == 'hash':
+        monkeypatch.setattr(datasets, 'digest', tampered_digest)
+    else:
+        monkeypatch.setattr(datasets, 'read', inconsistent_record)
+    with pytest.raises(ValueError, match=expected):
+        DatasetRegistry()
 
 
 CASES = [{'question': runtime_prompt(), 'case_id': 'KYC-OH-01', 'route': 'reasoning'}]

@@ -30,14 +30,19 @@ Try:
 - “Selon la politique de l'exemple, un client enregistré comme PPE doit-il
   obtenir une approbation de la direction ?”
 - “What is a COSI?”
+- “Arden is an unlisted company registered in France. Arden is a client of
+  Rivage, an obliged financial institution. The assessment date is 6 July 2026.
+  Nora is a natural person. Nora directly holds more than 25% of Arden’s voting
+  rights. Does Nora qualify as a beneficial owner of Arden under the voting
+  rights criterion?”
 
 ## Routing and retrieval
 
 Each submitted question follows three steps:
 
 1. **Retrieve accepted policy contexts by vector similarity.** The registry derives
-   contexts from the 192 accepted pilot language versions and deduplicates identical
-   policies. It embeds scope, clauses and vocabulary meanings/signatures, excluding
+   contexts from the accepted synthetic and source-backed BO batches and
+   deduplicates identical policies. It embeds scope, clauses and vocabulary meanings/signatures, excluding
    saved customer facts, queries, reference answers and results. Cosine similarity
    against the question selects up to `candidate_limit` contexts (default **6**),
    prioritising the previous policy for follow-ups. Accepted rule-free lookup
@@ -51,8 +56,8 @@ Each submitted question follows three steps:
    [`assistant_route_v1.txt`](../src/knowledge_foundry/prompts/assistant_route_v1.txt)
    with the question, bounded user history, policy candidates and document preview.
    It selects a route and, for reasoning, one candidate, case entities, facts with
-   exact user quotations, and a separate symbolic query, without a second policy
-   search or candidate-selection call.
+   exact user quotations, and a separate symbolic query. A source-backed BO
+   case also cites the assessment date, client company and covered institution.
 
 | Route | When it applies | What follows |
 | --- | --- | --- |
@@ -61,9 +66,9 @@ Each submitted question follows three steps:
 | `clarify` | Policy applicability, identity or temporal scope is ambiguous; requested logic is unsupported; or facts cannot be translated faithfully. | Ask a short question identifying the missing distinction. |
 | `general` | Ordinary conversation outside sources or explicitly requested general knowledge. | Generate a labelled answer without an engine-checked proof, subject to the document check below. |
 
-Accepted policies are fictional demonstrations, not real obligations.
-New customer facts are supported under an established policy;
-missing premises yield `unknown` through reasoning rather than clarification.
+The synthetic policies are fictional demonstrations. The source-backed BO
+policies use pinned regulatory passages in the scope below. For an applicable
+policy, missing premises yield `unknown`.
 Code also returns clarification when interpretation validation rejects a reasoning
 case. Failures in routing, policy search or engine execution produce an error.
 
@@ -96,9 +101,10 @@ evidence, unavailable services or invalid output.
    displaying a result.
 3. **Explain and inspect.** A subsequent `answer_verbalization` LLM call explains
    the checked result. Inspect supplied excerpts, encoded facts/entities, query,
-   proof and sources in the UI. Fact steps cite user text; policy steps retain
-   accepted source IDs. Wording with a changed status or proof-step list falls
-   back to the checked result.
+   proof and sources in the UI. Fact steps cite user text. BO policy steps point
+   to exact excerpts in the source panel with the article, edition, locator and
+   official link. Wording with a changed status or proof-step list falls back
+   to the checked result and retains the selected scope and evidence.
 
 Encoding an assertion does not verify its truth. Independent semantic review must
 assess fact/query interpretation, explanation accuracy and legal applicability:
@@ -163,11 +169,28 @@ hashes and accepted cases/languages.
 defines predicate meanings and argument roles; keep it aligned with accepted
 signatures.
 
-Stage 5 remains deferred. After an independent Stage 4 review accepts a new batch,
-register its manifest, inputs, encodings, acceptance/status, engine config and
-schema. Use `source_backed`, preserve passage/source metadata, verify engine/schema
-compatibility, then test applicability and source rendering. Source-backed UI
-rendering remains unvalidated. The assistant never updates pilot acceptance/status.
+After an independent Stage 4 review accepts a new batch, register its manifest,
+inputs, encodings, acceptance, status, engine configuration and schema. For
+`source_backed`, pin the source index and resolve each rule's passage IDs.
+Test applicability and source rendering against the accepted engine contract.
+
+## Source-backed beneficial ownership
+
+The BO package applies to **6 July 2026** assessments of unlisted
+French-registered clients of financial institutions covered by Article L. 561-2.
+State the company, institution, their business relationship and assessment date.
+Use a named month or an ISO date.
+The enabled contexts cover a supplied register entry, stipulated capital and
+voting-rights threshold findings, general-meeting control, majority appointment
+or removal power and the natural-person SAS president fallback. The capital
+context detects opposing direct-capital findings with the same interest, date
+and measurement basis. The fallback requires the same institution to have
+completed the first-paragraph assessment, identified no qualifying natural
+person and expressly recorded no money laundering or terrorist financing suspicion.
+The fallback rule binds the named company across its premises and conclusion.
+
+Threshold categories must be supplied. The engine does not calculate percentages
+or indirect holdings. General legal questions use the document route.
 
 ## Validation and evaluation status
 
@@ -176,12 +199,15 @@ PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.p
 .venv/bin/python scripts/replay_reasoning_pilot.py --output /tmp/reasoning-pilot-replay-NEW.json
 ```
 
-Use a fresh output filename. The pilot replay script verifies 192 accepted
-language versions and their certificates without API calls. It does not validate
-natural-language fact formalization.
+Use a fresh output filename. The pilot replay script verifies the answers and
+certificates for 192 synthetic and 18 source-backed BO versions without API
+calls. Fresh French and English fixtures test BO deductions, missing premises,
+conflicts, scope and source rendering. Live routing and interpretation for the
+BO package need a separate evaluation.
 
 Runtime tests use separate development fixtures and establish orchestration and
 data integrity. The final live evaluation is **not accepted —
 `completed-with-failures`**: routing and construction compatibility remain blockers,
 with both repair rounds exhausted. The [evaluation guide](aml-cft-reasoning-assistant-evaluation.md)
 owns scores, evidence, generalization limits and prerequisites for further runs.
+The archived evaluation preflight requires its original registry hash.

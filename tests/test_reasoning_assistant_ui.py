@@ -10,6 +10,7 @@ from knowledge_foundry.assistant.llm import LanguageModels
 from knowledge_foundry.assistant.search import ScenarioSearch
 from test_reasoning_assistant import (CASES, CoveredDocuments, FixtureEmbeddings, FixtureModels,
                                       decision, deduction_starter_decision, runtime_prompt)
+from test_reasoning_assistant_inputs import bo_case
 
 
 @pytest.fixture
@@ -18,6 +19,9 @@ def ui_models(monkeypatch):
     def search_init(self, records, config, **kwargs):
         embeddings = FixtureEmbeddings(records)
         embeddings.query_vectors[EXAMPLES[1][2]] = embeddings.vectors['PEP-OH-01']
+        if 'BO-RC-EX-02' in embeddings.vectors:
+            text, _, case = bo_case('fr', fallback=True)
+            embeddings.query_vectors[text] = embeddings.vectors[case]
         original(self, records, config, embedder=embeddings)
 
     monkeypatch.setattr(ScenarioSearch, '__init__', search_init)
@@ -46,6 +50,26 @@ def test_initial_screen_has_one_chat_input_and_no_mandatory_selectors(ui_models)
     assert not any(element.label in {'About this assistant', 'Technical details'} for element in view.expander)
     assert any(element.value == 'What would you like to understand?' for element in view.header)
     assert {label for label, _, _ in EXAMPLES} <= {button.label for button in view.button}
+
+
+def test_source_backed_deduction_displays_pinned_evidence_when_wording_fails(ui_models):
+    text, ui_models.value, _ = bo_case('fr', fallback=True)
+    ui_models.wording = lambda value: value.update(status='unknown')
+    view = app()
+    view.chat_input[0].set_value(text).run()
+    assert not view.exception
+    assert any('Engine-checked proof · Supported' == caption.value for caption in view.caption)
+    assert any('Arden · Rivage · 2026-07-06' in caption.value for caption in view.caption)
+    deduction = next(item for item in view.expander if item.label == 'Show deduction')
+    assert any('CMF-R561-1-P2, CMF-R561-1-D' in caption.value for caption in deduction.caption)
+    assert any('Rivage a achevé' in element.value for element in deduction.text)
+    sources = next(item for item in view.expander if item.label == 'View sources')
+    assert any('Code monétaire et financier, article R. 561-1' == element.value for element in sources.text)
+    assert any('LEGIARTI000036824564 · alinéa 2, chapeau' in caption.value for caption in sources.caption)
+    assert any("Lorsqu'aucune personne physique" in element.value for element in sources.text)
+    assert all(button.proto.url.startswith('https://www.legifrance.gouv.fr/') for button in sources.get('link_button'))
+    assert len(sources.get('link_button')) == 2
+    assert any('Generated wording was unavailable or invalid' in warning.value for warning in view.warning)
 
 
 def test_reasoning_proof_sources_details_and_reset(ui_models):

@@ -142,12 +142,12 @@ class Assistant:
         document_preview = self.documents.preview(question) if self.documents else {
             'available': False, 'passages': [], 'reason': 'Document route disabled by configuration/privacy policy.'}
         document_preview['corpus'] = self.config['documents']['corpus']
-        # Share identical accepted scope text once; the lookup catalog otherwise
-        # repeats it for every rule-free vocabulary and can crowd out the request.
-        scopes, model_candidates = {}, []
+        # Case-specific scope IDs are provenance, while routing uses applicability.
+        scopes, scope_refs, model_candidates = {}, {}, []
         for candidate in candidates:
-            scope = candidate['scope']
-            scope_ref = hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
+            scope = {key: value for key, value in candidate['scope'].items() if key != 'id'}
+            scope_key = json.dumps(scope, sort_keys=True)
+            scope_ref = scope_refs.setdefault(scope_key, str(len(scope_refs) + 1))
             scopes[scope_ref] = scope
             model_candidates.append({k: v for k, v in candidate.items() if k != 'scope'} |
                                     {'scope_ref': scope_ref})
@@ -187,7 +187,7 @@ class Assistant:
         if route != 'reasoning' and (decision['candidate_id'] is not None or decision['predicate'] is not None
                                     or decision['args'] or decision['variables'] or decision['select']
                                     or decision['facts'] or decision['entities'] or decision['question_evidence']
-                                    or decision['use_history']):
+                                    or decision.get('scope_evidence') or decision['use_history']):
             raise ValueError('non-reasoning route contains an executable query')
         if route == 'clarify':
             if not decision['clarification'] or not decision['clarification'].strip():
@@ -269,8 +269,9 @@ class Assistant:
             exact = ' '.join(sources[s]['text'] for s in source_ids)
             text = (('Application de la règle : ' if language == 'fr' else 'Apply policy: ') + exact +
                     ' → ' + atom_text(step['atom'])) if deduction else exact
+            passage_ids = list(dict.fromkeys(p for s in source_ids for p in sources[s].get('passage_ids', [])))
             steps.append({'proof_id': f'S{n}', 'kind': 'deduction' if deduction else 'assertion',
-                          'text': text, 'source_ids': source_ids, **step})
+                          'text': text, 'source_ids': source_ids, 'passage_ids': passage_ids, **step})
         status = outcome['status']
         labels = ({'entailed': 'Conclusion étayée', 'unknown': 'Informations insuffisantes', 'conflict': 'Informations contradictoires'}
                   if language == 'fr' else
@@ -292,7 +293,8 @@ class Assistant:
             generated = self.models.call('answer_verbalization', 'assistant_reasoning_answer_v1.txt',
                 {'question': question, 'language': language, 'context_kind': row['context_kind'],
                  'scope': row['scope'], 'outcome': outcome, 'proof_steps': steps,
-                 'conflicts': result['conflicts'], 'sources': list(sources.values())}, WORDING_SCHEMA)
+                 'conflicts': result['conflicts'], 'sources': list(sources.values()),
+                 'passages': list(row['passages'].values())}, WORDING_SCHEMA)
             if generated['status'] != status or [s['proof_id'] for s in generated['steps']] != [s['proof_id'] for s in steps]:
                 raise ModelError('wording changed status or proof step identities')
             text = generated['answer']
@@ -304,4 +306,5 @@ class Assistant:
                 'context': {k: row[k] for k in ('candidate_id', 'case_id', 'language', 'dataset_id', 'dataset_version',
                                                'context_kind', 'scope', 'scenario_facts', 'policy_clauses')},
                 'proof_steps': steps, 'sources': list(sources.values()), 'diagnostics': diagnostics,
+                'passages': list(row['passages'].values()),
                 'checker': checked, 'query': query, 'result': result, 'warnings': warnings}

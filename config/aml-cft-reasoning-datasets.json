@@ -16,6 +16,23 @@
       "engine_config_path": "artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json",
       "engine_path": "scripts/aml_cft_reasoning.py",
       "schema_path": "schemas/aml-cft-reasoning-schema-v1.json"
+    },
+    {
+      "id": "real-claims-bo-v1",
+      "dataset_id": "aml-cft-real-claims-bo",
+      "version": "1.0.0",
+      "context_kind": "source_backed",
+      "acceptance_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/acceptance.json",
+      "acceptance_sha256": "546b410b103449c53743e60a1e34a2b931c6aec92552642911d452d5500dbec1",
+      "status_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/evaluation-status.json",
+      "status_sha256": "51a62263586c5172d9bcc91398f2d204a9ac3c65def0c1311204d03c0bba23f5",
+      "inputs_path": "artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/inputs-v1.jsonl",
+      "encodings_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/replay-001/encodings-v2.jsonl",
+      "manifest_path": "artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/dataset-manifest-v1.json",
+      "source_index_path": "artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/sources/sources-v1.json",
+      "engine_config_path": "artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json",
+      "engine_path": "scripts/aml_cft_reasoning.py",
+      "schema_path": "schemas/aml-cft-reasoning-schema-v1.json"
     }
   ]
 }

@@ -16,6 +16,263 @@ def run(registry, text, value):
     return answer
 
 
+def bo_case(language, *, fallback=False, missing=False, conflict=False, day=6, covered=True):
+    if language == 'en':
+        company = 'Arden is an unlisted company registered in France.'
+        institution = 'Arden is a client of Rivage, an obliged financial institution.' if covered else (
+            'Arden is a client of Rivage, a non-financial consultant.')
+        assessed = f'The assessment date is {day} July 2026.'
+        natural_person = 'Nora is a natural person.'
+        holding = "Nora directly holds more than 25% of Arden's capital through ordinary shares on the nominal basis."
+        contrary = "Another assessment says Nora directly holds at most 25% of Arden's capital through ordinary shares on the nominal basis."
+        question = 'Does Nora qualify as a beneficial owner of Arden under the capital criterion?'
+        sas = 'Arden is an SAS and Nora is its president.'
+        completed = 'Rivage completed the full first-paragraph assessment of Arden.'
+        outcome = 'Rivage identified no natural person under the first paragraph for Arden.'
+        clearance = 'Rivage explicitly has no suspicion of money laundering or terrorist financing concerning Arden.'
+        fallback_question = 'Does Nora qualify as a fallback beneficial owner of Arden?'
+        interest, basis = 'ordinary shares', 'nominal basis'
+    else:
+        company = 'Arden est une société non cotée immatriculée en France.'
+        institution = 'Arden est cliente de Rivage, un établissement financier assujetti.' if covered else (
+            'Arden est cliente de Rivage, un cabinet de conseil.')
+        assessed = f'La date de l’évaluation est le {day} juillet 2026.'
+        natural_person = 'Nora est une personne physique.'
+        holding = 'Nora détient directement plus de 25 % du capital d’Arden en actions ordinaires sur la base nominale.'
+        contrary = 'Selon une autre évaluation, Nora détient directement au plus 25 % du capital d’Arden en actions ordinaires sur la base nominale.'
+        question = 'Nora est-elle bénéficiaire effective d’Arden au titre de la détention du capital ?'
+        sas = 'Arden est une SAS dont Nora est la présidente.'
+        completed = 'Rivage a achevé l’évaluation complète d’Arden au titre du premier alinéa.'
+        outcome = 'Rivage n’a identifié aucune personne physique au titre du premier alinéa pour Arden.'
+        clearance = 'Rivage déclare expressément ne soupçonner ni blanchiment de capitaux ni financement du terrorisme pour Arden.'
+        fallback_question = 'Nora est-elle bénéficiaire effective de dernier ressort d’Arden ?'
+        interest, basis = 'actions ordinaires', 'base nominale'
+
+    assertions = [company, institution, assessed, natural_person]
+    facts = [] if missing and not fallback else [('natural_person', ['Nora'], natural_person)]
+    entities = [('Nora', 'person', natural_person), ('Arden', 'company', company)]
+    if fallback:
+        case, predicate, question = 'BO-RC-EX-02', 'fallback_beneficial_owner', fallback_question
+        assertions.extend([sas, outcome, clearance])
+        entities.append(('Rivage', 'institution', institution))
+        dated = ['Rivage', 'Arden', '2026-07-06']
+        facts.extend([('sas', ['Arden'], sas), ('sas_president', ['Nora', 'Arden'], sas),
+                      ('no_natural_person_identified_under_paragraph_one', dated, outcome),
+                      ('no_ml_or_tf_suspicion', dated, clearance)])
+        if not missing:
+            assertions.append(completed)
+            facts.append(('completed_paragraph_one_assessment', dated, completed))
+    else:
+        case, predicate = 'BO-RC-CF-01', 'capital_beneficial_owner'
+        if missing:
+            assertions.remove(natural_person)
+            entities[0] = ('Nora', 'person', holding)
+        assertions.append(holding)
+        entities.extend([(interest, 'interest', holding), (basis, 'measurement_basis', holding)])
+        dated = ['Nora', 'Arden', interest, '2026-07-06', basis]
+        facts.append(('direct_capital_above_25', dated, holding))
+        if conflict:
+            assertions.append(contrary)
+            facts.append(('direct_capital_at_or_below_25', dated, contrary))
+    text = '\n'.join(assertions) + '\n\n' + question
+    value = decision(candidate_id=f'real-claims-bo-v1/{case}/{language}', language=language, text=text,
+                     predicate=predicate, args=['Nora', 'Arden'], facts=facts)
+    value['entities'] = [{'name': name, 'type': kind, 'evidence': evidence(quote)} for name, kind, quote in entities]
+    value['scope_evidence'] = {'company': 'Arden', 'institution': 'Rivage', 'company_evidence': evidence(company),
+                               'institution_evidence': evidence(institution), 'date_evidence': evidence(assessed)}
+    return text, value, case
+
+
+def bo_assistant(registry, language, **scenario):
+    text, value, case = bo_case(language, **scenario)
+    embedder = registry.searcher.embedder
+    embedder.query_vectors[text] = embedder.vectors[case]
+    assistant, models = make_assistant(registry, value)
+    return text, assistant, models
+
+
+def test_full_bo_candidate_set_shares_scopes_and_fits_router_budget(registry, monkeypatch):
+    text, value, _ = bo_case('en')
+    selected = [registry.candidate(key) for key in registry.policies
+                if key.startswith('real-claims-bo-v1/') and key.endswith('/en')]
+    assert len(selected) == 6
+    monkeypatch.setattr(registry, 'search', lambda *_: list(selected))
+    assistant, models = make_assistant(registry, value)
+    passages = [{'label': f'E{i}', 'source': {'title': 'Fixture AML corpus'},
+                 'text': 'The article describes covered institutions and beneficial ownership assessments. ' * 25,
+                 'location': {'article_id': str(i)}} for i in range(1, 6)]
+    monkeypatch.setattr(assistant.documents, 'preview',
+                        lambda _: {'available': True, 'snapshot_id': 'fixture-snapshot', 'passages': passages})
+
+    answer = assistant.ask(text)
+    assert answer['route'] == 'reasoning', answer.get('diagnostic', answer)
+    assert answer['checker']['valid']
+    request = json.loads(models.requests[0]['input'])
+    assert len(request['candidates']) == 22
+    assert request['documents']['passages'] == passages
+    assert len(request['scopes']) == 2
+    for candidate in request['candidates']:
+        expected = registry.policies[candidate['candidate_id']]['scope']
+        assert request['scopes'][candidate['scope_ref']] == {k: v for k, v in expected.items() if k != 'id'}
+    assert answer['context']['scope']['id'] == registry.policies[value['candidate_id']]['scope']['id']
+    assert answer['telemetry']['calls'][0]['input_tokens_estimate'] <= (
+        assistant.config['steps']['question_interpretation']['max_input_tokens'])
+
+
+@pytest.mark.parametrize('language', ['en', 'fr'])
+@pytest.mark.parametrize('scenario, status', [
+    ({}, 'entailed'), ({'missing': True}, 'unknown'), ({'conflict': True}, 'conflict'),
+    ({'day': 7}, 'clarification'), ({'covered': False}, 'clarification'),
+])
+def test_fresh_bo_capital_cases(registry, language, scenario, status):
+    text, assistant, models = bo_assistant(registry, language, **scenario)
+    answer = assistant.ask(text)
+    assert answer['status'] == status, answer
+    if status == 'clarification':
+        assert answer['route'] == 'clarify' and 'result' not in answer
+        return
+    assert answer['route'] == 'reasoning' and answer['checker']['valid']
+    assert answer['context']['scope']['case']['company'] == 'Arden'
+    assert set(answer['encoding']['entities']).isdisjoint({'client_company', 'person_a', 'shared_measurement_basis'})
+    assert all(fact['text'] == text[fact['start']:fact['end']] for fact in answer['input_provenance']['facts'])
+    payload = models.requests[0]['input']
+    assert all(value not in payload for value in ('client_company', 'person_a', 'scenario_facts', 'reference_answer'))
+    if status == 'entailed':
+        deduction, = [step for step in answer['proof_steps'] if step['kind'] == 'deduction']
+        assert deduction['passage_ids'] == ['CMF-L561-2-2-1', 'CMF-R561-1-P1']
+        passages = {passage['id']: passage for passage in answer['passages']}
+        assert passages['CMF-L561-2-2-1']['excerpts'] == [
+            '1° Soit qui contrôlent en dernier lieu, directement ou indirectement, le client ;']
+        assert passages['CMF-R561-1-P1']['version'] == 'LEGIARTI000036824564'
+    elif status == 'conflict':
+        conflict, = answer['result']['conflicts']
+        assert conflict['left']['args'] == conflict['right']['args']
+
+
+@pytest.mark.parametrize('language', ['en', 'fr'])
+@pytest.mark.parametrize('missing', [False, True])
+def test_fresh_sas_fallback_keeps_completion_and_company_binding(registry, language, missing):
+    text, assistant, _ = bo_assistant(registry, language, fallback=True, missing=missing)
+    answer = assistant.ask(text)
+    assert answer['route'] == 'reasoning' and answer['checker']['valid'], answer
+    assert answer['status'] == ('unknown' if missing else 'entailed')
+    rule, = answer['encoding']['rules']
+    assert rule['variables']['?company'] == 'company'
+    assert 'client_company' not in json.dumps(answer['encoding'])
+    if missing:
+        assert any('completed paragraph one assessment' in item['text'] for item in answer['diagnostics'])
+    else:
+        step, = [s for s in answer['proof_steps'] if s['kind'] == 'deduction']
+        assert step['atom']['args'] == ['Nora', 'Arden']
+        completed, = [premise for premise in step['premises'] if premise['predicate'] == 'completed_paragraph_one_assessment']
+        assert completed['args'] == ['Rivage', 'Arden', '2026-07-06']
+        assert step['passage_ids'] == ['CMF-R561-1-P2', 'CMF-R561-1-D']
+
+
+@pytest.mark.parametrize('role, value', [('company', 'Albane'), ('institution', 'Brise'), ('date', '2026-07-07')])
+def test_fallback_cannot_mix_case_bindings(registry, role, value):
+    text, assistant, models = bo_assistant(registry, 'en', fallback=True)
+    completion = next(f for f in models.value['facts'] if f['predicate'] == 'completed_paragraph_one_assessment')
+    completion['args'] = list(completion['args'])
+    completion['args'][['institution', 'company', 'date'].index(role)] = value
+    answer = assistant.ask(text)
+    assert answer['route'] == 'clarify'
+    assert 'same client company, covered institution and assessment date' in answer['text']
+
+
+@pytest.mark.parametrize('language', ['en', 'fr'])
+def test_fallback_outcome_alone_cannot_supply_completion(registry, language):
+    text, assistant, models = bo_assistant(registry, language, fallback=True, missing=True)
+    outcome = next(fact for fact in models.value['facts']
+                   if fact['predicate'] == 'no_natural_person_identified_under_paragraph_one')
+    models.value['facts'].append({**outcome, 'predicate': 'completed_paragraph_one_assessment'})
+    answer = assistant.ask(text)
+    assert answer['route'] == 'clarify'
+    assert 'completed the first-paragraph assessment' in answer['text']
+
+
+def test_bo_requires_an_unambiguous_assessment_date(registry):
+    text, assistant, models = bo_assistant(registry, 'en')
+    date_evidence = models.value['scope_evidence']['date_evidence']
+    new_quote = 'The assessment date is 06/07/2026.'
+    changed = text.replace(date_evidence['quote'], new_quote)
+    date_evidence['quote'] = new_quote
+    registry.searcher.embedder.query_vectors[changed] = registry.searcher.embedder.query_vectors[text]
+    assert assistant.ask(changed)['route'] == 'clarify'
+
+
+@pytest.mark.parametrize('company_type, status', [('company', 'entailed'), ('institution', 'clarification')])
+def test_bo_voting_rights_keeps_unused_scope_entities_out_of_engine(registry, company_type, status):
+    base_text, value, _ = bo_case('en')
+    holding = 'Nora directly holds more than 25% of Arden’s voting rights.'
+    question = 'Does Nora qualify as a beneficial owner of Arden under the voting-rights criterion?'
+    text = ' '.join(base_text.splitlines()[:4] + [holding]) + '\n' + question
+    value.update(candidate_id='real-claims-bo-v1/BO-RC-OH-02/en', predicate='voting_rights_beneficial_owner',
+                 question_evidence=evidence(question))
+    value['facts'] = value['facts'][:1] + [
+        {'predicate': 'direct_voting_rights_above_25', 'args': ['Nora', 'Arden'], 'evidence': evidence(holding)}]
+    value['entities'] = value['entities'][:2] + [
+        {'name': 'Rivage', 'type': 'institution', 'evidence': value['scope_evidence']['institution_evidence']},
+        {'name': '6 July 2026', 'type': 'date', 'evidence': value['scope_evidence']['date_evidence']},
+    ]
+    value['entities'][1]['type'] = company_type
+    embedder = registry.searcher.embedder
+    embedder.query_vectors[text] = embedder.vectors['BO-RC-OH-02']
+    assistant, _ = make_assistant(registry, value)
+
+    answer = assistant.ask(text)
+    assert answer['status'] == status, answer['text']
+    if status == 'entailed':
+        assert answer['checker']['valid']
+        assert answer['encoding']['entities'] == {'Nora': 'person', 'Arden': 'company'}
+        assert answer['input_provenance']['scope']['institution'] == 'Rivage'
+        assert answer['input_provenance']['scope']['assessment_date'] == '2026-07-06'
+    else:
+        assert answer['text'] == 'Unsupported entity type.'
+
+
+@pytest.mark.parametrize('case, target, premises, extra_entities, deductions', [
+    ('BO-RC-DL-01', 'register_lists_beneficial_owner', [
+        ('register_lists_beneficial_owner', ['Nora', 'Arden'],
+         'The supplied register lists Nora as a beneficial owner of Arden.'),
+    ], {}, 0),
+    ('BO-RC-OH-02', 'voting_rights_beneficial_owner', [
+        ('indirect_voting_rights_above_25', ['Nora', 'Arden'],
+         'Nora indirectly holds more than 25% of voting rights in Arden.'),
+    ], {}, 1),
+    ('BO-RC-MH-01', 'meeting_control_beneficial_owner', [
+        ('general_meeting_voting_rights_at_disposal', ['Nora', 'Arden', 'meeting voting rights'],
+         'The meeting voting rights of Arden are at Nora’s disposal.'),
+        ('determines_general_meeting_decisions_through_rights', ['Nora', 'Arden', 'meeting voting rights'],
+         'Nora actually determines decisions at Arden’s general meetings through these meeting voting rights.'),
+    ], {'meeting voting rights': 'voting_rights'}, 2),
+    ('BO-RC-MH-02', 'removal_power_beneficial_owner', [
+        ('company_shareholder', ['Nora', 'Arden'], 'Nora is a shareholder of Arden.'),
+        ('power_over_majority_of_company_body', ['Nora', 'Arden', 'remove', 'supervisory board'],
+         'The articles give Nora the power to remove a majority of Arden’s supervisory board.'),
+    ], {'supervisory board': 'company_body'}, 2),
+])
+def test_fresh_bo_policy_catalog(registry, case, target, premises, extra_entities, deductions):
+    base_text, value, _ = bo_case('en')
+    question = f'Does the supplied evidence establish the {target.replace("_", " ")} criterion for Nora at Arden?'
+    assertions = base_text.splitlines()[:4] + [quote for _, _, quote in premises]
+    text = '\n'.join(assertions) + '\n\n' + question
+    facts = (value['facts'][:1] if deductions else []) + [
+        {'predicate': predicate, 'args': args, 'evidence': evidence(quote)} for predicate, args, quote in premises]
+    entities = value['entities'][:2] + [
+        {'name': name, 'type': kind, 'evidence': evidence(next(quote for quote in assertions if name in quote))}
+        for name, kind in extra_entities.items()]
+    value.update(candidate_id=f'real-claims-bo-v1/{case}/en', predicate=target, question_evidence=evidence(question),
+                 facts=facts, entities=entities)
+    embedder = registry.searcher.embedder
+    embedder.query_vectors[text] = embedder.vectors[case]
+    answer = run(registry, text, value)
+    assert answer['status'] == 'entailed'
+    steps = [step for step in answer['proof_steps'] if step['kind'] == 'deduction']
+    assert len(steps) == deductions
+    assert all(step['passage_ids'] for step in steps)
+
+
 def test_deduction_starter_separates_fact_from_broad_question_citation(registry):
     from apps.assistant.app import EXAMPLES
 

@@ -56,6 +56,10 @@ def render_answer(answer):
         context = answer['context']
         st.caption('Fictional demonstration policy · user-supplied case facts.' if context['context_kind'] == 'synthetic'
                    else 'Source-backed rules · inspect applicability and user-supplied case assumptions.')
+        case_scope = context['scope'].get('case')
+        if case_scope:
+            st.caption('Assessment scope · ' + ' · '.join(case_scope[k] for k in (
+                'company', 'institution', 'assessment_date')))
         if status == 'conflict':
             st.warning('Conflicting information · no supported conclusion can be relied on. Open the deduction to inspect the conflict.')
         elif status == 'unknown':
@@ -73,17 +77,30 @@ def render_answer(answer):
                     st.markdown(f'**{index}. ' + ('Supplied fact' if step['kind'] == 'assertion' else 'Policy application') + '**')
                     st.text(step.get('generated_text', step['text']))
                     st.caption('Sources: ' + ', '.join(step['source_ids']))
+                    if step.get('passage_ids'):
+                        st.caption('Regulatory passages · ' + ', '.join(step['passage_ids']))
             for finding in answer['diagnostics']:
                 st.text(('Conflicted premise: ' if finding['kind'] == 'conflicted-premise' else 'Needed: ') + finding['text'])
         with st.expander('View sources', icon=':material/menu_book:'):
             st.caption(context['case_id'] + ' · dataset ' + context['dataset_version'] + ' · ' + context['language'])
-            for source in answer['sources']:
-                st.caption(source['id'])
-                st.text(source['text'])
             st.text(context['scope']['text'])
+            for passage in answer.get('passages', []):
+                st.text(passage['title'])
+                st.caption(' · '.join(passage[k] for k in ('id', 'version', 'locator')))
+                for excerpt in passage['excerpts']:
+                    st.text(excerpt)
+                if passage['official_url']:
+                    st.link_button('Official source', passage['official_url'])
+            for source in answer['sources']:
+                suffix = ' · ' + ', '.join(source['passage_ids']) if source.get('passage_ids') else ''
+                st.caption(source['id'] + suffix)
+                st.text(source['text'])
         with st.expander('Question interpretation', icon=':material/chat_bubble_outline:'):
             st.text(answer['interpretation'])
             st.caption('LLM interpretation · check it matches your question.')
+            if case_scope:
+                for quote in dict.fromkeys(span['text'] for span in case_scope['evidence'].values()):
+                    st.text(quote)
             for fact in context['scenario_facts']:
                 st.text('• ' + fact['text'])
             st.json({'facts': answer['encoding']['facts'], 'entities': answer['encoding']['entities'],
