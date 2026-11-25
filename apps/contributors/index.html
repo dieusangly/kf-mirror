@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Corpus LCB-FT</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" data-route>Corpus LCB-FT</a>
+      <nav id="app-nav" aria-label="Navigation principale" hidden>
+        <a href="/" data-route data-page="cases" aria-current="page">Scénarios</a>
+        <a href="/?page=sources" data-route data-page="sources">Sources</a>
+        <a href="/?page=typologies" data-route data-page="typologies">Typologies</a>
+        <a href="/?page=history" data-route data-page="history">Historique</a>
+        <a href="/?page=faq" data-route data-page="faq">FAQ</a>
+      </nav>
+      <div class="header-actions">
+        <button type="button" class="primary" id="sign-in" hidden>Se connecter</button>
+        <span id="account-name" class="muted" hidden></span>
+        <button type="button" id="sign-out" hidden>Se déconnecter</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <p id="load-status" role="status">Chargement du corpus…</p>
+    <p id="feedback" class="notice" role="status" tabindex="-1" hidden></p>
+    <section id="signed-out" hidden>
+      <h1>Connexion au corpus</h1>
+      <p>Utilisez le compte qui vous a été attribué pour accéder à l’espace contributeurs.</p>
+    </section>
+
+    <section id="cases" class="catalog" hidden>
+      <a id="back-to-list" class="back-link" href="/" data-route>← Retour aux scénarios</a>
+      <h1 class="catalog-title">Scénarios de raisonnement</h1>
+      <form id="filters" class="filters" role="search" aria-label="Filtrer les scénarios">
+        <label>Recherche
+          <input type="search" name="q" placeholder="Rechercher un scénario…">
+        </label>
+        <label><span id="family-filter-label">Famille</span>
+          <select name="family" aria-labelledby="family-filter-label"><option value="">Toutes les familles</option></select>
+        </label>
+        <label><span id="category-filter-label">Catégorie</span>
+          <select name="category" aria-labelledby="category-filter-label"><option value="">Toutes les catégories</option></select>
+        </label>
+        <label><span id="dataset-filter-label">Jeu</span>
+          <select name="kind" aria-labelledby="dataset-filter-label">
+            <option value="">Tous les jeux</option>
+            <option value="synthetic">Pilote synthétique</option>
+            <option value="source_backed">Règles sourcées</option>
+          </select>
+        </label>
+        <label><span id="review-filter-label">Relecture</span>
+          <select name="review" aria-labelledby="review-filter-label">
+            <option value="">Tous les statuts</option>
+            <option value="none">Aucun avis</option>
+            <option value="recorded">Avis enregistrés</option>
+            <option value="correction">Correction ou écart signalé</option>
+          </select>
+        </label>
+      </form>
+      <div class="workspace">
+        <aside class="case-list" aria-label="Liste des scénarios">
+          <h2 id="case-count" aria-live="polite"></h2>
+          <ul id="case-links"></ul>
+        </aside>
+        <article class="case-detail" id="case-detail" aria-label="Fiche du scénario"></article>
+      </div>
+    </section>
+
+    <section id="sources" hidden>
+      <div class="section-header">
+        <h1>Sources</h1>
+        <button type="button" class="primary" id="add-source">Ajouter une source</button>
+      </div>
+      <h2 id="contributed-sources-title">Contributions</h2>
+      <div id="contributed-sources"></div>
+      <h2 id="corpus-sources-title">Sources du corpus</h2>
+      <div id="corpus-sources"></div>
+    </section>
+
+    <section id="typologies" hidden>
+      <div class="section-header">
+        <h1>Typologies</h1>
+        <button type="button" class="primary" id="add-typology">Proposer une typologie</button>
+      </div>
+      <div class="table-surface scrollable" id="coverage" role="region"
+           aria-label="Couverture des scénarios par famille et catégorie" tabindex="0"></div>
+      <h2>Propositions à relire</h2>
+      <div id="proposals"></div>
+    </section>
+
+    <section id="history" hidden>
+      <h1 id="history-title">Historique</h1>
+      <div id="history-entries"></div>
+    </section>
+
+    <section id="faq" hidden>
+      <h1>FAQ</h1>
+      <h2>Parcours contributeurs</h2>
+      <div class="table-surface">
+        <table class="faq-table" role="table" aria-label="Parcours contributeurs">
+          <thead role="rowgroup">
+            <tr role="row"><th scope="col">Action</th><th scope="col">Interaction proposée</th><th scope="col">Exemples</th></tr>
+          </thead>
+          <tbody role="rowgroup">
+            <tr role="row">
+              <th scope="row" role="rowheader">Déposer un document</th>
+              <td role="cell" data-label="Interaction proposée">Dans <strong>Sources</strong>, ouvrir <strong>Ajouter une source</strong> et choisir <strong>Déposer un document</strong>. Sélectionner ou glisser un fichier, saisir le titre, l’organisme émetteur et la langue, puis ajouter la date ou la version si connue. <strong>Enregistrer le dépôt</strong> crée une entrée dans <strong>Contributions</strong>.</td>
+              <td role="cell" data-label="Exemples">Déposer le PDF des lignes directrices de l’ACPR sur l’identification et la connaissance de la clientèle. Renseigner <strong>ACPR</strong> comme émetteur et <strong>FR</strong> comme langue.</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Ajouter une URL</th>
+              <td role="cell" data-label="Interaction proposée">Dans <strong>Ajouter une source</strong>, choisir <strong>Ajouter une URL</strong>. Coller le lien officiel, renseigner les métadonnées et, si utile, préciser l’article ou la section pertinente. La fiche source permet ensuite de retrouver le document et les scénarios qui le citent.</td>
+              <td role="cell" data-label="Exemples">Ajouter la page Légifrance de l’article <strong>L. 561-2-2 du Code monétaire et financier</strong> et préciser la version du texte utilisée.</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Relire un scénario</th>
+              <td role="cell" data-label="Interaction proposée">Cliquer sur <strong>Relire ce scénario</strong>, choisir le champ concerné et donner un avis motivé. Le contributeur peut confirmer la référence, demander une correction ou signaler un écart FR/EN. L’avis est rattaché à la version relue. Une correction suggérée apparaît dans l’historique de la fiche.</td>
+              <td role="cell" data-label="Exemples">Sur <code>BO-RC-OH-01</code>, commenter la règle applicable. Par exemple, si la traduction indiquait <em>25% or more</em>, proposer <em>more than 25%</em> pour conserver le sens de « plus de 25 % ».</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Explorer les typologies</th>
+              <td role="cell" data-label="Interaction proposée">Afficher une grille avec les familles en lignes et les catégories en colonnes. Chaque cellule indique combien de scénarios couvrent la combinaison. Un clic ouvre le catalogue avec les filtres correspondants.</td>
+              <td role="cell" data-label="Exemples">Cliquer sur <strong>BO × MH</strong> pour afficher les scénarios de bénéficiaires effectifs qui nécessitent plusieurs étapes de déduction.</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Créer une famille ou une catégorie</th>
+              <td role="cell" data-label="Interaction proposée">Dans <strong>Typologies</strong>, saisir un code, un libellé et une définition. Pour une famille, préciser le périmètre métier. Pour une catégorie, décrire le comportement attendu et donner un exemple. La création apparaît comme <strong>Proposition à relire</strong> avant son ajout au référentiel partagé.</td>
+              <td role="cell" data-label="Exemples"><strong>Famille</strong> <code>SAN</code> — Sanctions sectorielles, pour les scénarios portant sur des restrictions visant un secteur d’activité. <strong>Catégorie</strong> <code>TMP</code> — Applicabilité dans le temps, pour les scénarios où il faut déterminer quelle version d’une règle s’applique à la date des faits.</td>
+            </tr>
+            <tr role="row">
+              <th scope="row" role="rowheader">Retirer ou rétablir une contribution</th>
+              <td role="cell" data-label="Interaction proposée">Cliquer sur <strong>Retirer</strong> à côté d’une contribution et préciser le motif. Retrouvez le retrait daté dans <strong>Historique</strong> et cliquez sur <strong>Rétablir</strong> si nécessaire.</td>
+              <td role="cell" data-label="Exemples">Retirer un document déposé en double ou un avis de relecture que vous souhaitez corriger.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="login-dialog" aria-labelledby="login-dialog-title">
+    <form id="login-form">
+      <div class="section-header"><h2 id="login-dialog-title">Connexion</h2><button type="button" class="close" data-close aria-label="Fermer">×</button></div>
+      <label>E-mail <input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+      <label>Mot de passe <input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="form-actions"><button type="button" data-close>Annuler</button><button type="submit" class="primary">Se connecter</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="source-dialog" aria-labelledby="source-dialog-title">
+    <form id="source-form">
+      <div class="section-header"><h2 id="source-dialog-title">Ajouter une source</h2><button type="button" class="close" data-close aria-label="Fermer">×</button></div>
+      <fieldset class="mode">
+        <legend>Type de source</legend>
+        <label><input type="radio" name="mode" value="file" checked> Déposer un document</label>
+        <label><input type="radio" name="mode" value="url"> Ajouter une URL</label>
+      </fieldset>
+      <label id="file-field" class="file-field"><span id="file-label">Document</span>
+        <input type="file" name="file" accept=".pdf,.docx,.html,.htm,.txt" required
+               aria-labelledby="file-label" aria-describedby="file-limit">
+        <span id="file-limit" class="muted">PDF, DOCX, HTML ou TXT · 15 Mio maximum</span>
+      </label>
+      <label id="url-field" hidden>URL officielle
+        <input type="url" name="url" placeholder="https://" maxlength="2048" disabled>
+      </label>
+      <label>Titre <input name="title" required maxlength="200"></label>
+      <div class="form-grid">
+        <label>Organisme émetteur <input name="issuer" required maxlength="120"></label>
+        <label><span id="source-language-label">Langue</span>
+          <select name="language" aria-labelledby="source-language-label"><option value="fr">Français</option><option value="en">Anglais</option><option value="other">Autre</option></select>
+        </label>
+      </div>
+      <label>Date ou version (facultatif) <input name="version" maxlength="100"></label>
+      <label>Article ou section (facultatif) <input name="locator" maxlength="240"></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="form-actions"><button type="button" data-close>Annuler</button><button class="primary" type="submit">Enregistrer le dépôt</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="review-dialog" aria-labelledby="review-dialog-title">
+    <form id="review-form">
+      <div class="section-header"><h2 id="review-dialog-title">Relire ce scénario</h2><button type="button" class="close" data-close aria-label="Fermer">×</button></div>
+      <p id="review-context" class="muted"></p>
+      <div class="form-grid">
+        <label><span id="review-language-label">Version relue</span>
+          <select name="language" aria-labelledby="review-language-label"><option value="fr">FR</option><option value="en">EN</option><option value="both">FR et EN</option></select>
+        </label>
+        <label><span id="review-section-label">Champ concerné</span><select name="section" aria-labelledby="review-section-label" required></select></label>
+      </div>
+      <label><span id="review-outcome-label">Avis</span><select name="outcome" aria-labelledby="review-outcome-label" required></select></label>
+      <label>Motif ou correction proposée <textarea name="comment" rows="5" required maxlength="4000"></textarea></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="form-actions"><button type="button" data-close>Annuler</button><button class="primary" type="submit">Enregistrer l’avis</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="typology-dialog" aria-labelledby="typology-dialog-title">
+    <form id="typology-form">
+      <div class="section-header"><h2 id="typology-dialog-title">Proposer une typologie</h2><button type="button" class="close" data-close aria-label="Fermer">×</button></div>
+      <div class="form-grid">
+        <label><span id="typology-type-label">Type</span><select name="type" aria-labelledby="typology-type-label"><option value="family">Famille</option><option value="category">Catégorie</option></select></label>
+        <label>Code <input name="code" minlength="2" maxlength="12" required autocapitalize="characters"></label>
+      </div>
+      <label>Libellé <input name="label" required maxlength="120"></label>
+      <label><span id="definition-label">Définition et périmètre métier</span><textarea name="definition" rows="3" required maxlength="1500"></textarea></label>
+      <label><span id="example-label">Exemple (facultatif)</span><textarea name="example" rows="2" maxlength="1500"></textarea></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="form-actions"><button type="button" data-close>Annuler</button><button class="primary" type="submit">Enregistrer la proposition</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="withdraw-dialog" aria-labelledby="withdraw-dialog-title" aria-describedby="withdraw-target">
+    <form id="withdraw-form">
+      <div class="section-header"><h2 id="withdraw-dialog-title">Retirer la contribution</h2><button type="button" class="close" data-close aria-label="Fermer">×</button></div>
+      <p id="withdraw-target" class="muted"></p>
+      <label>Motif du retrait <textarea name="reason" rows="3" required maxlength="1000"></textarea></label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="form-actions"><button type="button" data-close>Annuler</button><button class="primary" type="submit">Retirer</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
