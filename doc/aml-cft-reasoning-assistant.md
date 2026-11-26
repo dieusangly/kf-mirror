@@ -8,7 +8,7 @@ Inspect proofs, sources and question interpretation beside each answer.
 ## Start
 
 From the repository root, with [pipeline dependencies](aml-cft-pipeline.md#1-install-and-select-inputs)
-installed and the accepted pilot artifacts present:
+installed. Automatic mode also requires the accepted reasoning packages:
 
 ```sh
 source .envrc
@@ -21,11 +21,20 @@ enable the document route; see [publication](aml-cft-pipeline.md#7-rebuild-the-p
 Without that database, document requests report unavailability. Startup makes no
 model calls; submitted questions can incur embedding and LLM costs.
 
-The Document Assistant runs separately at port 8501 using `apps/chat/app.py`.
-This app reuses its retrieval/generation services without saving turns, feedback
-or sessions to the application database.
+Choose **Automatic** for reasoning, document questions, clarification or general
+knowledge. The router chooses a route for each question. Conversation history
+in this mode lasts for the Streamlit session.
 
-Try:
+Choose **Document search** to bypass routing. In the sidebar, select the corpus
+and published snapshot, search method, retrieval mode and sources. Open the
+provenance graph before asking a question, or inspect the citations, retrieval
+details and feedback controls on a saved answer. This mode keeps its own
+conversations and feedback in PostgreSQL. The private `chat_token` in the URL
+restores access to saved conversations in that database. To use an older
+bookmark, open its path and query string on the unified assistant's port.
+[Direct document search](aml-cft-pipeline.md#8-run-the-document-assistant)
+
+Try in **Automatic** mode:
 
 - “Selon la politique de l'exemple, un client enregistré comme PPE doit-il
   obtenir une approbation de la direction ?”
@@ -154,9 +163,10 @@ For local operation:
 - Set `local_only: true` to require local providers and disable the entire cloud
   document adapter. Local requests send no cloud key, refuse redirects and never
   fall back to cloud. Local runtimes/models and a fully local document route still
-  require installation and validation.
+  require installation and validation. In **Document search**, local-only mode
+  restricts retrieval to keywords and answers to exact excerpts.
 
-Conversations and raw provider responses are not persisted. OpenAI LLM requests
+Automatic mode keeps the conversation in session memory and does not persist raw provider responses. OpenAI LLM requests
 use `store: false`, which does not establish provider retention policy. Cloud mode
 sends input to the provider; avoid sensitive data. This development UI has no
 production authentication/access controls.

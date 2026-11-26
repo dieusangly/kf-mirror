@@ -30,4 +30,4 @@ or publication. Retrieval checks do not certify answer quality.
 Implementation: [retrieval](../src/knowledge_foundry/retrieval/),
 [graph](../scripts/render_knowledge_graph.py),
 [storage](../src/knowledge_foundry/storage/postgres.py),
-[assistant](../apps/chat/app.py). See [pipeline commands](aml-cft-pipeline.md).
+[assistant](../apps/assistant/app.py). See [pipeline commands](aml-cft-pipeline.md).

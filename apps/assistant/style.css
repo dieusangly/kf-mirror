@@ -1,4 +1,4 @@
-/* App-local palette and component system; no effect on the original Document Assistant. */
+/* Automatic chat theme. Document search uses the native Streamlit sidebar and controls. */
 :root {
   color-scheme: dark;
   --kf-bg: #14181d;

@@ -127,14 +127,41 @@ def render_answer(answer):
         st.warning(warning)
 
 
+def select_mode():
+    st.query_params['mode'] = st.session_state.assistant_mode
+
+
 def main():
-    st.set_page_config(page_title='Knowledge Foundry · Assistant', page_icon=':material/forum:',
-                       layout='wide', initial_sidebar_state='collapsed')
+    st.set_page_config(page_title='Knowledge Foundry · Assistant', page_icon=':material/forum:', layout='wide')
     st.set_option('client.toolbarMode', 'minimal')
-    st.html('<style>' + Path(__file__).with_name('style.css').read_text() + '</style>')
+    if 'assistant_mode' not in st.session_state:
+        default_mode = 'documents' if st.query_params.get('chat_token') else 'automatic'
+        requested = st.query_params.get('mode', default_mode)
+        st.session_state.assistant_mode = 'documents' if requested == 'documents' else 'automatic'
+
     with st.container(key='app-header', horizontal=True, vertical_alignment='center'):
         st.title('Knowledge Foundry Assistant')
-        st.button('New conversation', icon=':material/add:', key='new-conversation', on_click=new_conversation)
+        mode = st.radio('Assistant mode', ['automatic', 'documents'], horizontal=True,
+                        format_func={'automatic': 'Automatic', 'documents': 'Document search'}.get,
+                        key='assistant_mode', on_change=select_mode, label_visibility='collapsed')
+        if mode == 'automatic':
+            st.button('New conversation', icon=':material/add:', key='new-conversation', on_click=new_conversation)
+
+    if mode == 'documents':
+        from apps.assistant.document_search import render_document_search
+
+        try:
+            config = load_config()
+        except (OSError, KeyError, TypeError, ValueError):
+            st.error('The assistant configuration could not be loaded. Check KF_ASSISTANT_CONFIG.')
+            return
+        if config['documents']['enabled']:
+            render_document_search(local_only=config['local_only'])
+        else:
+            st.info('Document search is disabled in the assistant configuration.')
+        return
+
+    st.html('<style>' + Path(__file__).with_name('style.css').read_text() + '</style>')
     if 'assistant_service' not in st.session_state:
         try:
             st.session_state.assistant_service = Assistant(load_config())

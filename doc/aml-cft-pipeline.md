@@ -266,10 +266,8 @@ not approve every claim or summary:
 
 ## 8. Run the document assistant
 
-Use this section for the **Document Assistant** on port **8501**. For bilingual
-chat with synthetic policies, source-backed BO and KYC, document retrieval and
-general explanations, start the **reasoning assistant** on port **8502** using
-its [startup instructions](aml-cft-reasoning-assistant.md#start).
+The unified assistant offers **Document search** for direct access to a published
+corpus and **Automatic** for routed chat. [Assistant modes](aml-cft-reasoning-assistant.md#start)
 
 The retained Docling run is already registered in
 [retrieval-corpora.json](../config/retrieval-corpora.json). Once its snapshot is
@@ -277,10 +275,10 @@ published, start the app from a shell with `.envrc` loaded:
 
 ```sh
 source .envrc
-.venv/bin/python -m streamlit run apps/chat/app.py
+.venv/bin/python -m streamlit run apps/assistant/app.py --server.port 8502
 ```
 
-Open `http://localhost:8501` and select the corpus/published snapshot.
+Open `http://localhost:8502/?mode=documents` and select the corpus and published snapshot in the sidebar.
 **Open provenance graph** shows lineage. The app inherits `KF_DATABASE_URL` and
 `KF_RETRIEVAL_CONFIG`; `KF_CORPORA_CONFIG` selects another corpus catalog.
 With `OPENAI_API_KEY`, answers and vector/combined search may incur costs;

@@ -113,6 +113,19 @@ def test_reasoning_proof_sources_details_and_reset(ui_models):
     assert any(element.value == 'What would you like to understand?' for element in view.header)
 
 
+def test_switching_modes_preserves_automatic_chat_when_database_is_unconfigured(ui_models, monkeypatch):
+    monkeypatch.delenv('KF_DATABASE_URL', raising=False)
+    view = app()
+    view.chat_input[0].set_value(CASES[0]['question']).run()
+    requests = len(ui_models.requests)
+    view.radio(key='assistant_mode').set_value('documents').run()
+    assert not view.exception and not view.chat_message
+    assert any('KF_DATABASE_URL' in item.value for item in view.error)
+    view.radio(key='assistant_mode').set_value('automatic').run()
+    assert not view.exception and len(view.chat_message) == 2
+    assert len(ui_models.requests) == requests
+
+
 def test_deduction_example_submits_context_and_question(ui_models):
     import json
     # This checks orchestration only; model quality on starter prose is unmeasured.

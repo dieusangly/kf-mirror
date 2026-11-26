@@ -7,7 +7,7 @@
 | Build a document corpus | [Pipeline commands](aml-cft-pipeline.md) for the 13-document AML/CFT corpus, [provider configuration and adapters](providers.md), [downstream uses of claims and summaries](downstream-uses.md) |
 | Compare document processing and retrieval | [Structuring benchmarks and quality gates](benchmarks.md), [retrieval results on 123 unreviewed questions](retrieval-evaluation-123q-20261103.md), [survey of approaches](state-of-the-art.md) |
 | Work with reasoning cases | [Pilot procedure and accepted datasets](aml-cft-reasoning-pilot.md), [beneficial ownership batch](aml-cft-bo-batch-handoff.md), [KYC batch](aml-cft-kyc-batch-handoff.md) |
-| Run or evaluate an application | [Document Assistant](aml-cft-pipeline.md#8-run-the-document-assistant), [reasoning assistant](aml-cft-reasoning-assistant.md), [reasoning assistant evaluation and final review](aml-cft-reasoning-assistant-evaluation.md), [contributor workspace](../apps/contributors/README.md) |
+| Run or evaluate an application | [Unified assistant](aml-cft-reasoning-assistant.md) with [direct document search](aml-cft-pipeline.md#8-run-the-document-assistant), [reasoning assistant evaluation and final review](aml-cft-reasoning-assistant-evaluation.md), [contributor workspace](../apps/contributors/README.md) |
 | Verify the Chrysalide open-data inventory | [Source checks and expected report](verification-inventaire-open-data.md) |
 
 ## How the document pipeline works
