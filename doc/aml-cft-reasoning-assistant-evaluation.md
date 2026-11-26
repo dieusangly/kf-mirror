@@ -36,30 +36,21 @@ incorrect answers and no unexecuted prompts. The execution failures comprise nin
 confirmed interpretation input-token guard rejections and two incomplete model
 outputs (`max_output_tokens`). No unresolved dataset/reference defects were found.
 
-Conclusions:
+The failed checks concerned routing and compatibility with the construction set.
 
-- **Strong synthetic reasoning performance:** new cases and variants together
-  achieved 184/192 fully correct responses (95.83%). This supports a promising
-  prototype assessment for applying accepted policies to supplied synthetic facts.
-- **Useful policy boundaries:** every unsupported request received an appropriate
-  clarification, supporting the system's ability to avoid decisions outside its
-  accepted reasoning capabilities.
-- **Routing remains the main quality gap:** its total is two passes below the
-  floor; ambiguous requests and document answers are three and five passes below
-  their respective floors. Every language, family and actual reasoning-category
-  floor passes, but those successes do not override the failed gates.
-- **Construction compatibility independently blocks acceptance:** `BO-MH-02/fr`
-  returns clarification instead of its accepted reasoning result;
-  `RISK-MP-01/en` preserves the unknown result but incorrectly describes the
-  customer as a complex product in its explanation. Both regressions remain
-  unresolved.
-- **Correct proofs and citations are insufficient by themselves:** completed
-  failures include rejected interpretations, incorrect missing-premise wording,
-  unanswered or wrong-provision document questions, and a response-language error.
-  Full response fidelity must accompany correct symbolic results.
-- **The evidence supports a good synthetic pilot, with formal acceptance unmet.**
-  These cases were exposed during tuning, so their scores are regression evidence.
-  Generalization requires newly held-out cases.
+- **Routing.** The routing group fell two passes short. Ambiguous requests fell
+  three short and document questions five short. All 32 unsupported requests
+  received an appropriate clarification. Both languages, every family and every
+  actual reasoning category met their floors.
+- **Construction compatibility.** `BO-MH-02/fr` returned clarification for a
+  supported deduction. `RISK-MP-01/en` correctly returned unknown but described
+  the customer as a complex product.
+
+New cases and variants scored 184/192 (95.83%) on supplied synthetic facts.
+Completed failures included rejected interpretations, incorrect missing-premise
+explanations, unanswered or wrong-provision document questions, and a language
+error. Review covers the full response, including wording and citations. These
+cases were exposed during tuning. Generalization requires held-out cases.
 
 The final report retains validation, provenance, latency and
 incomplete cost estimates, including its historical **92 passed / 4 failed** test

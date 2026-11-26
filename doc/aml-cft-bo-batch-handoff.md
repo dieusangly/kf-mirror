@@ -1,8 +1,14 @@
 # First beneficial ownership batch
 
-## Objective and starting point
+**Accepted after one repair round.** Batch `real-claims-bo-v1-batch-001` covers
+9 cases (18 FR/EN versions) on beneficial ownership of French companies.
+The [pilot guide](aml-cft-reasoning-pilot.md#find-accepted-cases-and-sources)
+links the accepted cases and sources. The [assistant guide](aml-cft-reasoning-assistant.md#source-backed-beneficial-ownership)
+gives the scope, required facts and limits of the registered package.
 
-Evaluate deductions about the **beneficial owners of a French company** using rules grounded in verified sources and synthetic customer facts. Run **Stage 5 → Stage 2 or verified setup reuse → Stage 3 → Stage 4 Execute → Stage 4 Review**. Work on one stage or role per session.
+## Launch instructions
+
+Use verified source passages and synthetic customer facts. Run **Stage 5 → Stage 2 or verified setup reuse → Stage 3 → Stage 4 Execute → Stage 4 Review**. Work on one stage or role per session.
 
 From the repository root, read [the project instructions](../.agents/AGENTS.md), the [pilot status](aml-cft-reasoning-pilot.md#progress-and-next-action), and the [synthetic pilot handoff](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/next-session-prompt.txt).
 
@@ -18,30 +24,22 @@ Verify the acceptance status and hashes for `synthetic-v1-batch-001`, which incl
 
 **After approval.** Create `artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/`. Save a versioned manifest, stable identifiers, source passages, readable rules, case contexts, synthetic customer facts, and questions. Save **new proposed reference answers and proofs in separate files**. Link rules to their source passages and factual premises to facts stipulated in the case. Record the coverage limits and hand off the manifest and hashes to Stage 2.
 
-## Stage 2 — Verify engine compatibility
+## Setup, execution and independent review
 
-Create the `BO` execution manifest with the exact case IDs and both language versions. Check the schema, engine, adapter, and proof checker. Record the exact versions and hashes of any reused setup. If the batch needs a new operation, document its semantics, representation, and proof checks. Version the extension and identify affected regression cases. Hand off verified validation and execution commands to Stage 3.
+Follow the [pilot stage handoffs](aml-cft-reasoning-pilot.md#stage-handoffs) for
+the required manifests, commands, validation and status transitions.
 
-## Stage 3 — Formalize the cases
+- **Stage 2.** Pin the BO selection in both languages and verify setup reuse by
+  version and hash. Any new operation needs documented semantics, representation,
+  proof checks, a versioned extension and identified regression cases.
+- **Stage 3.** Encode the rules, stipulated facts, scope and incompatibilities.
+  Translate questions separately and keep references out of formalizer inputs.
+- **Stage 4.** Run the engine and proof checker on the fixed selection. At
+  `pending-review`, hand off to a fresh reviewer to solve the cases from the
+  original passages and stipulated facts. Apply the [review criteria and shared
+  repair budget](aml-cft-reasoning-pilot.md#review-policy-and-repair-budget).
 
-Encode the **source-backed rules**, **synthetic customer facts**, scope, and incompatibilities. Translate questions into separate queries. Give the formalizer the readable inputs, source references, and schema. Reserve reference answers and proofs for evaluation. Save validated encodings, queries, hashes, and any failures in a new `03-formalization-run-…` directory.
-
-## Stage 4 Execute — Run the engine and check proofs
-
-Initialize the batch status in a new `04-reasoning-run-…` directory. Verify case selection and hashes. Run the engine and proof checker on all agreed cases. Save answers, certificates, proof checks, provisional comparisons, and failures. Set the status to `pending-review` and hand off to an independent review session.
-
-## Stage 4 Review — Decide acceptance
-
-First, solve each case from the original passages and stipulated facts. Save those judgments before reading the proposed references or engine results. Then verify reference correctness, fidelity of encoded rules, facts, and queries, and the engine's answers and certificates. Check that the French and English versions preserve the same meaning.
-
-Acceptance requires **100% of the agreed cases and required coverage**, with a justified status and proof for each case. An expected unknown or conflict can pass. Keep failures in the denominator. Assign repairs to a separate author session and recheck independently. The pilot allows up to two shared repair rounds per batch. Record `completed-with-failures` if defects remain at the limit.
-
-## Handoff and traceability
-
-- Give the batch its own run directories under `artifacts/aml-cft-reasoning-pilot/` and one authoritative status file. Use the accepted synthetic runs as the baseline. Carry the same batch identifier and counters through repairs.
-- At each handoff, record the next role and exact action, batch ID and version, case selection, input and output paths and hashes, status, checks, and open findings. Record added or changed rules, predicates, or operations and the cases rerun.
-- Update the run records required by the pilot guide and provide the exact prompt for the next session. The batch review establishes reasoning quality for the agreed cases and scope.
-
-The assistant now loads the accepted BO package. See the
-[assistant guide](aml-cft-reasoning-assistant.md#source-backed-beneficial-ownership)
-for the supported scope, rules and limitations.
+At each handoff, retain the batch ID, counters, selection, versions, paths and
+hashes, checks, open findings, and exact next-session prompt. Record any changed
+rules, predicates or operations and the cases rerun. Keep evidence in the
+batch's own run directories and link its [authoritative status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/evaluation-status.json).

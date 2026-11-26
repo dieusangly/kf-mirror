@@ -1,12 +1,15 @@
 # First source-backed KYC batch
 
-## Objective and session structure
+**Accepted after one repair round.** Batch `real-claims-kyc-v1-batch-001`
+covers **16 cases (32 FR/EN versions)** on identification, identity verification
+and representative authority at ordinary account opening by covered French
+credit institutions on 6 July 2026. The accepted
+package is registered as `source_backed` for the assistant and contributor
+catalogue. Offline checks cover case construction, proofs and the bilingual
+catalogue. Live routing and interpretation require separate evaluation.
+[Accepted cases and sources](aml-cft-reasoning-pilot.md#find-accepted-cases-and-sources) · [Runtime scope and validation](aml-cft-reasoning-assistant.md#source-backed-kyc)
 
-Evaluate deductions about customer identification, identity verification and
-representative authority at onboarding for a covered financial institution in
-France. Use verified regulatory passages and synthetic customer facts. Use
-**6 July 2026** as the proposed assessment date, subject to checking the
-applicable source editions at Stage 5.
+## Launch instructions
 
 The launch prompt authorized a KYC-specific exception to the pilot's session
 rule. One author session runs **Stage 5 → Stage 2 → Stage 3 → Stage 4 Execute**
@@ -38,9 +41,8 @@ and publication outside this batch.
 
 List the distinct rules in scope. Group equivalent formulations and preserve
 differences in actors, premises, exceptions and versions. Map each selected
-rule or branch to its source, case IDs and intended behavior. Start with
-**12 semantic cases / 24 French and English versions**, two structurally
-distinct cases in each category.
+rule or branch to its source, case IDs and intended behavior. Cover each
+category with at least two structurally distinct bilingual cases.
 
 | Category | Coverage to propose |
 | --- | --- |
@@ -64,11 +66,11 @@ link each rule and proof premise to its source passage or stipulated fact.
 
 ### Stages 2, 3 and 4 Execute — Verify, formalize and run
 
-Use batch ID `real-claims-kyc-v1-batch-001` and dataset ID
-`aml-cft-real-claims-kyc` at `1.0.0`. The following paths are relative to
-`artifacts/aml-cft-reasoning-pilot/`. Confirm run numbers before creating them.
+Dataset `aml-cft-real-claims-kyc` is version `1.0.0`. The recorded run
+directories below are relative to `artifacts/aml-cft-reasoning-pilot/`. Verify
+run numbers before allocating directories for a new batch.
 
-| Stage | Proposed directory | Gate to continue |
+| Stage | Run directory | Gate to continue |
 | --- | --- | --- |
 | 5 | `05-real-claims-run-002/` | Freeze the source-backed dataset, exact FR/EN selection, matrix and hashes. |
 | 2 | `02-engine-setup-run-003/` | Create the KYC execution manifest. Verify the pinned engine, schema, adapter, proof checker and split-reference compatibility. Reuse the existing setup if compatible. Record verified commands and obtain a scope decision if an operation is missing. |
@@ -80,25 +82,14 @@ next action. Keep `run.json`, session evidence, `commands.jsonl` and replayable
 `commands.sh` as required by the pilot, using fresh output paths and preserving
 prior artifacts. [Execution records](aml-cft-reasoning-pilot.md#agent-responsibilities-and-reproducible-commands)
 
-## Independent review and assistant registration
+## Independent review
 
-The reviewer first solves all selected versions using the original sources,
-readable cases and questions. Save and hash those judgments before opening
-reference answers, encodings, queries or execution evidence. Review references,
-encoding/query fidelity, checked proofs and French/English equivalence.
-Acceptance requires **100% of agreed cases and coverage**. An expected `unknown`
-or `conflict` can pass with the required evidence. Use at most two shared repair
-rounds, each with a separate author session and an independent recheck of the
-affected cases and dependencies. Use `completed-with-failures` if defects remain
-at the limit. [Review policy](aml-cft-reasoning-pilot.md#review-policy-and-repair-budget)
-
-The accepted KYC package is registered as `source_backed` for the assistant
-and the contributor catalogue. Offline validation covers case construction,
-proofs and the scoped FR/EN catalogue. Live-model routing and interpretation
-remain a separate evaluation.
-[KYC runtime scope and validation](aml-cft-reasoning-assistant.md#source-backed-kyc)
-
-## Prompt for the first Codex session
+Solve all selected FR/EN versions from the original sources, readable cases
+and questions. Save and hash the judgments before opening references,
+encodings, queries or execution evidence. Apply the pilot's criteria for
+reference accuracy, encoding fidelity and checked proofs, including its fixed
+denominator and two-round repair limit.
+[Review policy](aml-cft-reasoning-pilot.md#review-policy-and-repair-budget) · [KYC acceptance after independent recheck](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/acceptance.json)
 
 The [archived launch prompt and approved scope](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/prompts/request.txt)
-record the final selection, execution budget and session exception.
+record the selection, execution budget and session exception.

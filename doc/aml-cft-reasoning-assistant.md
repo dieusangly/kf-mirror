@@ -175,6 +175,8 @@ inputs, encodings, acceptance, status, engine configuration and schema. For
 `source_backed`, pin the source index and resolve each rule's passage IDs.
 Test applicability and source rendering against the accepted engine contract.
 
+See the pilot guide to [find accepted cases and sources](aml-cft-reasoning-pilot.md#find-accepted-cases-and-sources).
+
 ## Source-backed beneficial ownership
 
 The BO package applies to **6 July 2026** assessments of unlisted

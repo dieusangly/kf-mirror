@@ -266,10 +266,10 @@ not approve every claim or summary:
 
 ## 8. Run the document assistant
 
-For the new unified chat with synthetic reasoning, document assistance and general
-explanations, see the separate [reasoning assistant runbook](aml-cft-reasoning-assistant.md).
-Run it with `streamlit run apps/assistant/app.py --server.port 8502` after loading
-`.envrc`. The existing Document Assistant below remains independently available.
+Use this section for the **Document Assistant** on port **8501**. For bilingual
+chat with synthetic policies, source-backed BO and KYC, document retrieval and
+general explanations, start the **reasoning assistant** on port **8502** using
+its [startup instructions](aml-cft-reasoning-assistant.md#start).
 
 The retained Docling run is already registered in
 [retrieval-corpora.json](../config/retrieval-corpora.json). Once its snapshot is

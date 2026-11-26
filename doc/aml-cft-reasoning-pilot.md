@@ -1,30 +1,80 @@
 # AML/CFT reasoning pilot
 
-Run outputs belong in `artifacts/aml-cft-reasoning-pilot/`. Repository paths start
-at the repository root; run paths in the layout and status table start at that
-artifact directory. This guide owns the pilot procedure; the
-[assistant guide](aml-cft-reasoning-assistant.md) covers runtime integration.
+Use this guide to find accepted cases or run a new reasoning batch. Run directories
+are relative to `artifacts/aml-cft-reasoning-pilot/`. For runtime integration,
+see the [assistant guide](aml-cft-reasoning-assistant.md).
 
 ## Progress and next action
 
-| Stage | Status | Evidence / next prerequisite |
-| --- | --- | --- |
-| 1 | Accepted for preparation; references accepted in Stage 4 | All eight families, 12 cases each / 192 language versions. [Run](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/run.json), [dataset v1.0.0](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json), [acceptance evidence](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/preparation-acceptance-v1.json). |
-| 2 | Setup complete; hand off to 3 | `synthetic-v1-batch-001`: KYC, BO, PEP, RISK, MON, TFS, PAY, CORR; all 96 cases / 192 language versions. [Batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/execution-batch.json), [pinned setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/run.json), [setup evidence](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/setup-validation-v1.json), [handoff](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/handoff.json). 27 controls passed; deterministic replay matched. |
-| 3 | Generated; fidelity accepted in Stage 4 | `synthetic-v1-batch-001`, all eight families, 96 cases / 192 versions. [Run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/run.json), [encodings](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl), [queries](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl), [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/validation-v1.json), [failures](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/failures-v1.json). All 192 passed structural validation; 11 controls passed; fresh replay matched. |
-| 4 Execute | Complete; independently reviewed | `synthetic-v1-batch-001`, all eight families, 96 cases / 192 versions. [Run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/run.json), [results and certificates](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/results-v1.json), [proof checks](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/proof-checks-v1.json), [provisional comparisons](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/provisional-comparisons-v1.json), [failures](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/failures-v1.json). 192 executed and checked; all status comparisons match; replay matched. |
-| 4 Review and repair | Accepted — initial review 100% | `synthetic-v1-batch-001`, v1.0.0, all eight families, 96/96 cases / 192/192 versions. [Authoritative status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/evaluation-status.json), [acceptance/hashes](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/acceptance.json), [independent judgments](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/independent-judgments.jsonl), [verdicts](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/per-case-verdicts.jsonl), [scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/initial-scores.json). One completed evaluation pass, zero findings/repairs; both shared repair rounds unused. |
-| 5 | BO draft prepared | `real-claims-bo-v1-batch-001` v1.0.0, 9 cases / 18 French and English versions. Source bindings and bilingual structure verified. References are provisional. [Run](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/run.json), [dataset](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/dataset-manifest-v1.json), [validation](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/validation-v1.json). |
-| 2 (real BO) | Setup complete. Stage 3 formalization next | Same BO batch and selection. Reused pinned setup passed 11 targeted controls and replayed 24 accepted synthetic BO versions. Split-reference compatibility verified. Stage 3 needs new readable-text and query mappings. Stage 4 Execute owns status initialization and both repair rounds remain available. [Batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/execution-batch.json), [run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/run.json), [validation](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/setup-validation-v1.json), [handoff](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/handoff.json), [Stage 3 prompt](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/next-session-prompt.txt). |
-| 3 (real BO) | Structurally validated. Stage 4 Execute next | `real-claims-bo-v1-batch-001`, v1.0.0, BO only. All 18 versions passed; fresh replay matched. Both shared repair rounds remain available. [Run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/run.json), [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/validation-v1.json), [failures](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/failures-v1.json), [Stage 4 Execute prompt](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/next-session-prompt.txt). |
-| 4 Execute (real BO) | Complete; independently reviewed | All 18 versions executed and proof-checked. [Run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/run.json), [local replay](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/review-001/verification/replay-comparison.json). |
-| 4 Review and repair (real BO) | Accepted after round 1 | `real-claims-bo-v1-batch-001`, dataset v1.0.0, BO only. Initial review passed 7/9 cases and 14/18 language versions. The independent recheck passed 9/9 cases, 18/18 versions and all 6 required coverage categories. Both missing-completion controls passed and BO-S4-R1-001 closed. One repair round remains unused. [Status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/evaluation-status.json), [acceptance](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/acceptance.json), [recheck scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/post-repair-scores.json), [handoff](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/handoff.json). [Assistant integration](aml-cft-reasoning-assistant.md#source-backed-beneficial-ownership). |
-| 5 (real KYC) | Dataset frozen | `real-claims-kyc-v1-batch-001` v1.0.0, assessed on 6 July 2026. Source bindings, record hashes and offline replay verified. [Dataset](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/dataset-manifest-v1.json), [coverage](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/coverage-matrix-v1.json), [author run](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/run.json), [model attestation](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/sessions/model-attestation-v1.json). |
-| 2–4 Execute (real KYC) | Setup, formalization and execution verified | Eight setup controls passed. The 24 synthetic KYC and 18 BO versions reproduced their accepted results. All 32 KYC versions joined their split references, matched the formalization replay and passed certificate checks. All 12 symbolic controls passed in the independent replay. [Execution batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-003/execution-batch.json), [setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-003/run.json), [formalization run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/run.json), [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/validation-v1.json), [input audit](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/input-isolation-v2.json), [execution run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/run.json), [replay](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/review-001/verification/replay-comparison.json). |
-| 4 Review and repair (real KYC) | Accepted after round 1 | The initial review passed 13/16 cases, 27/32 FR/EN versions and 3/6 categories. The recheck passed all cases, versions and categories. Both findings closed and 20 repair controls passed. One repair round remains unused. [Status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/evaluation-status.json), [acceptance](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/acceptance.json), [recheck scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/post-repair-scores.json), [handoff](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/handoff.json), [assistant and contributor integration](aml-cft-reasoning-assistant.md#source-backed-kyc). |
+All three batches at dataset version 1.0.0 passed independent Stage 4 review,
+covering 121 cases in French and English (242 language versions).
 
-At handoff, update this table with the version, selected batch/families, evidence,
-blockers, remaining repair allowance and exact next stage/role.
+### Find accepted cases and sources
+
+Each JSONL file has one record per `case_id` and `language`. The input
+files hold the scope, `scenario_facts` and `policy_clauses`. The acceptance
+records pin the files used by the [dataset registry](../config/aml-cft-reasoning-datasets.json).
+
+| Dataset | Cases / FR and EN versions | Inputs and questions | Reference answers and proofs |
+| --- | --- | --- | --- |
+| Synthetic | 96 / 192 | [Inputs](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/inputs-v1.jsonl), [questions](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/questions-v1.jsonl) | [Accepted references](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/accepted-references-v1.jsonl) with answers and proofs together |
+| BO | 9 / 18 | [Inputs](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/inputs-v1.jsonl), [questions](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/questions-v1.jsonl) | [Answers](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/proposed-answers-v1.jsonl), [proofs](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/proposed-proofs-v1.jsonl) |
+| KYC | 16 / 32 | [Inputs](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/inputs-v1.jsonl), [questions](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/questions-v1.jsonl) | [Answers](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/proposed-answers-v1.jsonl), [proofs](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/proposed-proofs-v1.jsonl) |
+
+Codex author sessions drafted the cases and reference solutions in Stages 1
+and 5. The BO and KYC cases pair verified legal passages with synthetic customer
+facts. Local Python scripts wrote the JSONL files without paid model calls.
+The engine computed results and certificates from the formalized cases.
+Independent review accepted the pinned reference files, including those with
+the `proposed-` prefix. See [Stage 4 review](#review-and-repair).
+
+#### Find the additional BO and KYC references
+
+Find the dataset by `id` in the registry and open its `source_index_path`.
+Under `sources`, entries with a `capture.path` starting with `sources/`
+identify added captures. Resolve each path from the dataset directory, one
+level above the index. Use a rule's `passage_ids` to look up excerpts,
+locators and source IDs under `passages`.
+
+| Dataset ID | Added references and where to find them |
+| --- | --- |
+| `real-claims-bo-v1` | The [BO source index](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/sources/sources-v1.json) lists `CMF-R561-1` and `CC-L233-3`. Each points to its own `.fr.txt` capture. |
+| `real-claims-kyc-v1` | The [accepted KYC source index](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/sources/sources-v1.json) points to 11 references keyed by source ID in [captures-v1.json](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/sources/captures-v1.json). |
+
+The contributor catalogue lists 26 sources. The 13 documents in the
+[corpus manifest](../data/manifest.json) went through [document structuring, claim generation and summaries](aml-cft-pipeline.md).
+The other 13 entries are versioned captures from the BO and KYC reasoning batches.
+
+### Synthetic evidence
+
+Batch `synthetic-v1-batch-001`.
+
+- **Stage 1.** Preparation passed for all eight families, with 12 cases each. [Run](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/run.json) · [dataset v1.0.0](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/dataset-manifest-v1.json) · [acceptance evidence](../artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/preparation-acceptance-v1.json)
+- **Stage 2.** The pinned setup passed 27 controls and reproduced the run deterministically. [Batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/execution-batch.json) · [pinned setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/run.json) · [setup evidence](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/setup-validation-v1.json) · [handoff](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/handoff.json)
+- **Stage 3.** Encodings and queries passed structural validation for all 192 versions. All 11 controls passed and the fresh replay matched. [Run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/run.json) · [encodings](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/encodings-v1.jsonl) · [queries](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl) · [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/validation-v1.json) · [failures](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/failures-v1.json)
+- **Stage 4 Execute.** The engine ran all 192 versions. Every proof passed, every status matched its proposed reference and the replay reproduced the results. [Run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/run.json) · [results and certificates](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/results-v1.json) · [proof checks](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/proof-checks-v1.json) · [provisional comparisons](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/provisional-comparisons-v1.json) · [failures](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/failures-v1.json)
+- **Independent review.** All cases passed on the initial review, with zero findings and both repair rounds unused. [Authoritative status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/evaluation-status.json) · [acceptance/hashes](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/acceptance.json) · [independent judgments](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/independent-judgments.jsonl) · [verdicts](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/per-case-verdicts.jsonl) · [scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-001/review-001/initial-scores.json)
+
+### Beneficial ownership evidence
+
+Batch `real-claims-bo-v1-batch-001`.
+
+- **Stage 5.** Source bindings and bilingual structure passed validation. Answers and proofs were provisional at this stage. [Run](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/run.json) · [dataset](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/dataset-manifest-v1.json) · [validation](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-001/validation-v1.json)
+- **Stage 2.** The reused setup passed 11 controls, replayed 24 accepted synthetic BO versions and supported separate answer and proof files. Stage 3 required new text and query mappings. [Batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/execution-batch.json) · [run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/run.json) · [validation](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/setup-validation-v1.json) · [handoff](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/handoff.json) · [Stage 3 prompt](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-002/next-session-prompt.txt)
+- **Stage 3.** All 18 versions passed structural validation and the fresh replay matched. [Run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/run.json) · [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/validation-v1.json) · [failures](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/failures-v1.json) · [Stage 4 Execute prompt](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-002/next-session-prompt.txt)
+- **Stage 4 Execute.** All 18 versions executed and passed proof checks. [Run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/run.json) · [local replay](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/review-001/verification/replay-comparison.json)
+- **Independent review.** Initially 7/9 cases and 14/18 versions passed. After one repair, all cases, versions and six categories passed. Both missing-completion controls passed and finding BO-S4-R1-001 closed. One repair round was unused. [Status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/evaluation-status.json) · [acceptance](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/acceptance.json) · [recheck scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/post-repair-scores.json) · [handoff](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-002/recheck-001/handoff.json) · [Assistant integration](aml-cft-reasoning-assistant.md#source-backed-beneficial-ownership)
+
+### KYC evidence
+
+Batch `real-claims-kyc-v1-batch-001`.
+
+- **Stage 5.** The author verified source bindings, record hashes and offline replay for the 6 July 2026 assessment. [Dataset](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/dataset-manifest-v1.json) · [coverage](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/coverage-matrix-v1.json) · [author run](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/run.json) · [model attestation](../artifacts/aml-cft-reasoning-pilot/05-real-claims-run-002/sessions/model-attestation-v1.json)
+- **Stages 2–4 Execute.** Eight setup controls passed and the 24 synthetic KYC and 18 BO versions reproduced their accepted results. All 32 KYC versions joined their separate references, matched the formalization replay and passed certificate checks. The independent replay passed all 12 symbolic controls. [Execution batch](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-003/execution-batch.json) · [setup run](../artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-003/run.json) · [formalization run](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/run.json) · [validation](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/validation-v1.json) · [input audit](../artifacts/aml-cft-reasoning-pilot/03-formalization-run-003/input-isolation-v2.json) · [execution run](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/run.json) · [replay](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/review-001/verification/replay-comparison.json)
+- **Independent review.** Initially 13/16 cases, 27/32 versions and 3/6 categories passed. After one repair all cases, versions and categories passed, both findings closed and 20 repair controls passed. One repair round was unused. [Status](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/evaluation-status.json) · [acceptance](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/acceptance.json) · [recheck scores](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/post-repair-scores.json) · [handoff](../artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/handoff.json) · [assistant and contributor integration](aml-cft-reasoning-assistant.md#source-backed-kyc)
+
+At each handoff, update this section with the batch version, selection, evidence,
+blockers, remaining repair allowance and exact next stage and role.
 
 ## Objective and boundaries
 
@@ -97,7 +147,9 @@ records even if their artifacts need a new folder.
 
 ## Stage handoffs
 
-Run one requested stage/role per session and stop at its handoff. Before starting,
+Run one requested stage/role per session and stop at its handoff. The first
+[KYC batch](aml-cft-kyc-batch-handoff.md#launch-instructions) had an explicit
+exception for the author stages. Before starting,
 read [Progress](#progress-and-next-action), the selected run manifest and its status
 record, if present. Confirm the requested scope, model and execution budget;
 verify prerequisite hashes and setup evidence. Unexpected missing or stale inputs
@@ -292,9 +344,9 @@ earlier checks only if larger runs reveal substantial avoidable rework.
 
 ### Status file and ownership
 
-A **batch** is the agreed family/case selection from a versioned dataset, including
-both language versions. The full Stage 1 dataset can supply multiple batches.
-It has one authoritative status file. For the first batch, use
+Each agreed selection of families and cases, including both languages, forms a
+**batch**. A Stage 1 dataset can supply several batches. Each batch has one
+authoritative status file. For the first batch, use
 `04-reasoning-run-001/evaluation-status.json`, relative to the pilot artifact root.
 Initialize it when Stage 4 Execute begins, with counters at zero only for a new
 batch. Execute records command results and hands off to mandatory review; it
@@ -311,11 +363,10 @@ invocations. Accepted results bind to the exact readable-reference, encoding/que
 and setup hashes. Record corrected-reference versions and their justification
 separately from initial expectations; never overwrite initial results.
 
-A repair round starts when a new fix begins after a completed evaluation; its
-regeneration and recheck use that same round. For example, fixing a missing rule,
-regenerating, reviewing fidelity and rerunning reasoning consume one round.
-Another fix after that recheck consumes round two. Increment actions once when
-they start and mark them active; resume interruptions without incrementing again.
+Start a repair round with the first fix after a completed review or recheck.
+Regeneration, fidelity checks and reasoning reruns belong to that round.
+Increment each counter once when its action starts, mark it active and resume
+interrupted work under the same counter.
 
 | State | Meaning / next role |
 | --- | --- |
@@ -424,13 +475,9 @@ Version/hash all outputs and stop for Stage 4 Execute. Generation and structural
 validation do not establish reference correctness, encoding fidelity or
 successful reasoning.
 
-**Repair the producing pipeline, not saved outputs.** For evidenced encoding/query
-defects, fix the responsible code, prompts, configuration or mappings, regenerate
-affected artifacts from versioned readable inputs, then hand off for an independent
-recheck under Stage 4 Review and repair. Recheck previously passing cases affected
-by shared changes. Preserve original outputs, findings, changed versions and
-regenerated outputs; report initial success separately from success after repair.
-All repairs use Stage 4's shared budget.
+For encoding or query defects, follow [repair and independent recheck](#repair-and-independent-recheck).
+Preserve the original outputs and findings alongside the corrected pipeline version
+and regenerated artifacts.
 
 ```text
 Versioned readable rules/facts → 3 formalizer → generated facts/rules
@@ -586,7 +633,8 @@ does not authorize real-claim transfer or assistant integration.
 
 Within the [shared repair budget](#review-policy-and-repair-budget), encoding/query
 defects require changes to producing code, prompts, configuration or mappings,
-then regeneration. Engine/adapter/checker defects require versioned setup changes.
+then regeneration from versioned readable inputs. Engine/adapter/checker defects
+require versioned setup changes.
 Dataset/reference defects require a source-linked counterexample and versioned
 correction preserving original expectations; never fit answers to engine output.
 Changes to scope or fact/rule interpretation need a user decision.
