@@ -143,7 +143,7 @@ def test_runtime_never_deserializes_answers_queries_or_saved_results(monkeypatch
 
     monkeypatch.setattr(Path, 'read_text', record)
     registry = DatasetRegistry()
-    assert len(registry.records) == 210
+    assert len(registry.records) == 242
     assert not any(name.startswith(('queries-', 'results-', 'proposed-answers-', 'proposed-proofs-'))
                    or 'reference' in name for name in opened)
 

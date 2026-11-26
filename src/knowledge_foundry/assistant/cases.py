@@ -5,7 +5,7 @@ import re
 import unicodedata
 from uuid import uuid4
 
-from .datasets import BO_DATASET
+from .datasets import BO_DATASET, KYC_DATASET
 
 
 class InterpretationError(ValueError):
@@ -104,7 +104,8 @@ def explicit_dates(text):
 def bo_scope(policy, decision, messages, question_span):
     scope = decision.get('scope_evidence')
     assessment_date = policy['scope']['assessment_date']
-    require(scope is not None, 'Which company, covered financial institution and assessment date apply to this case?')
+    require(scope is not None and 'company' in scope,
+            'Which company, covered financial institution and assessment date apply to this case?')
     spans = {role: citation(scope[role + '_evidence'], messages) for role in ('company', 'institution', 'date')}
     for span in spans.values():
         require(not overlaps(span, question_span), 'Please state the scope separately from the question.')
@@ -157,6 +158,76 @@ def check_bo_atom(policy, scope, predicate, args, span):
                 'Please confirm whether the institution completed the first-paragraph assessment.')
 
 
+def kyc_scope(policy, decision, messages, question_span):
+    data = decision.get('scope_evidence')
+    require(data is not None and 'client' in data,
+            'Which client, covered French credit institution, account dossier and assessment date apply?')
+    roles = ('client', 'institution', 'dossier', 'representative')
+    names = {role: data[role] for role in roles if data[role] is not None}
+    rep_evidence = data['representative_evidence']
+    require(('representative' in names) == (rep_evidence is not None),
+            'Please name the representative and cite their role in this dossier together.')
+    spans = {role: citation(data[role + '_evidence'], messages) for role in (*names, 'date')}
+    for span in spans.values():
+        require(not overlaps(span, question_span), 'Please state the scope separately from the question.')
+        assertion_span(span, messages)
+    require(len(set(names.values())) == len(names)
+            and all(mentions(spans[role]['text'], name) for role, name in names.items()),
+            'Please identify the distinct parties and dossier using the names stated in your facts.')
+
+    client_kind = policy['scope']['client_kind']
+    client_text = folded(spans['client']['text'])
+    client_pattern = (r"\b(?:french company|company (?:registered|incorporated) in france|societe francaise|"
+                      r"societe immatriculee en france)\b" if client_kind == 'company'
+                      else r"\b(?:individual|natural person|personne physique)\b")
+    opposite_kind = (r'\b(?:individual|natural person|personne physique)\b' if client_kind == 'company'
+                     else r'\b(?:french company|legal entity|societe francaise|personne morale)\b')
+    require(re.search(client_pattern, client_text) and not re.search(opposite_kind, client_text)
+            and not re.search(r"\b(?:not|pas)\s+(?:an? |un(?:e)? )?(?:french company|individual|"
+                              r"natural person|societe francaise|personne physique)\b", client_text),
+            'Please confirm whether the client is an individual or a French company for this policy.')
+    institution_text = folded(spans['institution']['text'])
+    require(re.search(r'\b(?:french credit institution|etablissement de credit francais)\b', institution_text)
+            and re.search(r"\b(?:subject to|covered by|assujetti(?:e)? a)\b.*?\bl\.?\s*561-2\b", institution_text)
+            and not re.search(r"\b(?:not (?:an? )?(?:french credit institution|subject to|covered by)|"
+                              r"(?:non|pas) assujetti|exempt(?:ed)?)\b", institution_text),
+            'Please confirm which French credit institution is subject to Article L. 561-2 for this case.')
+
+    dossier_quote = spans['dossier']['text']
+    dossier_text = folded(dossier_quote)
+    standard_regime = (r'\b(?:no special regime (?:or|and no) simplified due[ -]diligence exemption|'
+                       r'neither a special regime nor a simplified due[ -]diligence exemption|'
+                       r'aucun regime special ni (?:aucune )?dispense de vigilance simplifiee)\b')
+    require(mentions(dossier_quote, names['client']) and mentions(dossier_quote, names['institution'])
+            and re.search(r'\b(?:(?:ordinary|standard) (?:bank )?account|compte (?:bancaire )?ordinaire)\b', dossier_text)
+            and re.search(r"\b(?:onboarding|opening|new business relationship|ouverture|entree en relation)\b", dossier_text)
+            and re.search(standard_regime, dossier_text),
+            'Please confirm that this ordinary account opening links the named client and institution and that no special regime or simplified due-diligence exemption applies.')
+    if 'representative' in names:
+        quote = spans['representative']['text']
+        require(client_kind == 'company' and mentions(quote, names['client'])
+                and re.search(r"\b(?:representative|represents|act(?:s|ing) (?:on behalf|for)|representant\w*|"
+                              r"represente|agit (?:au nom|pour le compte))\b", folded(quote)),
+                'Please identify who acts for the client company in this opening.')
+
+    date = policy['scope']['assessment_date']
+    question = folded(question_span['text'])
+    date_lookup = decision['predicate'] == 'representative_identity_verification_date_recorded'
+    require(explicit_dates(spans['date']['text']) == {date}
+            and (date_lookup or explicit_dates(question) <= {date})
+            and not re.search(r"\b(?:today|as of now|currently|aujourd'hui|actuellement|a ce jour)\b", question),
+            'The accepted KYC policy applies to the assessment on ' + date + '. Please confirm the assessment date.')
+    return {**names, 'assessment_date': date, 'client_kind': client_kind, 'evidence': spans}
+
+
+def check_kyc_atom(policy, scope, predicate, args):
+    arguments = policy['vocabulary']['predicates'].get(predicate, {}).get('arguments', [])
+    bindings = dict(zip((argument['name'] for argument in arguments), args))
+    require(all(role not in bindings or bindings[role] == scope.get(role)
+                for role in ('institution', 'dossier', 'assessment_date', 'client', 'representative')),
+            'Please use the cited institution, dossier, assessment date, client and representative throughout.')
+
+
 def build_case(registry, policy_key, decision, messages, previous_policy=None):
     require(decision['context_match'] == 'supported_policy', 'Which supported policy should apply to these facts?')
     policy = registry.policies[policy_key]
@@ -167,9 +238,15 @@ def build_case(registry, policy_key, decision, messages, previous_policy=None):
     require(decision['question_evidence'] is not None, 'Please identify the question separately from its premises.')
     question_span = question_citation(decision['question_evidence'], messages)
     require(question_span['message_id'] == 'current', 'Please identify the question in your current message.')
-    scope = bo_scope(policy, decision, messages, question_span) if policy['dataset_id'] == BO_DATASET else None
-    if scope:
+    bo = policy['dataset_id'] == BO_DATASET
+    kyc = policy['dataset_id'] == KYC_DATASET
+    scope = None
+    if bo:
+        scope = bo_scope(policy, decision, messages, question_span)
         check_bo_atom(policy, scope, decision['predicate'], decision['args'], question_span)
+    elif kyc:
+        scope = kyc_scope(policy, decision, messages, question_span)
+        check_kyc_atom(policy, scope, decision['predicate'], decision['args'])
     encoding = deepcopy(policy['template'])
     encoding.update(dataset_id=policy['dataset_id'], dataset_version=policy['dataset_version'],
                     case_id='user-' + uuid4().hex, language=decision['language'], facts=[])
@@ -183,7 +260,8 @@ def build_case(registry, policy_key, decision, messages, previous_policy=None):
         if scope and name not in case_arguments:
             # The institution and date may establish applicability without taking
             # part in the deduction. Their citations were checked with the scope.
-            if name in (scope['institution'], scope['assessment_date']):
+            if name in (scope['institution'], scope['assessment_date']) or (
+                    kyc and name in (scope['client'], scope['dossier'], scope.get('representative'))):
                 continue
             date_text = scope['evidence']['date']['text']
             if mentions(date_text, name) and explicit_dates(name) == {scope['assessment_date']}:
@@ -203,13 +281,21 @@ def build_case(registry, policy_key, decision, messages, previous_policy=None):
         require(not any(span['text'] in clause['text'] for clause in policy['policy_clauses']),
                 'A policy clause cannot be supplied as a customer fact.')
         assertion_span(span, messages)
-        if scope:
+        if bo:
             check_bo_atom(policy, scope, fact['predicate'], fact['args'], span)
+        elif kyc:
+            check_kyc_atom(policy, scope, fact['predicate'], fact['args'])
+            require(fact['predicate'] not in policy['vocabulary']['derived_only_predicates'],
+                    'Please supply the underlying KYC evidence so the engine can derive the conclusion.')
+            if fact['predicate'] in {'document_eligible_for_fallback_verification', 'obtained_qualifying_copy'}:
+                require(not re.search(r'\b(?:is|was) (?:expired|invalid|not valid)\b|'
+                                      r'\b(?:est|etait) (?:expiree?|invalide|non valide)\b', folded(span['text'])),
+                        'The cited assertion describes an expired or invalid document. Please clarify its eligibility.')
         source_id = f'user-fact-{index}'
         encoding['facts'].append({'id': source_id + '-e1', 'source_ids': [source_id],
                                   'atom': {'predicate': fact['predicate'], 'args': list(fact['args'])}})
         supplied.append({'id': source_id, 'kind': 'user_assertion', **span})
-    if scope:
+    if bo:
         predicates = {fact['atom']['predicate'] for fact in encoding['facts']}
         require('fallback_beneficial_owner' not in encoding['predicates'] or 'sas' in predicates,
                 'Is the client a French simplified joint-stock company (SAS)?')

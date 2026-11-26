@@ -173,7 +173,8 @@ function renderDetail(item, reviews) {
   const variant = item.variants[lang];
   const clauses = variant.clauses.map((clause) => `
     <li id="evidence-${escape(clause.id)}" tabindex="-1"><p lang="${lang}">${escape(clause.text)}</p>
-      <span class="evidence-id">${escape(clause.id)}</span>
+      <span class="evidence-id">${escape(clause.id)}${clause.source_kind === "synthetic_conflict_policy" ?
+        " · Convention de traitement du conflit" : ""}</span>
       ${(clause.passage_ids || []).map((key) => {
         const passage = variant.passages[key];
         return `<details class="passage">

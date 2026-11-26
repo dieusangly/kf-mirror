@@ -58,10 +58,11 @@ def render_answer(answer):
                    else 'Source-backed rules · inspect applicability and user-supplied case assumptions.')
         case_scope = context['scope'].get('case')
         if case_scope:
-            st.caption('Assessment scope · ' + ' · '.join(case_scope[k] for k in (
-                'company', 'institution', 'assessment_date')))
+            roles = ('client', 'representative', 'institution', 'dossier', 'assessment_date') if 'client' in case_scope else (
+                'company', 'institution', 'assessment_date')
+            st.caption('Assessment scope · ' + ' · '.join(case_scope[role] for role in roles if case_scope.get(role)))
         if status == 'conflict':
-            st.warning('Conflicting information · no supported conclusion can be relied on. Open the deduction to inspect the conflict.')
+            st.warning('Conflicting information about the requested conclusion. Open the deduction to inspect the conflict.')
         elif status == 'unknown':
             st.info('Insufficient information · open the deduction to see which facts are missing.')
         with st.expander('Show deduction', icon=':material/account_tree:'):
@@ -93,6 +94,8 @@ def render_answer(answer):
                     st.link_button('Official source', passage['official_url'])
             for source in answer['sources']:
                 suffix = ' · ' + ', '.join(source['passage_ids']) if source.get('passage_ids') else ''
+                if source.get('source_kind') == 'synthetic_conflict_policy':
+                    suffix = ' · Scenario conflict convention'
                 st.caption(source['id'] + suffix)
                 st.text(source['text'])
         with st.expander('Question interpretation', icon=':material/chat_bubble_outline:'):

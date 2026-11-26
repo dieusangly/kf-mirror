@@ -40,4 +40,8 @@ Acceptance requires **100% of the agreed cases and required coverage**, with a j
 
 - Give the batch its own run directories under `artifacts/aml-cft-reasoning-pilot/` and one authoritative status file. Use the accepted synthetic runs as the baseline. Carry the same batch identifier and counters through repairs.
 - At each handoff, record the next role and exact action, batch ID and version, case selection, input and output paths and hashes, status, checks, and open findings. Record added or changed rules, predicates, or operations and the cases rerun.
-- Update the run records required by the pilot guide and provide the exact prompt for the next session. Registering accepted rules in the assistant is a separate step that includes applicability and source rendering checks. The batch review establishes reasoning quality for the agreed cases and scope.
+- Update the run records required by the pilot guide and provide the exact prompt for the next session. The batch review establishes reasoning quality for the agreed cases and scope.
+
+The assistant now loads the accepted BO package. See the
+[assistant guide](aml-cft-reasoning-assistant.md#source-backed-beneficial-ownership)
+for the supported scope, rules and limitations.

@@ -57,7 +57,36 @@ premise. Use the fixed ISO assessment_date symbol for dated arguments even
 when the evidence spells the date in French or English. If scope, actor, date,
 case type, or subject are unclear or inconsistent, clarify. For a general
 request about current law or a different legal scope, choose documents when
-appropriate. For every other request set scope_evidence to null.
+appropriate.
+
+For source_backed KYC, select one policy for the supplied ordinary bank-account
+onboarding dossier on the candidate's exact assessment date. The scope states
+whether the client must be an individual or a French company. Confirm a French
+credit institution subject to Article L. 561-2 and the absence of a special
+regime or simplified due-diligence exemption. Choose clarify when a required
+case detail is unclear. Route questions about law in general to documents.
+Supply the KYC scope_evidence object with literal client, institution and dossier
+names. The client quotation asserts the applicable client type. The institution
+quotation asserts French credit institution status and Article L. 561-2 coverage.
+The dossier quotation names the dossier, client and institution and states the
+ordinary account opening and the regime/exemption exclusions. The date quotation
+asserts the assessment date. For representative facts or questions, name the
+individual separately from the client company and cite their role for that
+company. Otherwise set representative and representative_evidence to null.
+Keep all KYC fact and query arguments aligned with the scope names and ISO
+assessment date. A recorded verification date is a separate argument.
+
+Use the actual KYC rule premises. For fallback verification, copying the valid
+official photo ID, eligibility of that document, independent checking and
+certification of its copy, and combined corroboration each require evidence.
+Bind the same document in each applicable premise. Certification alone supplies
+only the certification premise. Provide the underlying evidence for predicates
+in derived_only_predicates so the engine derives them. Keep representative
+identity distinct from sole opening authority. For opposed findings in a
+declared conflict, supply both findings in the same scope with their own exact
+citations. Clarify contradictions the selected policy cannot represent.
+Missing premises within an established scope yield unknown.
+For other requests set scope_evidence to null.
 
 For reasoning set context_match to supported_policy and candidate_id to one supplied
 candidate. Use only its vocabulary: meanings, ordered arguments and types are given.

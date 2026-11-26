@@ -56,6 +56,16 @@ ROUTE_SCHEMA = object_schema({
         'company_evidence': EVIDENCE_SCHEMA,
         'institution_evidence': EVIDENCE_SCHEMA,
         'date_evidence': EVIDENCE_SCHEMA,
+    }), object_schema({
+        'client': {'type': 'string', 'minLength': 1},
+        'institution': {'type': 'string', 'minLength': 1},
+        'dossier': {'type': 'string', 'minLength': 1},
+        'representative': {'type': ['string', 'null'], 'minLength': 1},
+        'client_evidence': EVIDENCE_SCHEMA,
+        'institution_evidence': EVIDENCE_SCHEMA,
+        'dossier_evidence': EVIDENCE_SCHEMA,
+        'date_evidence': EVIDENCE_SCHEMA,
+        'representative_evidence': {'anyOf': [EVIDENCE_SCHEMA, {'type': 'null'}]},
     }), {'type': 'null'}]},
 })
 

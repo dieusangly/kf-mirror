@@ -42,7 +42,7 @@ def server(tmp_path, monkeypatch):
         server.accounts.add('alex@example.org', 'Alex', PASSWORD)
         server.accounts.add('admin@example.org', 'Administrateur', PASSWORD, admin=True)
         server.contributions = app.Contributions(path)
-        server.catalog = {'cases': []}
+        server.cases, server.catalog = app.load_catalog()
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -91,6 +91,26 @@ def test_private_routes_and_session_revocation(server):
     assert request(server, '/api/logout', {}, cookie=cookie)[0] == 200
     assert request(server, '/api/session', cookie=cookie)[2] == {'user': None}
     assert request(server, '/documents/1', cookie=cookie)[0] == 401
+
+
+def test_accepted_kyc_scenarios_and_sources_are_available_to_contributors(server):
+    cookie, _ = login(server, 'camille@example.org')
+    status, _, catalog = request(server, '/api/catalog', cookie=cookie)
+    assert status == 200
+    kyc = [case for case in catalog['cases'] if case['dataset'] == 'real-claims-kyc-v1']
+    assert len(kyc) == 16
+    assert all(case['family'] == 'KYC' and case['kind'] == 'source_backed'
+               and set(case['variants']) == {'fr', 'en'} for case in kyc)
+    status, _, case = request(server, '/api/cases/KYC-RC-CF-02', cookie=cookie)
+    assert status == 200
+    assert case['reference']
+    assert ' seul ' in case['variants']['fr']['question']
+    assert ' alone ' in case['variants']['en']['question']
+    for variant in case['variants'].values():
+        assert variant['status'] == 'conflict'
+        source = variant['passages']['CMF-R561-5-4-AL1']
+        assert source['official_url'].startswith('https://www.legifrance.gouv.fr/')
+        assert source['title'] and source['version'] and source['locator']
 
 
 def test_audit_uses_authenticated_actor_and_preserves_existing_rows(server):

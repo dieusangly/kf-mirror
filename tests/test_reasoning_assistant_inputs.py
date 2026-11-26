@@ -108,9 +108,9 @@ def test_full_bo_candidate_set_shares_scopes_and_fits_router_budget(registry, mo
     assert answer['route'] == 'reasoning', answer.get('diagnostic', answer)
     assert answer['checker']['valid']
     request = json.loads(models.requests[0]['input'])
-    assert len(request['candidates']) == 22
+    assert len(request['candidates']) == 24
     assert request['documents']['passages'] == passages
-    assert len(request['scopes']) == 2
+    assert len(request['scopes']) == 4
     for candidate in request['candidates']:
         expected = registry.policies[candidate['candidate_id']]['scope']
         assert request['scopes'][candidate['scope_ref']] == {k: v for k, v in expected.items() if k != 'id'}

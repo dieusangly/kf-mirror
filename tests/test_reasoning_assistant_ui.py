@@ -11,6 +11,7 @@ from knowledge_foundry.assistant.search import ScenarioSearch
 from test_reasoning_assistant import (CASES, CoveredDocuments, FixtureEmbeddings, FixtureModels,
                                       decision, deduction_starter_decision, runtime_prompt)
 from test_reasoning_assistant_inputs import bo_case
+from test_reasoning_assistant_kyc import conflict_case
 
 
 @pytest.fixture
@@ -22,6 +23,8 @@ def ui_models(monkeypatch):
         if 'BO-RC-EX-02' in embeddings.vectors:
             text, _, case = bo_case('fr', fallback=True)
             embeddings.query_vectors[text] = embeddings.vectors[case]
+        text, _, case = conflict_case('fr')
+        embeddings.query_vectors[text] = embeddings.vectors[case]
         original(self, records, config, embedder=embeddings)
 
     monkeypatch.setattr(ScenarioSearch, '__init__', search_init)
@@ -70,6 +73,21 @@ def test_source_backed_deduction_displays_pinned_evidence_when_wording_fails(ui_
     assert all(button.proto.url.startswith('https://www.legifrance.gouv.fr/') for button in sources.get('link_button'))
     assert len(sources.get('link_button')) == 2
     assert any('Generated wording was unavailable or invalid' in warning.value for warning in view.warning)
+
+
+def test_kyc_conflict_displays_roles_and_source_provenance(ui_models):
+    text, ui_models.value, _ = conflict_case('fr')
+    view = app()
+    view.chat_input[0].set_value(text).run()
+    assert not view.exception
+    assert any('Conflicting information' in caption.value for caption in view.caption)
+    assert any('Mésange SAS · Aya Bernard · Banque Rivage · RV-42 · 2026-07-06' in caption.value
+               for caption in view.caption)
+    sources = next(item for item in view.expander if item.label == 'View sources')
+    assert any('Scenario conflict convention' in caption.value for caption in sources.caption)
+    assert any('R561-5-4, AL1' in caption.value for caption in sources.caption)
+    assert any(button.proto.url.startswith('https://www.legifrance.gouv.fr/')
+               for button in sources.get('link_button'))
 
 
 def test_reasoning_proof_sources_details_and_reset(ui_models):

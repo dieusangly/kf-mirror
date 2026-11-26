@@ -41,7 +41,7 @@ Try:
 Each submitted question follows three steps:
 
 1. **Retrieve accepted policy contexts by vector similarity.** The registry derives
-   contexts from the accepted synthetic and source-backed BO batches and
+   contexts from the accepted synthetic and source-backed BO and KYC batches and
    deduplicates identical policies. It embeds scope, clauses and vocabulary meanings/signatures, excluding
    saved customer facts, queries, reference answers and results. Cosine similarity
    against the question selects up to `candidate_limit` contexts (default **6**),
@@ -56,8 +56,9 @@ Each submitted question follows three steps:
    [`assistant_route_v1.txt`](../src/knowledge_foundry/prompts/assistant_route_v1.txt)
    with the question, bounded user history, policy candidates and document preview.
    It selects a route and, for reasoning, one candidate, case entities, facts with
-   exact user quotations, and a separate symbolic query. A source-backed BO
-   case also cites the assessment date, client company and covered institution.
+   exact user quotations, and a separate symbolic query. Source-backed cases
+   also cite their assessment scope. KYC cases distinguish the client, any
+   representative, the institution and the account dossier.
 
 | Route | When it applies | What follows |
 | --- | --- | --- |
@@ -66,8 +67,8 @@ Each submitted question follows three steps:
 | `clarify` | Policy applicability, identity or temporal scope is ambiguous; requested logic is unsupported; or facts cannot be translated faithfully. | Ask a short question identifying the missing distinction. |
 | `general` | Ordinary conversation outside sources or explicitly requested general knowledge. | Generate a labelled answer without an engine-checked proof, subject to the document check below. |
 
-The synthetic policies are fictional demonstrations. The source-backed BO
-policies use pinned regulatory passages in the scope below. For an applicable
+The synthetic policies are fictional demonstrations. The BO and KYC policies
+use pinned regulatory passages in the scopes below. For an applicable
 policy, missing premises yield `unknown`.
 Code also returns clarification when interpretation validation rejects a reasoning
 case. Failures in routing, policy search or engine execution produce an error.
@@ -192,18 +193,37 @@ The fallback rule binds the named company across its premises and conclusion.
 Threshold categories must be supplied. The engine does not calculate percentages
 or indirect holdings. General legal questions use the document route.
 
+## Source-backed KYC
+
+The KYC package covers **6 July 2026** assessments of ordinary bank account
+opening by French credit institutions subject to Article L. 561-2. State the
+client type, client, institution, account dossier and date. Confirm the absence
+of a special regime or simplified due-diligence exemption. For a representative
+question, state who acts for the French company. The assistant applies the
+selected policy to the named parties, documents and facts supplied for the case.
+
+The package covers document and verification-date lookups, identification,
+identity verification, representative powers and verification timing. The
+fallback uses measures on the same eligible document and requires corroboration
+of all identification details. A conflict over sole opening authority withholds
+that conclusion and leaves the separate identity proof usable.
+
+Contributors can find the **16 accepted bilingual cases** under **Scénarios →
+Famille KYC → Règles sourcées**. The case detail shows its references and proof
+steps.
+
 ## Validation and evaluation status
 
 ```sh
-PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.py tests/test_reasoning_assistant_search.py tests/test_reasoning_assistant_ui.py tests/test_reasoning_assistant_inputs.py -q
+PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_reasoning_assistant.py tests/test_reasoning_assistant_search.py tests/test_reasoning_assistant_ui.py tests/test_reasoning_assistant_inputs.py tests/test_reasoning_assistant_kyc.py tests/test_contributors_auth.py -q
 .venv/bin/python scripts/replay_reasoning_pilot.py --output /tmp/reasoning-pilot-replay-NEW.json
 ```
 
-Use a fresh output filename. The pilot replay script verifies the answers and
-certificates for 192 synthetic and 18 source-backed BO versions without API
-calls. Fresh French and English fixtures test BO deductions, missing premises,
-conflicts, scope and source rendering. Live routing and interpretation for the
-BO package need a separate evaluation.
+Use a fresh output filename. The pilot replay verifies results and certificates
+for 192 synthetic, 18 BO and 32 KYC versions without API calls. Fresh French
+and English fixtures test BO and KYC deductions, missing premises, conflicts,
+scope and source rendering. Live routing and interpretation for these packages
+need separate evaluation.
 
 Runtime tests use separate development fixtures and establish orchestration and
 data integrity. The final live evaluation is **not accepted —

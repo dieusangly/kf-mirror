@@ -33,6 +33,23 @@
       "engine_config_path": "artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json",
       "engine_path": "scripts/aml_cft_reasoning.py",
       "schema_path": "schemas/aml-cft-reasoning-schema-v1.json"
+    },
+    {
+      "id": "real-claims-kyc-v1",
+      "dataset_id": "aml-cft-real-claims-kyc",
+      "version": "1.0.0",
+      "context_kind": "source_backed",
+      "acceptance_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/acceptance.json",
+      "acceptance_sha256": "346736234538098fdf98ef12cc910cfeb0db821f07a315414495f6d3460c276d",
+      "status_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/evaluation-status.json",
+      "status_sha256": "27e0b7f1b647dee3d39ac01f8c26d64ede1480f49e4eef7f0b04aa58897b6f45",
+      "inputs_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/inputs-v1.jsonl",
+      "encodings_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/formalization/encodings-v1.jsonl",
+      "manifest_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/dataset-manifest-v1.json",
+      "source_index_path": "artifacts/aml-cft-reasoning-pilot/04-reasoning-run-003/recheck-001/replay-001/pipeline/readable/sources/sources-v1.json",
+      "engine_config_path": "artifacts/aml-cft-reasoning-pilot/02-engine-setup-run-001/engine-config-v1.json",
+      "engine_path": "scripts/aml_cft_reasoning.py",
+      "schema_path": "schemas/aml-cft-reasoning-schema-v1.json"
     }
   ]
 }

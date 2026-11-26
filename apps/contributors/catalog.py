@@ -1,7 +1,7 @@
 """Read the pinned, human-readable case artifacts for the contributor UI."""
 
 from knowledge_foundry.assistant.datasets import (
-    BO_SOURCE_TITLES, accepted_pins, digest, project_path, read, resolve_passages, rows,
+    KYC_DATASET, accepted_pins, digest, project_path, read, resolve_passages, rows, source_title,
 )
 
 
@@ -52,6 +52,7 @@ def load_catalog():
         manifest = read(pinned_path(entry['manifest_path'], pins))
         codes = {category: code for code, category in manifest['category_codes'].items()}
         source_backed = entry['context_kind'] == 'source_backed'
+        kyc = entry['dataset_id'] == KYC_DATASET
 
         if source_backed:
             questions = rows(pinned_path(artifacts['readable_questions']['path'], pins))
@@ -61,8 +62,9 @@ def load_catalog():
             for source_id, source in index['sources'].items():
                 key = (source['official_url'], source['version'])
                 sources.setdefault(key, {
-                    'title': BO_SOURCE_TITLES.get(source_id, source_id), 'url': key[0],
-                    'version': key[1], 'language': index['language'], 'cases': [],
+                    'title': source_title(source_id, source), 'url': key[0],
+                    'version': key[1], 'language': source.get('language', index.get('language', 'fr')),
+                    'cases': [],
                 })
         else:
             parent = project_path(entry['inputs_path']).parent
@@ -86,7 +88,7 @@ def load_catalog():
                 identity = (case_id, lang)
                 inputs_row, question, answer = inputs[identity], questions[identity], answers[identity]
                 clauses = inputs_row['policy_clauses']
-                passages = resolve_passages(index, clauses) if source_backed else {}
+                passages = resolve_passages(index, clauses, allow_synthetic_conflicts=kyc) if source_backed else {}
                 for passage in passages.values():
                     source = sources[passage['official_url'], passage['version']]
                     if case_id not in source['cases']:
