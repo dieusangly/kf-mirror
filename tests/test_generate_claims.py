@@ -19,19 +19,18 @@ class GenerateClaimsCliTests(unittest.TestCase):
         self.assertIn('checking generation checkpoints 25/870', stderr.getvalue())
 
     def test_unknown_cost_does_not_fail_after_generation(self):
-        def generate(*args, **kwargs):
-            kwargs['on_progress']({'phase': 'complete', 'state': 'complete',
-                                   'telemetry': {'requests': 1, 'estimated_cost_usd': None}})
-            return {'status': 'complete', 'projected_full_generation': {'estimated_cost_usd': None},
-                    'compilation_scope': {'selected_cluster_numbers': [1], 'total_semantic_clusters': 2}}
+        report = {'status': 'complete', 'telemetry': {'requests': 1, 'estimated_cost_usd': None},
+                  'projected_full_generation': {'estimated_cost_usd': None},
+                  'compilation_scope': {'selected_cluster_numbers': [1], 'total_semantic_clusters': 2}}
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch('scripts.generate_claims.generate_claims', side_effect=generate), redirect_stdout(stdout), redirect_stderr(stderr):
+        with patch('scripts.generate_claims.generate_claims', return_value=report), redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(['--context-dir', 'prepared', '--output-dir', 'generated']), 0)
         self.assertEqual(json.loads(stdout.getvalue())['status'], 'complete')
         self.assertEqual(stderr.getvalue().count('unknown'), 2)
 
     def test_cli_prints_coarse_progress_and_summary_to_stderr(self):
-        report = {"status": "complete", "candidates": 1}
+        report = {"status": "complete", "candidates": 1,
+                  "telemetry": {"provider": "openai", "requests": 2, "estimated_cost_usd": 0.012345}}
         captured = {}
 
         def generate_claims(*_args, **kwargs):
@@ -41,8 +40,7 @@ class GenerateClaimsCliTests(unittest.TestCase):
                       "total": 1, "source_total": 1, "subset": True})
             progress({"phase": "generation", "state": "progress", "completed": 1, "total": 1})
             progress({"phase": "export", "state": "started"})
-            progress({"phase": "complete", "state": "complete", "telemetry": {
-                "provider": "openai", "requests": 2, "estimated_cost_usd": 0.012345}})
+            progress({"phase": "complete", "state": "complete", "telemetry": report["telemetry"]})
             return report
 
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -70,9 +68,7 @@ class GenerateClaimsCliTests(unittest.TestCase):
 
         def generate_claims(*_args, **kwargs):
             captured.update(kwargs)
-            kwargs["on_progress"]({"phase": "complete", "state": "complete", "telemetry": {
-                "requests": 0, "estimated_cost_usd": 0}})
-            return {"status": "complete"}
+            return {"status": "complete", "telemetry": {"requests": 0, "estimated_cost_usd": 0}}
 
         with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -89,19 +85,14 @@ class GenerateClaimsCliTests(unittest.TestCase):
         for status, missing, label in [("needs_review", ["src:cmf-L561-6"], "Coverage needs review"),
                                        ("no_gaps_detected", [], "No coverage gaps detected")]:
             with self.subTest(status=status):
-                report = {"status": "complete", "coverage": {
+                report = {"status": "complete", "telemetry": {"requests": 1, "estimated_cost_usd": 0.01}, "coverage": {
                     "status": status, "selected_source_ids_without_candidates": missing,
                     "summary": {"cited_chunks": 1, "selected_chunks": 2 if missing else 1,
                                 "sources_with_candidates": 1, "selected_sources": 2 if missing else 1,
                                 "failed_chunks": 0, "chunks_without_eligible_evidence": 0}}}
 
-                def generate_claims(*_args, **kwargs):
-                    kwargs["on_progress"]({"phase": "complete", "state": "complete", "telemetry": {
-                        "requests": 1, "estimated_cost_usd": 0.01}})
-                    return report
-
                 stdout, stderr = io.StringIO(), io.StringIO()
-                with patch("scripts.generate_claims.generate_claims", side_effect=generate_claims), \
+                with patch("scripts.generate_claims.generate_claims", return_value=report), \
                         redirect_stdout(stdout), redirect_stderr(stderr):
                     self.assertEqual(main(["--context-dir", "prepared", "--output-dir", "generated"]), 0)
                 self.assertEqual(json.loads(stdout.getvalue()), report)

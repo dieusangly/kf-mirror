@@ -48,21 +48,15 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.workers < 1:
         parser.error('--workers must be a positive integer')
-    telemetry = None
-
-    def progress(event):
-        nonlocal telemetry
-        _print_progress(event)
-        if event["phase"] == "complete":
-            telemetry = event["telemetry"]
 
     started = time.monotonic()
     try:
         report = classify_claims(args.candidates_dir, args.output_dir, args.config, args.taxonomy, args.fixture,
-                                 on_progress=progress, reuse_classification_from=args.reuse_classification_from,
+                                 on_progress=_print_progress, reuse_classification_from=args.reuse_classification_from,
                                  reuse_candidates_dir=args.reuse_candidates_dir, resume=args.resume, workers=args.workers)
     except Exception as exc:
         parser.exit(2, f"claim classification failed: {exc}; interrupted output can be resumed with --resume\n")
+    telemetry = report['telemetry']
     cost = telemetry['estimated_cost_usd']
     cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
     print(f"[classify] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "

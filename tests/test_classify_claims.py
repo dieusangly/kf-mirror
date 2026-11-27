@@ -16,26 +16,24 @@ class ClassifyClaimsCliTests(unittest.TestCase):
         self.assertIn('[classify] Preparation: checking candidate artifacts', stderr.getvalue())
 
     def test_unknown_cost_does_not_fail_after_classification(self):
-        def classify(*args, **kwargs):
-            kwargs['on_progress']({'phase': 'complete', 'state': 'complete',
-                                   'telemetry': {'requests': 1, 'estimated_cost_usd': None}})
-            return {'status': 'complete', 'projected_full_build': {'estimated_cost_usd': None}}
+        report = {'status': 'complete', 'telemetry': {'requests': 1, 'estimated_cost_usd': None},
+                  'projected_full_build': {'estimated_cost_usd': None}}
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch('scripts.classify_claims.classify_claims', side_effect=classify), redirect_stdout(stdout), redirect_stderr(stderr):
+        with patch('scripts.classify_claims.classify_claims', return_value=report), redirect_stdout(stdout), redirect_stderr(stderr):
             self.assertEqual(main(['--candidates-dir', 'candidates', '--output-dir', 'classified']), 0)
         self.assertEqual(json.loads(stdout.getvalue())['status'], 'complete')
         self.assertEqual(stderr.getvalue().count('unknown'), 2)
 
     def test_cli_prints_classification_progress_and_summary(self):
-        report = {"status": "complete", "claims": 1}
+        report = {"status": "complete", "claims": 1,
+                  "telemetry": {"provider": "openai", "requests": 1, "estimated_cost_usd": 0.001}}
 
         def classify_claims(*_args, **kwargs):
             progress = kwargs["on_progress"]
             progress({"phase": "classification", "state": "started", "total": 1})
             progress({"phase": "classification", "state": "progress", "completed": 1, "total": 1})
             progress({"phase": "export", "state": "started"})
-            progress({"phase": "complete", "state": "complete", "telemetry": {
-                "provider": "openai", "requests": 1, "estimated_cost_usd": 0.001}})
+            progress({"phase": "complete", "state": "complete", "telemetry": report["telemetry"]})
             return report
 
         stdout, stderr = io.StringIO(), io.StringIO()

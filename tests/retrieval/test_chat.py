@@ -8,15 +8,22 @@ from streamlit.testing.v1 import AppTest
 from knowledge_foundry.retrieval.config import MODES, ROOT
 
 
+def open_document_search():
+    app = AppTest.from_file(str(ROOT / 'apps/assistant/app.py'), default_timeout=20)
+    app.query_params['mode'] = 'documents'
+    return app.run()
+
+
 def test_chat_history_reset_feedback_and_source_panel(store, published, tmp_path, monkeypatch):
     config, _ = published
     path = tmp_path / 'retrieval.json'
     path.write_text(json.dumps(config))
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
     monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     assert not app.exception
-    assert app.title[0].value == 'Document assistant'
+    assert app.title[0].value == 'Knowledge Foundry Assistant'
+    assert 'assistant_service' not in app.session_state
     assert app.sidebar.selectbox[0].value == 'animals'
     app.chat_input[0].set_value('exercise').run()
     assert not app.exception
@@ -43,6 +50,28 @@ def test_chat_history_reset_feedback_and_source_panel(store, published, tmp_path
     assert len(app.chat_message) == 4
 
 
+def test_private_bookmark_and_document_controls_survive_switching_modes(store, published, tmp_path, monkeypatch):
+    config, snapshot_id = published
+    path = tmp_path / 'retrieval.json'
+    path.write_text(json.dumps(config))
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
+    token = 'private-test-bookmark'.ljust(32, '0')
+    session_id = store.new_session(snapshot_id, token)
+    app = AppTest.from_file(str(ROOT / 'apps/assistant/app.py'), default_timeout=20)
+    app.query_params['chat_token'] = token
+    app.run()
+    assert not app.exception and app.radio[0].value == 'documents'
+    assert app.sidebar.selectbox(key='conversation-' + snapshot_id).value == session_id
+    app.sidebar.selectbox(key='document-retrieval-mode').select('claim').run()
+    app.radio[0].set_value('automatic').run()
+    assert not app.exception and not app.sidebar.selectbox
+    app.radio[0].set_value('documents').run()
+    assert not app.exception
+    assert app.sidebar.selectbox(key='document-retrieval-mode').value == 'claim'
+    assert app.sidebar.selectbox(key='conversation-' + snapshot_id).value == session_id
+
+
 def test_generated_mode_uses_resolved_citations_without_a_live_model(store, published, tmp_path, monkeypatch):
     c, _ = published
     c['answer']['provider'] = 'openai'
@@ -60,7 +89,7 @@ def test_generated_mode_uses_resolved_citations_without_a_live_model(store, publ
         question = json.loads(payload['input'])['question']
         yield {'type': 'delta', 'text': json.dumps({'query': question, 'uses_history': False, 'intent': 'evidence_question'})}
     monkeypatch.setattr('knowledge_foundry.retrieval.query.openai_stream', route)
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     assert next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').value == 'openai'
     next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').select('openai').run()
     app.chat_input[0].set_value('Dogs rest exercise').run()
@@ -76,7 +105,7 @@ def test_inventory_button_uses_metadata_without_models(store, published, tmp_pat
     path.write_text(json.dumps(c))
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
     monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(path))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     next(b for b in app.button if b.label == 'Documents in corpus').click().run()
     assert not app.exception
     assert len(app.dataframe) == 1
@@ -98,7 +127,7 @@ def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, 
         monkeypatch.delenv('KF_RETRIEVAL_CONFIG', raising=False)
         monkeypatch.setattr('knowledge_foundry.retrieval.config.load_config', lambda path=None: copy.deepcopy(c))
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     assert not app.exception
     assert next(s for s in app.sidebar.selectbox if s.label == 'Answer mode').value == 'extractive'
     assert next(s for s in app.sidebar.selectbox if s.label == 'Search').value == 'keyword'
@@ -106,6 +135,28 @@ def test_missing_key_falls_back_to_keyword_excerpts(store, published, tmp_path, 
     app.chat_input[0].set_value('exercise').run()
     assert not app.exception
     assert any('Dogs must rest' in item.value for item in app.code)
+
+
+def test_local_only_document_search_excludes_cloud_choices_even_with_api_key(store, published, tmp_path, monkeypatch):
+    from knowledge_foundry.assistant.config import load_config
+
+    config = load_config()
+    config['local_only'] = True
+    for step in config['steps'].values():
+        step.update(provider='local', endpoint='http://127.0.0.1:8000/v1/responses')
+    config['scenario_search']['embedding'].update(provider='local', endpoint='http://127.0.0.1:8000/v1/embeddings')
+    path = tmp_path / 'assistant.json'
+    path.write_text(json.dumps(config))
+    monkeypatch.setenv('KF_ASSISTANT_CONFIG', str(path))
+    monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
+    monkeypatch.setenv('OPENAI_API_KEY', 'fixture-no-network')
+    app = open_document_search()
+    assert not app.exception
+    search = app.sidebar.selectbox(key='document-method')
+    answer = app.sidebar.selectbox(key='document-answer-mode')
+    assert search.disabled and search.value == 'keyword'
+    assert answer.disabled and answer.value == 'extractive'
+    assert 'assistant_service' not in app.session_state
 
 
 def test_chat_defaults_to_vector_and_passage_and_claim(store, published, monkeypatch):
@@ -116,7 +167,7 @@ def test_chat_defaults_to_vector_and_passage_and_claim(store, published, monkeyp
     monkeypatch.setattr('knowledge_foundry.embeddings.EmbeddingAdapter._request',
         lambda self, texts: {'data': [{'index': i, 'embedding': [1., 0., 0.]} for i in range(len(texts))],
                              'usage': {'prompt_tokens': 0}})
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     assert not app.exception
     assert next(s for s in app.sidebar.selectbox if s.label == 'Search').value == 'vector'
     mode = next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via')
@@ -153,7 +204,7 @@ def test_mixed_mode_warns_when_either_branch_has_incomplete_vector_coverage(
     with store.connection() as conn:
         conn.execute('UPDATE kf_records SET vector_id=NULL WHERE snapshot_id=%s AND kind=%s',
                      (snapshot_id, kind))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = open_document_search()
     assert not app.exception
     assert next(s for s in app.sidebar.selectbox if s.label == 'Retrieve via').value == 'passage-and-claim'
     coverage = store.vector_coverage(snapshot_id)

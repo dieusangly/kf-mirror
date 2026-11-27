@@ -588,7 +588,7 @@ def restore_numeric_identifiers(text, box, characters):
     for match in re.finditer(r'(?<!\w)\d+(?:[-‐‑]\s*\d+)+(?!\w)', local):
         value = re.sub(r'\s+', '', match[0])
         candidates[re.sub(r'[-‐‑]', '', value)].add(value)
-    for compact, values in candidates.items():
+    for values in candidates.values():
         if len(values) == 1:
             value = next(iter(values))
             # Extraction can lose only one separator of a compound identifier.

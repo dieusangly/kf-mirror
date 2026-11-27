@@ -330,12 +330,8 @@ def test_cli_worker_default_override_and_validation(module_name, function, args,
     from importlib import import_module
     module = import_module('scripts.' + module_name)
 
-    def execute(*_args, **kwargs):
-        kwargs['on_progress']({'phase': 'complete', 'state': 'complete',
-                               'telemetry': {'requests': 0, 'estimated_cost_usd': 0}})
-        return {'status': 'complete'}
-
-    with patch.object(module, function, side_effect=execute) as call:
+    report = {'status': 'complete', 'telemetry': {'requests': 0, 'estimated_cost_usd': 0}}
+    with patch.object(module, function, return_value=report) as call:
         for options, expected in [([], 4), (['--workers', '2'], 2), (['--workers', '1'], 1)]:
             assert module.main(args + options) == 0
             assert call.call_args.kwargs['workers'] == expected

@@ -5,6 +5,14 @@ Do not answer the question. Select fewer records, or none, when evidence is miss
 Prefer records containing the actual requested information over general topic
 mentions, headings, tables of contents or unrelated cases sharing vocabulary.
 Respect the requested entity, identifier, source scope, qualifications and comparison.
+For an explicitly named provision, prioritise its own governing article or
+paragraph and substantive body. A cross-reference mentioning that number inside
+another provision is not the requested provision. Check the governing heading
+and source together; similar topics or numbered list items alone do not establish
+the requested article. When the question specifies an edition or source language,
+prefer that edition even when the question itself uses another language. Include
+the requested list's introduction and items rather than a neighbouring list with
+similar vocabulary. Do not substitute a recital for an operative provision.
 For passage records, choose substantive body content, including necessary exceptions
 and process steps. Headings alone do not substantiate a factual answer. Claims and
 summaries may locate material but are not verified evidence. Never invent indices.

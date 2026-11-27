@@ -1,16 +1,13 @@
-"""Local Streamlit demo: all retrieval and persistence live in the service."""
+"""Direct document search over published snapshots in the unified assistant."""
 import os
 import re
 import secrets
-import sys
-from pathlib import Path
 from urllib.parse import urlparse
 
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
-from knowledge_foundry.retrieval.config import MODES, corpora, load_config
+from knowledge_foundry.retrieval import config as retrieval_config
+from knowledge_foundry.retrieval.config import MODES, corpora
 from knowledge_foundry.retrieval.provenance import graph_path
 from knowledge_foundry.retrieval.service import DocumentAssistant
 from knowledge_foundry.storage.postgres import PostgresStore
@@ -81,21 +78,28 @@ def render_answer(message, store, session_id, token):
             st.success('Feedback saved')
 
 
-def main():
-    st.set_page_config(page_title='Knowledge Foundry · Document assistant', page_icon='📚', layout='wide')
-    st.title('Document assistant')
-    st.caption('Knowledge Foundry · evidence from a selected published artifact snapshot')
+def render_document_search(*, local_only):
     config_path = os.environ.get('KF_RETRIEVAL_CONFIG')
-    config = load_config(config_path)
+    config = retrieval_config.load_config(config_path)
     if not config_path:
         config['search'].update(method='vector', mode='passage-and-claim')
-    if config['answer']['provider'] == 'openai' and not os.environ.get('OPENAI_API_KEY'):
-        config['answer']['provider'] = 'extractive'
+    has_key = bool(os.environ.get('OPENAI_API_KEY'))
+    can_embed = not local_only and (has_key or config['embedding']['provider'] != 'openai')
+    can_generate = has_key and not local_only
+    if local_only:
+        st.info('Local-only mode uses keyword search and exact source excerpts.')
+    elif not has_key:
+        st.info('OPENAI_API_KEY is not configured. Generated answers are unavailable.')
+    if not can_embed or (not can_generate and config['answer']['provider'] == 'openai'):
         config['search']['method'] = 'keyword'
-        st.info('OPENAI_API_KEY is not configured. Using keyword search and source excerpts.')
-    store = PostgresStore()
+    if not can_generate:
+        config['answer']['provider'] = 'extractive'
     try:
+        store = PostgresStore()
         snapshots = [s for s in store.snapshots() if s['status'] == 'published']
+    except ValueError:
+        st.error('Set KF_DATABASE_URL to connect to the document corpus. See doc/aml-cft-pipeline.md.')
+        st.stop()
     except Exception:
         st.error('PostgreSQL is unavailable or migrations have not run. Follow doc/aml-cft-pipeline.md.')
         st.stop()
@@ -104,20 +108,24 @@ def main():
         st.stop()
     definitions = corpora(os.environ.get('KF_CORPORA_CONFIG'))
     corpus = st.sidebar.selectbox('Corpus', sorted({s['corpus'] for s in snapshots}),
+                                  key='document-corpus', persist_state='page',
                                   format_func=lambda c: definitions.get(c, {}).get('title', c))
     choices = [s for s in snapshots if s['corpus'] == corpus]
     choices.sort(key=lambda s: not s.get('active'))
     selected_id = st.sidebar.selectbox('Published snapshot', [s['id'] for s in choices],
+        key=f'document-snapshot-{corpus}', persist_state='page',
         format_func=lambda sid: ('Active · ' if next(s for s in choices if s['id'] == sid).get('active') else 'Previous · ') + sid[-12:])
     snapshot = next(s for s in choices if s['id'] == selected_id)
     with st.sidebar.expander('Snapshot provenance'):
         st.write('Chunk build: ' + snapshot['identity']['chunk_build_id'])
         st.write('Snapshot: ' + selected_id)
     st.sidebar.caption('Publication selects an index version; it does not approve source content or draft claims.')
-    method = st.sidebar.selectbox('Search', ['keyword', 'vector', 'combined'],
-        index=['keyword', 'vector', 'combined'].index(config['search']['method']),
+    methods = ['keyword', 'vector', 'combined'] if can_embed else ['keyword']
+    method = st.sidebar.selectbox('Search', methods, key='document-method', persist_state='page',
+        index=methods.index(config['search']['method']), disabled=not can_embed,
         help='Vector and combined search use query embeddings and require OPENAI_API_KEY.')
-    mode = st.sidebar.selectbox('Retrieve via', MODES, index=MODES.index(config['search']['mode']))
+    mode = st.sidebar.selectbox('Retrieve via', MODES, index=MODES.index(config['search']['mode']),
+                               key='document-retrieval-mode', persist_state='page')
     all_coverage = store.vector_coverage(selected_id)
     kinds = ('passage', 'claim') if mode == 'passage-and-claim' else (mode,)
     coverage = {key: sum(all_coverage.get(kind, {}).get(key, 0) for kind in kinds)
@@ -125,13 +133,16 @@ def main():
     st.sidebar.caption(f"{mode.title()}: {coverage['records']} records · {coverage['vectors']} with vectors")
     if method != 'keyword' and coverage['vectors'] < coverage['records']:
         st.sidebar.warning('Vector coverage is incomplete. Reimport with --embed-missing, or use keyword search.')
-    config['answer']['provider'] = st.sidebar.selectbox('Answer mode', ['extractive', 'openai'],
-        index=['extractive', 'openai'].index(config['answer']['provider']),
+    providers = ['extractive', 'openai'] if can_generate else ['extractive']
+    config['answer']['provider'] = st.sidebar.selectbox('Answer mode', providers,
+        key='document-answer-mode', persist_state='page', disabled=not can_generate,
+        index=providers.index(config['answer']['provider']),
         format_func=lambda p: 'Source excerpts' if p == 'extractive' else 'Generated answer (OpenAI)')
     if config['answer']['provider'] == 'openai':
         st.sidebar.caption('Generated answers require OPENAI_API_KEY and may incur API costs.')
     source_map = {s['id']: s['title'] + ' · ' + s['version'] for s in snapshot['identity'].get('sources', [])}
-    source_ids = st.sidebar.multiselect('Source filter', list(source_map), format_func=lambda s: source_map[s])
+    source_ids = st.sidebar.multiselect('Source filter', list(source_map), format_func=source_map.get,
+                                        key=f'document-sources-{selected_id}', persist_state='page')
     graph = graph_path(snapshot, definitions.get(corpus, {}))
     if graph and st.sidebar.button('Open provenance graph'):
         show_graph(graph)
@@ -148,7 +159,7 @@ def main():
     if not sessions:
         store.new_session(selected_id, token)
         sessions = store.sessions(selected_id, token)
-    session_id = st.sidebar.selectbox('Conversation history', [s['id'] for s in sessions], key=conversation_key,
+    session_id = st.sidebar.selectbox('Conversation history', [s['id'] for s in sessions], key=conversation_key, persist_state='page',
                                       format_func=lambda sid: sid[:8])
     st.info('Draft document assistance. Source capture dates do not establish legal effectiveness. '
             'Claims and summaries only help locate original passages.')
@@ -193,7 +204,3 @@ def main():
                     st.caption(str(exc))
                 st.stop()
         st.rerun()
-
-
-if __name__ == '__main__':
-    main()

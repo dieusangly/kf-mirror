@@ -284,8 +284,8 @@ def prepare_claim_context(chunked_dir, output_dir, config_path=ROOT / 'config/se
     from knowledge_foundry.document_structuring import load_validated_structure
     accepted = load_validated_structure(chunked_dir, allow_test=all(
         config['steps'][step]['provider'] == 'fixture' for step in ('embeddings', 'claim_generation')))
-    structure, hierarchy = accepted['structure'], accepted['hierarchy']
-    structural, links = accepted['chunks'], accepted['links']
+    structure = accepted['structure']
+    structural = accepted['chunks']
     if on_progress:
         on_progress({'state': 'validated_structural_chunks_loaded', 'structural_chunks': len(structural)})
     by_id = {r['id']: r for r in structural}

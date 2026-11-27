@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:knowledge-foundry:aml-cft-symbolic:1.0.0",
+  "title": "AML/CFT symbolic representation and separate query records v1.0.0",
+  "description": "JSONL: each line is one encoding, query record or explicit generation-failure placeholder. The Python adapter additionally validates types, bindings, provenance, selection and resource bounds. Scope, guards, clearances and explicit negatives must be represented explicitly; absent atoms have no negative meaning.",
+  "$defs": {
+    "atom": {
+      "type": "object",
+      "properties": {
+        "predicate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "predicate",
+        "args"
+      ],
+      "additionalProperties": false
+    },
+    "variables": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^\\?.+$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "fact": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^?].*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "atom": {
+          "$ref": "#/$defs/atom"
+        }
+      },
+      "required": [
+        "id",
+        "source_ids",
+        "atom"
+      ],
+      "additionalProperties": false
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^?].*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "variables": {
+          "$ref": "#/$defs/variables"
+        },
+        "body": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/atom"
+          },
+          "minItems": 1
+        },
+        "head": {
+          "$ref": "#/$defs/atom"
+        }
+      },
+      "required": [
+        "id",
+        "source_ids",
+        "variables",
+        "body",
+        "head"
+      ],
+      "additionalProperties": false
+    },
+    "incompatibility": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^?].*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "variables": {
+          "$ref": "#/$defs/variables"
+        },
+        "left": {
+          "$ref": "#/$defs/atom"
+        },
+        "right": {
+          "$ref": "#/$defs/atom"
+        }
+      },
+      "required": [
+        "id",
+        "source_ids",
+        "variables",
+        "left",
+        "right"
+      ],
+      "additionalProperties": false
+    },
+    "encoding": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "enum": [
+            "en",
+            "fr"
+          ]
+        },
+        "schema_version": {
+          "const": "aml-cft-symbolic-1"
+        },
+        "scope_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entities": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[^?].*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "predicates": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          }
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fact"
+          },
+          "minItems": 0
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "minItems": 0
+        },
+        "incompatibilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/incompatibility"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "dataset_id",
+        "dataset_version",
+        "case_id",
+        "language",
+        "schema_version",
+        "scope_id",
+        "entities",
+        "predicates",
+        "facts",
+        "rules",
+        "incompatibilities"
+      ],
+      "additionalProperties": false
+    },
+    "query": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "$ref": "#/$defs/atom"
+        },
+        "variables": {
+          "$ref": "#/$defs/variables"
+        },
+        "select": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\?.+$"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "question_id",
+        "target",
+        "variables",
+        "select"
+      ],
+      "additionalProperties": false
+    },
+    "queries": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "enum": [
+            "en",
+            "fr"
+          ]
+        },
+        "schema_version": {
+          "const": "aml-cft-symbolic-1"
+        },
+        "queries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/query"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "dataset_id",
+        "dataset_version",
+        "case_id",
+        "language",
+        "schema_version",
+        "queries"
+      ],
+      "additionalProperties": false
+    },
+    "generation_failure": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "enum": [
+            "en",
+            "fr"
+          ]
+        },
+        "schema_version": {
+          "const": "aml-cft-symbolic-1"
+        },
+        "generation_error": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "dataset_id",
+        "dataset_version",
+        "case_id",
+        "language",
+        "schema_version",
+        "generation_error"
+      ],
+      "additionalProperties": false
+    },
+    "assertion_step": {
+      "type": "object",
+      "properties": {
+        "atom": {
+          "$ref": "#/$defs/atom"
+        },
+        "fact_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "atom",
+        "fact_id"
+      ],
+      "additionalProperties": false
+    },
+    "deduction_step": {
+      "type": "object",
+      "properties": {
+        "atom": {
+          "$ref": "#/$defs/atom"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^\\?.+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^?].*$"
+          }
+        },
+        "premises": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/atom"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "atom",
+        "rule_id",
+        "binding",
+        "premises"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/encoding"
+    },
+    {
+      "$ref": "#/$defs/queries"
+    },
+    {
+      "$ref": "#/$defs/generation_failure"
+    }
+  ]
+}

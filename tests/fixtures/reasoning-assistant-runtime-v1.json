@@ -1,0 +1,51 @@
+[
+  {
+    "question_id": "runtime-KYC-DL-en",
+    "family_id": "KYC",
+    "category": "DL",
+    "language": "en",
+    "text": "Supplied facts: Customer A supplied a passport.\n\nWhat document did customer A provide as identity evidence?"
+  },
+  {
+    "question_id": "runtime-KYC-DL-fr",
+    "family_id": "KYC",
+    "category": "DL",
+    "language": "fr",
+    "text": "Faits fournis : Le client A a fourni un passeport.\n\nQuel document le client A a-t-il fourni comme justificatif d’identité ?"
+  },
+  {
+    "question_id": "runtime-KYC-OH-en",
+    "family_id": "KYC",
+    "category": "OH",
+    "language": "en",
+    "text": "Policy: If a customer's identity document is verified, that customer's identity check is complete.\n\nSupplied facts: A's identity document is verified.\n\nUnder this policy, has the identity check for A been completed?"
+  },
+  {
+    "question_id": "runtime-KYC-MP-en",
+    "family_id": "KYC",
+    "category": "MP",
+    "language": "en",
+    "text": "Policy: A complete identity check and a recorded address are both required to conclude that a customer's file is complete.\n\nSupplied facts: A's identity check is complete.\n\nCan A’s file be treated as complete on the evidence given?"
+  },
+  {
+    "question_id": "runtime-KYC-EX-en",
+    "family_id": "KYC",
+    "category": "EX",
+    "language": "en",
+    "text": "Policy: A pending standard identity document requires a hold only if standard-evidence exemption clearance is explicitly recorded for the customer. An approved alternative-evidence exemption permits alternative identity review and is incompatible with standard-evidence exemption clearance for the same customer.\n\nSupplied facts: A's standard identity document is pending. A has an approved alternative-evidence exemption.\n\nWhat identity-review action follows for A under these fictional rules?"
+  },
+  {
+    "question_id": "runtime-KYC-CF-en",
+    "family_id": "KYC",
+    "category": "CF",
+    "language": "en",
+    "text": "Policy: Identity verified and identity explicitly unverified are incompatible for the same customer. If both are supported, neither is usable and the identity-status answer is conflict.\n\nSupplied facts: A's identity is verified. A's identity is explicitly unverified.\n\nCan A’s identity be regarded as verified in this assessment?"
+  },
+  {
+    "question_id": "runtime-BO-MH-en",
+    "family_id": "BO",
+    "category": "MH",
+    "language": "en",
+    "text": "Policy: A person controlling a holding that controls a company indirectly controls that company. A person indirectly controlling a company requires control-person verification for that company.\n\nSupplied facts: P controls H. H controls A.\n\nDoes the control chain establish that P needs control-person verification for A?"
+  }
+]

@@ -203,7 +203,7 @@ def assemble_document_hierarchy(bundle, snapshot=None):
                 if numbered:
                     parent, basis = numbered, 'numbered_paragraph_scope'
                 if family and introductions:
-                    intro_id, expected_family, child_box = introductions[-1]
+                    intro_id, expected_family, _ = introductions[-1]
                     intro = elements[intro_id]
                     a, b = intro['location'], element['location']
                     # Hanging list labels can be left of a short textual lead.
@@ -212,7 +212,7 @@ def assemble_document_hierarchy(bundle, snapshot=None):
                     while introductions and b.get('bbox') and introductions[-1][2] and b['bbox'][0] < introductions[-1][2][0] - 2:
                         introductions.pop()
                     if introductions:
-                        intro_id, expected_family, child_box = introductions[-1]
+                        intro_id, expected_family, _ = introductions[-1]
                     if (introductions and family == expected_family and b.get('article_id') == a.get('article_id') and
                             (not floor or not b.get('bbox') or b['bbox'][0] >= floor[0] - 2)):
                         parent, basis = intro_id, 'local_list_flow'

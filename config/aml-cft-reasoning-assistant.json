@@ -1,0 +1,72 @@
+{
+  "version": "reasoning-assistant-v1",
+  "api_key_env": "OPENAI_API_KEY",
+  "local_only": false,
+  "candidate_limit": 6,
+  "max_question_characters": 6000,
+  "history_turns": 4,
+  "datasets_path": "config/aml-cft-reasoning-datasets.json",
+  "scenario_search": {
+    "cache_dir": "artifacts/aml-cft-reasoning-assistant/embeddings",
+    "embedding": {
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "endpoint": "https://api.openai.com/v1/embeddings",
+      "dimensions": 1536,
+      "expected_dimensions": 1536,
+      "preprocessing_version": "reasoning-policy-text-v2",
+      "tokenizer": "cl100k_base",
+      "max_input_tokens": 8192,
+      "max_request_inputs": 32,
+      "max_request_tokens": 32000,
+      "timeout_seconds": 45,
+      "retries": 0
+    }
+  },
+  "documents": {
+    "enabled": true,
+    "corpus": "aml-cft-pilot-13",
+    "retrieval_config": "config/retrieval-multilingual.json"
+  },
+  "steps": {
+    "question_interpretation": {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "reasoning_effort": "medium",
+      "max_input_tokens": 16000,
+      "max_output_tokens": 2048,
+      "timeout_seconds": 45,
+      "retries": 0
+    },
+    "answer_verbalization": {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "reasoning_effort": "none",
+      "max_input_tokens": 16000,
+      "max_output_tokens": 1600,
+      "timeout_seconds": 30,
+      "retries": 0
+    },
+    "general": {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "endpoint": "https://api.openai.com/v1/responses",
+      "reasoning_effort": "low",
+      "max_input_tokens": 8000,
+      "max_output_tokens": 1600,
+      "timeout_seconds": 30,
+      "retries": 0
+    }
+  },
+  "pricing": {
+    "model": "gpt-6-luna",
+    "verified_on": "2026-11-16",
+    "input_usd_per_million": 0.1,
+    "cached_input_usd_per_million": 0.01,
+    "cache_write_usd_per_million": 0.125,
+    "output_usd_per_million": 0.5,
+    "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+  }
+}

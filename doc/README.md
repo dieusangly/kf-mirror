@@ -1,5 +1,17 @@
 # Knowledge Foundry
 
+## Find a guide
+
+| Task | Guides |
+| --- | --- |
+| Build a document corpus | [Pipeline commands](aml-cft-pipeline.md) for the 13-document AML/CFT corpus, [provider configuration and adapters](providers.md), [downstream uses of claims and summaries](downstream-uses.md) |
+| Compare document processing and retrieval | [Structuring benchmarks and quality gates](benchmarks.md), [retrieval results on 123 unreviewed questions](retrieval-evaluation-123q-20261103.md), [survey of approaches](state-of-the-art.md) |
+| Work with reasoning cases | [Pilot procedure and accepted datasets](aml-cft-reasoning-pilot.md), [beneficial ownership batch](aml-cft-bo-batch-handoff.md), [KYC batch](aml-cft-kyc-batch-handoff.md) |
+| Run or evaluate an application | [Unified assistant](aml-cft-reasoning-assistant.md) with [direct document search](aml-cft-pipeline.md#8-run-the-document-assistant), [reasoning assistant evaluation and final review](aml-cft-reasoning-assistant-evaluation.md), [contributor workspace](../apps/contributors/README.md) |
+| Verify the Chrysalide open-data inventory | [Source checks and expected report](verification-inventaire-open-data.md) |
+
+## How the document pipeline works
+
 ```text
 Sources → Ingestion → Document Structuring → Accepted Structural Chunks
         → Semantic Clustering → Claims / Topics / Summaries
@@ -30,12 +42,3 @@ Store executions in `artifacts/YYYYMMDD-provider-corpus-NN/`; share originals an
 pinned snapshots in `artifacts/ingested/`. Parsing repairs reuse ingestion;
 rechunking reuses parsing. Provider changes invalidate parsing onward; changed
 source bytes/editions require ingestion. Keep caches outside dated runs.
-
-| Guide | Purpose |
-| --- | --- |
-| [Pipeline commands](aml-cft-pipeline.md) | Run the 13-document AML/CFT pilot. |
-| [Providers](providers.md) | Configure engines and implement adapters. |
-| [Benchmarks](benchmarks.md) | Compare retained runs, quality gates and limitations. |
-| [Retrieval evaluation](retrieval-evaluation-123q-20261103.md) | Compare methods and modes on 123 unreviewed questions. |
-| [State of the art](state-of-the-art.md) | Survey relevant projects and approaches. |
-| [Downstream uses](downstream-uses.md) | Claims, summaries, retrieval and training constraints. |

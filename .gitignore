@@ -10,4 +10,5 @@ __pycache__/
 .envrc
 
 # Output
-artifacts/
+**/artifacts/*
+!/artifacts/README.md

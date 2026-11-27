@@ -219,7 +219,9 @@ def test_documented_pipeline_produces_all_rag_inputs_and_vectors(parsed_sources,
     monkeypatch.setenv('KF_DATABASE_URL', store.dsn)
     monkeypatch.setenv('KF_RETRIEVAL_CONFIG', str(retrieval_config))
     monkeypatch.setenv('KF_CORPORA_CONFIG', str(write_json(root / 'corpora.json', {'equipment': definition})))
-    app = AppTest.from_file(str(ROOT / 'apps/chat/app.py'), default_timeout=20).run()
+    app = AppTest.from_file(str(ROOT / 'apps/assistant/app.py'), default_timeout=20)
+    app.query_params['mode'] = 'documents'
+    app.run()
     assert not app.exception and any(b.label == 'Open provenance graph' for b in app.button)
     app.chat_input[0].set_value(question).run()
     assert not app.exception and any('inspect the equipment daily' in c.value for c in app.code)

@@ -1,0 +1,20 @@
+{
+  "version": "assistant-routing-fixtures-v1",
+  "description": "Handwritten development examples; labels are for evaluation only, never router input. Mocked routing does not measure model accuracy.",
+  "cases": [
+    {"id": "onboarding-en", "language": "en", "question": "A customer's identity document is verified and their address is recorded. Under the demonstration policy, is their onboarding file complete?", "route": "reasoning", "case_id": "KYC-MH-01", "predicate": "onboarding_complete", "args": ["A"]},
+    {"id": "onboarding-fr", "language": "fr", "question": "Le document d'identité est vérifié et l'adresse est enregistrée. Selon la politique de démonstration, le dossier d'entrée en relation est-il complet ?", "route": "reasoning", "case_id": "KYC-MH-01", "predicate": "onboarding_complete", "args": ["A"]},
+    {"id": "control-en", "language": "en", "question": "A person controls a holding that controls a company. Under the example policy, does the person require control-person verification for that company?", "route": "reasoning", "case_id": "BO-MH-01", "predicate": "controller_verification_required", "args": ["P", "A"]},
+    {"id": "control-fr", "language": "fr", "question": "Une personne contrôle une holding qui contrôle une société. Selon la politique de l'exemple, faut-il vérifier cette personne pour cette société ?", "route": "reasoning", "case_id": "BO-MH-01", "predicate": "controller_verification_required", "args": ["P", "A"]},
+    {"id": "pep-en", "language": "en", "question": "A customer is recorded as a PEP. Under the example policy, is senior approval required?", "route": "reasoning", "case_id": "PEP-OH-01", "predicate": "approval_required", "args": ["A"]},
+    {"id": "pep-fr", "language": "fr", "question": "Un client est enregistré comme PPE. Selon la politique de l'exemple, une approbation de la direction est-elle requise ?", "route": "reasoning", "case_id": "PEP-OH-01", "predicate": "approval_required", "args": ["A"]},
+    {"id": "requirements-en", "language": "en", "question": "What do the regulatory documents require for beneficial ownership checks?", "route": "documents"},
+    {"id": "requirements-fr", "language": "fr", "question": "Quelles obligations légales les documents imposent-ils pour les personnes politiquement exposées ?", "route": "documents"},
+    {"id": "background-en", "language": "en", "question": "Explain the difference between a fact and an inference.", "route": "general"},
+    {"id": "background-fr", "language": "fr", "question": "Explique la différence entre un fait et une déduction.", "route": "general"},
+    {"id": "ambiguous-en", "language": "en", "question": "Can my customer open an account?", "route": "clarify"},
+    {"id": "ambiguous-fr", "language": "fr", "question": "Mon client peut-il ouvrir un compte ?", "route": "clarify"},
+    {"id": "cosi-definition-en", "language": "en", "question": "What is a COSI?", "route": "documents"},
+    {"id": "cosi-definition-fr", "language": "fr", "question": "Qu’est-ce qu’une COSI ?", "route": "documents"}
+  ]
+}
