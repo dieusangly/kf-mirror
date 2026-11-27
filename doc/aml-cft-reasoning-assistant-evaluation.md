@@ -78,11 +78,10 @@ All paths below are relative to `artifacts/aml-cft-reasoning-assistant-evaluatio
 | `03-live-run-001` through `003`, `stage3-agreement.json` | Original and repair attempts, including the aborted run and spending reconciliation. |
 | `04-review-run-001`, `04-review-run-002` | Initial findings, repair records, construction regressions, frozen inputs and cumulative budget evidence. |
 
-The superseded `02-offline-run-002`, `02-offline-run-003` and
-`02-offline-run-003-runtime-smoke` folders were removed. Retained Stage 2 evidence
-lives under `04-review-run-002/evidence/` (regression tests, runtime smoke and
-inventory), with independent checks in `04-review-run-003`. Older retained runs
-remain historical evidence even when their source pins differ from today's code.
+The [Stage 2 evidence](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-002/evidence/)
+contains regression results, a runtime smoke test and the inventory. The
+[final review](../artifacts/aml-cft-reasoning-assistant-evaluation/04-review-run-003/report.md)
+records the independent checks.
 
 ## Dataset design
 

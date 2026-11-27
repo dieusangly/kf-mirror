@@ -55,22 +55,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.workers < 1:
         parser.error('--workers must be a positive integer')
-    telemetry = None
-
-    def progress(event):
-        nonlocal telemetry
-        _print_progress(event)
-        if event["phase"] == "complete":
-            telemetry = event["telemetry"]
 
     started = time.monotonic()
     try:
         report = generate_claims(args.chunked_dir, args.output_dir, args.config, args.fixture,
-                                 on_progress=progress, subset_clusters=args.subset_clusters, resume=args.resume,
+                                 on_progress=_print_progress, subset_clusters=args.subset_clusters, resume=args.resume,
                                  cluster_numbers=args.cluster_numbers, context_dir=args.context_dir,
                                  retry_failed_from=args.retry_failed_from, workers=args.workers)
     except Exception as exc:
         parser.exit(2, f"claim generation failed; completed semantic clusters remain resumable with --resume: {exc}\n")
+    telemetry = report['telemetry']
     cost = telemetry['estimated_cost_usd']
     cost_text = f"${cost:.6f}" if cost is not None else 'unknown'
     print(f"[generate] {report['status'].capitalize()} in {time.monotonic() - started:.1f} s — "

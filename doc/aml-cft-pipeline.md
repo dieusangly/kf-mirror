@@ -159,6 +159,15 @@ Rebuild into empty stage paths; preserve accepted structure and the independent
 summary branch. A taxonomy-only change can reclassify saved candidates. Review
 the resulting output in either case.
 
+Run this from the repository root to restore the Docling pilot’s October 29
+claim-repair snapshot under its original history path. The command preserves
+existing files if the snapshot has already been unpacked.
+
+```sh
+history_dir=artifacts/20261028-docling-aml-cft-01/history
+tar -xzkf "$history_dir/claim-repair-20261029T132531.712482Z.tar.gz" -C "$history_dir"
+```
+
 ## 5. Review generated claims
 
 For newly generated/classified artifacts, initialize the source-review package:
