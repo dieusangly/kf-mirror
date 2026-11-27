@@ -5,10 +5,10 @@ import re
 import time
 from urllib.request import Request, urlopen
 
-from knowledge_foundry.embeddings import token_count
-from knowledge_foundry.openai_tools import RESPONSES_URL, _usage_record
+from knowledge_foundry.shared.embeddings import token_count
+from knowledge_foundry.shared.openai_tools import RESPONSES_URL, _usage_record
 from knowledge_foundry.retrieval.config import ROOT
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.hashing import stable_hash
 
 INSUFFICIENT = 'The selected sources do not provide sufficient evidence to answer this question.'
 PROMPT_VERSION = 'rag-answer-v1'

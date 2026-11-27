@@ -3,13 +3,13 @@ import hashlib
 import os
 import uuid
 from contextlib import contextmanager
-from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.paths import PACKAGE_ROOT
+from knowledge_foundry.shared.hashing import stable_hash
 
 
 # Rank distinct query-term coverage, weighted by evidence frequency. Repeating a
@@ -34,7 +34,7 @@ LEXICAL_SCORES = """
 
 
 def vector_literal(vector):
-    from knowledge_foundry.semantic_clusters import normalized
+    from knowledge_foundry.shared.vectors import normalized
     normalized(vector)
     return '[' + ','.join(str(float(v)) for v in vector) + ']'
 
@@ -55,7 +55,7 @@ class PostgresStore:
         with self.connection() as conn:
             conn.execute('SELECT pg_advisory_xact_lock(71890431)')
             conn.execute('CREATE TABLE IF NOT EXISTS kf_migrations (version text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())')
-            for path in sorted((Path(__file__).parent / 'migrations').glob('*.sql')):
+            for path in sorted((PACKAGE_ROOT / 'storage/migrations').glob('*.sql')):
                 checksum = hashlib.sha256(path.read_bytes()).hexdigest()
                 saved = conn.execute('SELECT sha256 FROM kf_migrations WHERE version=%s', (path.name,)).fetchone()
                 if saved:

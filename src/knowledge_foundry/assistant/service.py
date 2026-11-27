@@ -7,7 +7,8 @@ import time
 from .config import ROOT, load_config
 from .diagnostics import exception_diagnostic
 from .cases import InterpretationError, build_case
-from .datasets import DatasetRegistry, terms
+from .datasets import terms
+from .policies import DatasetRegistry
 from .llm import LanguageModels, ModelError, ROUTE_SCHEMA, TEXT_SCHEMA, WORDING_SCHEMA
 
 

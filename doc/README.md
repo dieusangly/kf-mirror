@@ -4,6 +4,7 @@
 
 | Task | Guides |
 | --- | --- |
+| Understand the package or verify a checkout | [Architecture and import paths](architecture.md), [offline regression checks](regression-baseline.md) |
 | Build a document corpus | [Pipeline commands](aml-cft-pipeline.md) for the 13-document AML/CFT corpus, [provider configuration and adapters](providers.md), [downstream uses of claims and summaries](downstream-uses.md) |
 | Compare document processing and retrieval | [Structuring benchmarks and quality gates](benchmarks.md), [retrieval results on 123 unreviewed questions](retrieval-evaluation-123q-20261103.md), [survey of approaches](state-of-the-art.md) |
 | Work with reasoning cases | [Pilot procedure and accepted datasets](aml-cft-reasoning-pilot.md), [beneficial ownership batch](aml-cft-bo-batch-handoff.md), [KYC batch](aml-cft-kyc-batch-handoff.md) |

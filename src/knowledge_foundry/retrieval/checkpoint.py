@@ -3,8 +3,8 @@ import fcntl
 import json
 from pathlib import Path
 
-from knowledge_foundry.embeddings import atomic_json
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.embeddings import atomic_json
+from knowledge_foundry.shared.hashing import stable_hash
 
 
 class EvaluationCheckpoint:

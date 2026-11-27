@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT)]
-from knowledge_foundry.embeddings import atomic_json
+from knowledge_foundry.shared.embeddings import atomic_json
 from knowledge_foundry.retrieval.config import MODES, load_config
 from knowledge_foundry.retrieval.evaluation import SnapshotEvaluationStore, evaluate
 from knowledge_foundry.retrieval.service import DocumentAssistant

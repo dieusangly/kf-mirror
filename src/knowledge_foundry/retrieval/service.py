@@ -2,9 +2,9 @@
 import time
 import re
 
-from knowledge_foundry.embeddings import EmbeddingAdapter, token_count
+from knowledge_foundry.shared.embeddings import EmbeddingAdapter, token_count
 from knowledge_foundry.retrieval.answering import generate
-from knowledge_foundry.retrieval.artifacts import profile
+from knowledge_foundry.retrieval.config import profile
 from knowledge_foundry.retrieval.config import ROOT, load_config
 from knowledge_foundry.retrieval.pipeline import retrieval_pipeline
 from knowledge_foundry.retrieval.query import rewrite_query

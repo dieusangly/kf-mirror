@@ -6,7 +6,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'src')]
-from knowledge_foundry.claim_context import prepare_claim_context  # noqa: E402
+from knowledge_foundry.knowledge_engineering.semantic.claim_context import prepare_claim_context  # noqa: E402
 
 
 def main(argv=None):
