@@ -7,9 +7,9 @@ import shutil
 import pytest
 
 from scripts.generate_reasoning_assistant_evaluation import (
-    AUTHORING, DATASET, FILES, read_rows, fact_signature)
+    AUTHORING, FILES, fact_signature, generate, read_rows)
 from scripts.validate_reasoning_assistant_evaluation import (
-    check_contrast, load_submission, validate)
+    check_contrast, load_submission)
 from scripts.evaluate_reasoning_assistant_inputs import execute_questions
 from knowledge_foundry.assistant.datasets import DatasetRegistry, digest
 
@@ -20,16 +20,33 @@ def cases():
 
 
 @pytest.fixture(scope='module')
-def results():
-    return {r['question_id']:r['result']['results'][0] for r in read_rows(DATASET/FILES['results'])}
+def prepared_dataset(tmp_path_factory):
+    directory = tmp_path_factory.mktemp('evaluation') / 'dataset'
+    report = generate(directory)
+    return directory, report
 
 
-def test_frozen_dataset_passes_preparation_and_remains_provisional():
-    report=validate()
+@pytest.fixture(scope='module')
+def dataset(prepared_dataset):
+    return prepared_dataset[0]
+
+
+@pytest.fixture(scope='module')
+def results(dataset):
+    return {r['question_id']:r['result']['results'][0] for r in read_rows(dataset/FILES['results'])}
+
+
+def test_frozen_dataset_passes_preparation_and_remains_provisional(prepared_dataset):
+    directory, report = prepared_dataset
     assert report['passed'],report['failures']
     assert report['engine_checked_references']==192
     assert report['reference_acceptance'] is False
     assert report['external_calls']==0
+    _, manifest = load_submission(directory)
+    registry = DatasetRegistry()
+    for package_id in ('real-claims-bo-v1', 'real-claims-kyc-v1'):
+        query = registry.packages[package_id]['accepted_artifacts']['queries']
+        assert manifest['source_hashes'][query['path']] == query['sha256']
 
 
 def test_all_variants_have_one_fact_change_and_checked_relationship(cases,results):
@@ -68,19 +85,19 @@ def test_renaming_screen_ignores_entity_labels():
     assert fact_signature(facts,query)==fact_signature(renamed,{'target':{'predicate':'controls','args':['Alice','?x']}})
 
 
-def test_modified_engine_answer_cannot_retain_valid_certificate():
+def test_modified_engine_answer_cannot_retain_valid_certificate(dataset):
     registry=DatasetRegistry()
-    encoding=read_rows(DATASET/FILES['encodings'])[0]
-    query=read_rows(DATASET/FILES['queries'])[0]
-    result=deepcopy(read_rows(DATASET/FILES['results'])[0]['result'])
+    encoding=read_rows(dataset/FILES['encodings'])[0]
+    query=read_rows(dataset/FILES['queries'])[0]
+    result=deepcopy(read_rows(dataset/FILES['results'])[0]['result'])
     result['results'][0]['answers']=[]
     with pytest.raises(ValueError,match='incorrect answers'):
         registry.engine.check_result(encoding,query,registry.packages['synthetic-v1']['engine_config'],result)
 
 
-def test_tampered_question_and_unsafe_manifest_paths_are_rejected(tmp_path):
+def test_tampered_question_and_unsafe_manifest_paths_are_rejected(tmp_path, dataset):
     folder = tmp_path / 'data'
-    shutil.copytree(DATASET, folder)
+    shutil.copytree(dataset, folder)
     question = folder / FILES['questions']
     question.write_text(question.read_text() + '\n')
     with pytest.raises(ValueError,match='hash differs'):
@@ -93,9 +110,9 @@ def test_tampered_question_and_unsafe_manifest_paths_are_rejected(tmp_path):
         load_submission(folder)
 
 
-def test_missing_translation_cannot_pass_rehashed_submission(tmp_path):
+def test_missing_translation_cannot_pass_rehashed_submission(tmp_path, dataset):
     folder = tmp_path / 'data'
-    shutil.copytree(DATASET, folder)
+    shutil.copytree(dataset, folder)
     question = folder / FILES['questions']
     questions = read_rows(question)
     questions[1]['language'] = 'en'
@@ -109,14 +126,14 @@ def test_missing_translation_cannot_pass_rehashed_submission(tmp_path):
         load_submission(folder)
 
 
-def test_submission_never_parses_reference_files(monkeypatch,tmp_path):
+def test_submission_never_parses_reference_files(monkeypatch,tmp_path, dataset):
     original=Path.read_text
     def guarded(path,*args,**kwargs):
         if path.name in {FILES[r] for r in ('references','encodings','queries','results')}:
             raise AssertionError('Reference content must not enter submission loading')
         return original(path,*args,**kwargs)
     monkeypatch.setattr(Path,'read_text',guarded)
-    questions,_=load_submission()
+    questions,_=load_submission(dataset)
     seen=[]
     class Backend:
         def ask(self,text,history):
@@ -126,9 +143,9 @@ def test_submission_never_parses_reference_files(monkeypatch,tmp_path):
     assert seen==[(q['text'],[]) for q in questions[:2]]
 
 
-def test_changed_source_pin_blocks_submission(tmp_path):
+def test_changed_source_pin_blocks_submission(tmp_path, dataset):
     folder = tmp_path / 'data'
-    shutil.copytree(DATASET, folder)
+    shutil.copytree(dataset, folder)
     path = folder / 'dataset-manifest-v1.json'
     manifest = json.loads(path.read_text())
     manifest['source_hashes']['config/aml-cft-reasoning-datasets.json']='0'*64

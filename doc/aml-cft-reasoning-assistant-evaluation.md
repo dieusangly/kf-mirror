@@ -72,7 +72,8 @@ All paths below are relative to `artifacts/aml-cft-reasoning-assistant-evaluatio
 | Runs | Purpose |
 | --- | --- |
 | `01-dataset-run-005`, `03-live-run-004`, `04-review-run-003` | Reviewed candidate and authoritative final decision. |
-| `01-dataset-run-006` | Current offline default, regenerated after cleanup with updated code hashes; questions and references match run 005 byte for byte. This preparation-only run does not replace the reviewed candidate or reset its repair allowance. |
+| `01-dataset-run-007` | Current offline default. Pins the accepted queries for the synthetic, BO and KYC batches. Uses the existing 288 prompts and provisional references. |
+| `01-dataset-run-006` | Earlier offline preparation with stale source hashes. |
 | `01-dataset-run-002` through `004` | Historical source pins referenced by the initial reviews, repairs and final provenance audit. |
 | `03-live-run-001` through `003`, `stage3-agreement.json` | Original and repair attempts, including the aborted run and spending reconciliation. |
 | `04-review-run-001`, `04-review-run-002` | Initial findings, repair records, construction regressions, frozen inputs and cumulative budget evidence. |
@@ -150,11 +151,13 @@ correctness or published-service availability.
 Preparation verifies schemas, hashes, source links, counts, bilingual symbolic
 agreement, actual proof depths/categories, exactly one fact change, answer
 relationships, deterministic reproduction and a conservative pilot-renaming screen.
-The renaming screen compares predicate multiplicities and query shapes; it is not a
-semantic novelty oracle. Independent review must check relevance, novelty, natural
-phrasing, translation, and faithful fact/query encoding. The same engine generates
-references and executes assistant cases, so these references assess the assistant
-pipeline, not independently establish the engine algorithm's correctness.
+The renaming screen compares predicate counts and query shapes against the accepted
+encodings and queries for 121 pilot cases in both languages. The evaluation's
+reasoning prompts still use fictional policies. Measuring live performance on
+source-backed BO and KYC requires separately authored and independently reviewed
+prompts. Independent review checks relevance, novelty, natural phrasing, translation
+and fact/query fidelity. The same engine generates references and executes
+assistant cases, so the references assess the assistant pipeline.
 
 ```sh
 .venv/bin/python scripts/generate_reasoning_assistant_evaluation.py --output /tmp/assistant-evaluation-v1-NEW
@@ -185,11 +188,11 @@ PYTHONPATH=src:tests .venv/bin/python tests/record_reasoning_input_smoke.py --ou
 .venv/bin/python scripts/evaluate_reasoning_assistant_inputs.py --output /tmp/assistant-evaluation-inventory-NEW
 ```
 
-The generator, validator and runner default to `01-dataset-run-006`. On a fresh
-checkout, run the generator without `--output` to prepare that ignored directory;
-it refuses to overwrite an existing run. The runner defaults to offline inventory;
-`--dataset` selects another compatible frozen dataset. Preparation is separate
-from assistant execution.
+The generator, validator and runner default to `01-dataset-run-007`. With the
+accepted pilot artifacts available, run the generator without `--output` to
+prepare that directory. Each generation requires a fresh path. The evaluation
+dataset tests generate their own temporary package. The runner defaults to offline
+inventory and accepts `--dataset` to select another compatible frozen dataset.
 
 ## Stage 3 — Execute
 
@@ -265,6 +268,7 @@ expectation merely to fit a response or special-case evaluation IDs.
 The synthetic pilot is the construction set. Every repair must preserve its
 accepted answers/statuses and valid proofs across all 96 cases / 192 language
 versions, using `scripts/replay_reasoning_pilot.py` and relevant regression tests.
+The replay also checks the 18 BO and 32 KYC versions.
 Retrieval, interpretation or wording repairs also require live natural-language
 regression on affected construction cases in both languages; broad shared changes
 require all 192 versions. Mocked fixtures alone do not establish this compatibility.

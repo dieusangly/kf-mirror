@@ -12,7 +12,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 
-from knowledge_foundry.assistant.datasets import DatasetRegistry, digest, project_path, read, rows
+from knowledge_foundry.assistant.datasets import DatasetRegistry, accepted_query_path, digest, project_path, read, rows
 
 
 def evaluate(registry_path, cases_path):
@@ -23,18 +23,15 @@ def evaluate(registry_path, cases_path):
     for package_id, package in registry.packages.items():
         pins, artifacts = package['artifact_hashes'], package['accepted_artifacts']
         if artifacts:
-            query_name = artifacts['queries']['path']
             result_name = artifacts['results_and_certificates']['path']
         else:
-            query_names = [name for name in pins if Path(name).name == 'queries-v1.jsonl']
             result_names = [name for name in pins if Path(name).name == 'results-v1.json']
-            if len(query_names) != 1 or len(result_names) != 1:
-                raise ValueError('acceptance must identify one query set and one baseline result set')
-            query_name, result_name = query_names[0], result_names[0]
-        for name in (query_name, result_name):
-            if digest(project_path(name)) != pins[name]:
-                raise ValueError('baseline input/result hash differs')
-        queries = rows(project_path(query_name))
+            if len(result_names) != 1:
+                raise ValueError('acceptance must identify one baseline result set')
+            result_name = result_names[0]
+        if digest(project_path(result_name)) != pins[result_name]:
+            raise ValueError('baseline result hash differs')
+        queries = rows(accepted_query_path(package))
         baseline = read(project_path(result_name))
         expected = {(r['case_id'], r['language']): r for r in baseline['records']}
         selected = {key: row for key, row in registry.records.items() if row['package_id'] == package_id}

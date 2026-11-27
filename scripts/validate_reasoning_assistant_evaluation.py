@@ -14,7 +14,7 @@ import unicodedata
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
-from knowledge_foundry.assistant.datasets import DatasetRegistry, digest
+from knowledge_foundry.assistant.datasets import DatasetRegistry, accepted_query_path, digest, rows
 from scripts.generate_reasoning_assistant_evaluation import (
     AUTHORING, DATASET, FILES, FAMILIES, CATEGORIES, VERSION, read_rows, canonical_hash,
     fact_signature, build, save)
@@ -201,9 +201,18 @@ def validate(directory=DATASET):
                                    results[c['case_id']+'-'+lang]['result']['results'][0])
     check('one_fact_changes_and_answer_relationships', contrasts)
     def novelty():
-        baseline_queries=read_rows(ROOT/'artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl')
-        qs={(r['case_id'],r['language']):r['queries'][0] for r in baseline_queries}
-        signatures={fact_signature(r['encoding']['facts'],qs[(r['case_id'],r['language'])]) for r in registry.records.values()}
+        signatures = set()
+        for package_id, package in registry.packages.items():
+            path = accepted_query_path(package)
+            require(path.relative_to(ROOT).as_posix() in manifest['source_hashes'],
+                    'evaluation manifest omits accepted queries: ' + package_id)
+            baseline = rows(path)
+            pilot_encodings = {(row['case_id'], row['language']): row['encoding']
+                               for row in registry.records.values() if row['package_id'] == package_id}
+            require(baseline.keys() == pilot_encodings.keys(), 'baseline query selection differs: ' + package_id)
+            for identity, encoding in pilot_encodings.items():
+                signatures.update(fact_signature(encoding['facts'], query)
+                                  for query in baseline[identity]['queries'])
         dev=json.loads((ROOT/'tests/fixtures/reasoning-assistant-runtime-v1.json').read_text())
         dev_texts={normalize(r['text']) for r in dev}
         for c in cases:

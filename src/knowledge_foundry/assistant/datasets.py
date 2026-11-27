@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+from pathlib import Path
 import re
 import unicodedata
 
@@ -31,6 +32,21 @@ def rows(path):
     if len(result) != len(values):
         raise ValueError('duplicate dataset record')
     return result
+
+
+def accepted_query_path(package):
+    pins, artifacts = package['artifact_hashes'], package['accepted_artifacts']
+    if artifacts:
+        name = artifacts['queries']['path']
+    else:
+        names = [name for name in pins if Path(name).name == 'queries-v1.jsonl']
+        if len(names) != 1:
+            raise ValueError('acceptance must identify one query set')
+        name = names[0]
+    path = project_path(name)
+    if digest(path) != pins[name]:
+        raise ValueError('accepted query set hash differs: ' + name)
+    return path
 
 
 BO_DATASET = 'aml-cft-real-claims-bo'

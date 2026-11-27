@@ -11,10 +11,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
-from knowledge_foundry.assistant.datasets import DatasetRegistry, digest
+from knowledge_foundry.assistant.datasets import DatasetRegistry, accepted_query_path, digest
 
 AUTHORING = ROOT / 'config/aml-cft-reasoning-assistant-evaluation-cases.jsonl'
-DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-006'
+DATASET = ROOT / 'artifacts/aml-cft-reasoning-assistant-evaluation/01-dataset-run-007'
 VERSION = '1.0.0'
 FILES = {'questions': 'questions-v1.jsonl', 'references': 'proposed-references-v1.jsonl',
          'encodings': 'reference-encodings-v1.jsonl', 'queries': 'reference-queries-v1.jsonl',
@@ -90,8 +90,8 @@ def source_paths(cases, registry):
              ROOT / 'src/knowledge_foundry/assistant/config.py',
              ROOT / 'tests/fixtures/reasoning-assistant-runtime-v1.json',
              ROOT / 'tests/fixtures/reasoning-routing-v1.json',
-             ROOT / 'artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/questions-v1.jsonl',
-             ROOT / 'artifacts/aml-cft-reasoning-pilot/03-formalization-run-001/queries-v1.jsonl'}
+             ROOT / 'artifacts/aml-cft-reasoning-pilot/01-dataset-run-001/questions-v1.jsonl'}
+    paths.update(accepted_query_path(package) for package in registry.packages.values())
     for entry in registry.definition['datasets']:
         paths.update(ROOT / entry[k] for k in ('inputs_path', 'encodings_path', 'manifest_path',
                      'engine_path', 'engine_config_path', 'schema_path', 'acceptance_path', 'status_path'))
