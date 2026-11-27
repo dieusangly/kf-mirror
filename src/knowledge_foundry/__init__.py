@@ -1,4 +1,4 @@
-"""Knowledge Foundry pipeline package and lazy imports for its pre-A2 module names."""
+"""Knowledge Foundry package. Resolve legacy module names on demand."""
 from importlib import import_module as _import_module
 from importlib.machinery import ModuleSpec as _ModuleSpec
 from pathlib import Path as _Path
