@@ -7,10 +7,10 @@ from contextlib import ExitStack
 
 from haystack.core.errors import PipelineRuntimeError
 
-from knowledge_foundry.concurrency import run_bounded, validate_workers
+from knowledge_foundry.shared.concurrency import run_bounded, validate_workers
 from knowledge_foundry.retrieval.answering import generate
 from knowledge_foundry.retrieval.checkpoint import EvaluationCheckpoint
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.hashing import stable_hash
 
 
 class SnapshotEvaluationStore:

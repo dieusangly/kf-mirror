@@ -9,8 +9,8 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 import jsonschema
 
-from knowledge_foundry.embeddings import token_count
-from knowledge_foundry.openai_tools import _output_text, _usage_record, response_payload
+from knowledge_foundry.shared.embeddings import token_count
+from knowledge_foundry.shared.openai_tools import _output_text, _usage_record, response_payload
 from .config import ROOT, local_endpoint
 from .diagnostics import exception_diagnostic
 

@@ -1,0 +1,1420 @@
+"""Format adapters producing source-located blocks for parsing."""
+
+import re
+import unicodedata
+from collections import Counter
+from pathlib import Path
+
+from knowledge_foundry.knowledge_engineering.structuring.pdf_structure import (
+    FILENAME_FOOTNOTE, NOTE_MARKER, order_single_column_pages, pdf_page_characters, repair_footnotes,
+    restore_numeric_identifiers, rotated_header_rows, table_text_groups,
+    separate_table_note_markers,
+    order_figure_blocks, mark_prose_boxes,
+)
+from knowledge_foundry.knowledge_engineering.structuring.pdf_tables import pdf_page_geometry, ruled_cells, link_table_continuations, native_page_fragment
+
+
+NUMBERED = re.compile(r"^\s*((?:\d+[°.)]|[IVX]+\.)\s*)")
+PDF_DECIMAL_HEADING = re.compile(r"^\s*(\d+(?:\.\d+)*)(?:\.)?\s+")
+PDF_ROMAN_HEADING = re.compile(r"^\s*[IVX]+\.\s+", re.I)
+PDF_ANNEX_HEADING = re.compile(r"^\s*annex(?:e)?(?:\s+(?:\d+|[IVXLCDM]+)\b|\s*$)", re.I)
+PDF_CASE_HEADING = re.compile(r"^\s*(?:cas|case)\s+(?:n[°o]\s*)?\d+\b", re.I)
+PDF_BOX_HEADING = re.compile(r"^\s*(?:encadré|box)\s+n[°o]\s*\d+\b", re.I)
+PDF_LEGAL_HEADING = re.compile(r"^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+[a-z]?|premier)$", re.I)
+PICTURE_CONNECTORS = {"a", "à", "au", "aux", "d", "de", "des", "du", "dans", "en",
+                      "et", "le", "la", "les", "l", "pour", "par", "sur", "un", "une",
+                      "the", "of", "in", "to", "for", "and", "with"}
+FIGURE_HEADING = re.compile(r"\b(?:schéma|diagramme|figure|flowchart|diagram)\b", re.I)
+URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
+PDF_CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+WRAPPED_WORD = re.compile(r"(?<=[a-zà-ÿ])-\s+(?=[a-zà-ÿ])", re.I)
+WRAPPED_URL = re.compile(r"(?:https?://|www\.)(?:[^\s]*-\s+)*[^\s]+", re.I)
+# The transcript is retained; these require source inspection rather than
+# claiming that an inconclusive second OCR pass proves content was lost.
+SOURCE_REVIEW_WARNINGS = {"source_ocr_verification_uncertain"}
+
+
+def _pdf_text(value):
+    """Remove text-layer controls and join a word broken by a layout hyphen."""
+    value = PDF_CONTROLS.sub("", value or "")
+    value = re.sub(r'(?<=[a-zà-ÿ])\u00ad\s*(?=[a-zà-ÿ])', '', value, flags=re.I)
+    pieces, start = [], 0
+    for match in WRAPPED_URL.finditer(value):
+        pieces.append(WRAPPED_WORD.sub("", value[start:match.start()]))
+        pieces.append(re.sub(r"(?<=-)\s+", "", match[0]))
+        start = match.end()
+    pieces.append(WRAPPED_WORD.sub("", value[start:]))
+    return "".join(pieces)
+
+
+def _pdf_table_cells(item, characters=None):
+    """Preserve cell positions; repair merged labels/markers only from glyphs."""
+    cells = getattr(getattr(item, "data", None), "table_cells", []) or []
+    if not cells:
+        return []
+    raw = sorted(cells, key=lambda cell: (cell.start_row_offset_idx,
+                                          cell.start_col_offset_idx))
+    def comparable(text):
+        return ''.join(unicodedata.normalize('NFKC', text).translate(
+            str.maketrans({'’': "'", '‘': "'", '‐': '-', '‑': '-'})).split())
+
+    native_columns = max(c.start_col_offset_idx + (getattr(c, 'col_span', 1) or 1) for c in raw)
+    raw, reconstructed = rotated_header_rows(raw, characters, comparable)
+    header_cells = [cell for cell in raw if getattr(cell, "column_header", False)]
+    leaf_row = max((c.start_row_offset_idx for c in header_cells), default=-1)
+    parts_by_cell = {}
+    for cell in raw:
+        value = " ".join(_pdf_text(cell.text).split())
+        box = getattr(cell, 'bbox', None)
+        vertical = (getattr(cell, 'column_header', False) and box is not None and
+                    hasattr(box, 'b') and abs(box.b - box.t) > 3 * (box.r - box.l))
+        markers = bool(re.fullmatch(r'(\S)(?:\s+\1)+', value))
+        groups = table_text_groups(box, characters) if vertical or markers else []
+        # Glyphs must reproduce the complete recognised cell text.
+        if len(groups) > 1 and comparable(value) == comparable(''.join(g['text'] for g in groups)):
+            parts_by_cell[id(cell)] = [(" ".join(g['text'].split()), g['left']) for g in groups]
+        else:
+            parts_by_cell[id(cell)] = [(value, getattr(box, 'l', None))]
+    repaired_headers = reconstructed or any(len(parts_by_cell[id(cell)]) > 1 for cell in header_cells)
+    header_slots = []
+    # Text cells delimit rows independently of the extractor's marker indices.
+    # Multi-row labels cannot establish a unique marker row.
+    row_anchors = []
+    for cell in raw:
+        box = getattr(cell, 'bbox', None)
+        if (box is not None and not getattr(cell, 'column_header', False)
+                and (getattr(cell, 'row_span', 1) or 1) == 1
+                and len(''.join(cell.text.split())) > 1
+                and not re.fullmatch(r'(\S)(?:\s+\1)+', cell.text.strip())):
+            row_anchors.append((cell.start_row_offset_idx, cell.start_col_offset_idx,
+                                min(box.t, box.b), max(box.t, box.b)))
+    normalized = []
+    column_mapping = {}
+    broad_headers = []
+    next_header_columns = {}
+    for cell in raw:
+        row = cell.start_row_offset_idx
+        column = cell.start_col_offset_idx
+        values = parts_by_cell[id(cell)]
+        is_header = getattr(cell, "column_header", False)
+        if is_header:
+            column = max(column, next_header_columns.get(row, 0))
+            next_header_columns[row] = column + len(values)
+        for offset, (value, left) in enumerate(values):
+            slot = column + offset
+            marker = bool(re.fullmatch(r'[^\W\d_]|[✓✔●•+*]', value)) and not is_header
+            marker_row = row
+            uncertain = bool(re.fullmatch(r'(\S)(?:\s+\1)+', value)) and len(values) == 1
+            box = getattr(cell, 'bbox', None)
+            if marker and box is not None and row_anchors:
+                center = (box.t + box.b) / 2
+                # A category label in a more distant column may span several
+                # prose rows even when native row_span metadata says one. Use
+                # the nearest text-label column(s); conflicting nearby anchors
+                # remain uncertain rather than borrowing a distant category.
+                distance = min(abs(anchor_column - column)
+                               for _, anchor_column, _, _ in row_anchors)
+                matches = {index for index, anchor_column, top, bottom in row_anchors
+                           if abs(anchor_column - column) == distance
+                           and top - 1 <= center <= bottom + 1}
+                if len(matches) == 1:
+                    marker_row = matches.pop()
+                else:
+                    uncertain = True
+            if is_header:
+                if left is not None and row + (getattr(cell, 'row_span', 1) or 1) - 1 >= leaf_row:
+                    header_slots.append((slot, left))
+            # A one-character numeric cell does not by itself justify remapping
+            # its recognized column to a header's left edge.
+            elif (repaired_headers or len(values) > 1 or marker) and left is not None and header_slots:
+                slot = min(header_slots, key=lambda entry: abs(entry[1] - left))[0]
+            normalized.append({
+                "row": marker_row,
+                "column": slot,
+                "text": value,
+                "row_span": getattr(cell, "row_span", 1) or 1,
+                "col_span": 1 if len(values) > 1 else getattr(cell, "col_span", 1) or 1,
+                "header": bool(getattr(cell, "column_header", False) or
+                               getattr(cell, "row_header", False)),
+                "row_section": bool(getattr(cell, "row_section", False)),
+                "bbox": getattr(cell, "bbox", None),
+                "alignment_uncertain": uncertain,
+            })
+            if reconstructed:
+                if not is_header:
+                    column_mapping.setdefault(cell.start_col_offset_idx, set()).add(slot)
+                elif row + (getattr(cell, 'row_span', 1) or 1) - 1 < leaf_row:
+                    broad_headers.append((normalized[-1], cell.start_col_offset_idx,
+                                          cell.start_col_offset_idx + (getattr(cell, 'col_span', 1) or 1)))
+    if reconstructed and header_slots:
+        column_mapping[native_columns] = {max(slot for slot, _ in header_slots) + 1}
+
+        def boundary(index):
+            if index in column_mapping:
+                values = column_mapping[index]
+                return next(iter(values)) if len(values) == 1 else None
+            before = max((i for i in column_mapping if i < index), default=None)
+            after = min((i for i in column_mapping if i > index), default=None)
+            if before is not None and after is not None:
+                a, b = boundary(before), boundary(after)
+                if a is not None and b is not None and b - a == after - before:
+                    return a + index - before
+            return None
+
+        for header, start, end in broad_headers:
+            a, b = boundary(start), boundary(end)
+            if a is None or b is None or b <= a:
+                header['alignment_uncertain'] = True
+            else:
+                header['column'], header['col_span'] = a, b - a
+    positions = [(cell['row'], cell['column']) for cell in normalized]
+    if len(positions) != len(set(positions)):
+        # Conflicting geometry is not permission to overwrite a recognised cell.
+        # Retain the native grid and make the uncertainty visible to evaluation.
+        return [{'row': cell.start_row_offset_idx, 'column': cell.start_col_offset_idx,
+                 'text': ' '.join(_pdf_text(cell.text).split()),
+                 'row_span': getattr(cell, 'row_span', 1) or 1,
+                 'col_span': getattr(cell, 'col_span', 1) or 1,
+                 'header': bool(getattr(cell, 'column_header', False) or getattr(cell, 'row_header', False)),
+                 'bbox': getattr(cell, 'bbox', None), 'alignment_uncertain': True} for cell in raw]
+    return normalized
+
+
+def _pdf_table_text(item, doc, characters=None, *, cells=None):
+    """Serialize recognized cells once while retaining their column positions."""
+    cells = _pdf_table_cells(item, characters) if cells is None else cells
+    if not cells:
+        return _pdf_text(item.export_to_markdown(doc=doc)) if hasattr(item, "export_to_markdown") else ""
+    rows = {}
+    for cell in cells:
+        for row in range(cell['row'], cell['row'] + cell['row_span']):
+            rows.setdefault(row, []).append(cell)
+    lines = []
+    for _, row in sorted(rows.items()):
+        values = []
+        for cell in sorted(row, key=lambda value: value["column"]):
+            value = cell["text"]
+            column = cell["column"]
+            span = cell["col_span"]
+            if len(values) <= column:
+                values.extend([""] * (column + 1 - len(values)))
+            values[column] = value
+            if len(values) < column + span:
+                values.extend([""] * (column + span - len(values)))
+        while values and not values[-1]:
+            values.pop()
+        if any(values):
+            lines.append(" | ".join(values))
+    return "\n".join(lines)
+
+
+def _pdf_running_headers(native):
+    """Find text repeated in the top strip of three or more PDF pages."""
+    pages = native.get("pages", {})
+    matches = {}
+    native_furniture = set()
+    for node in native.get("texts", []):
+        value = node.get("text", "")
+        for part in node.get("prov") or []:
+            page_no = part.get("page_no")
+            page = pages.get(str(page_no)) or pages.get(page_no) or {}
+            height = page.get("size", {}).get("height")
+            box = part.get("bbox")
+            if not height or not box:
+                continue
+            top = box["t"] if box.get("coord_origin") == "TOPLEFT" else height - box["t"]
+            if top > height * .16:
+                continue
+            start, end = part.get("charspan", [0, len(value)])
+            fragment = " ".join(_pdf_text(value[start:end]).split())
+            if node.get('label') == 'page_header' and node.get('content_layer') == 'furniture':
+                native_furniture.add(fragment)
+            if fragment:
+                matches.setdefault(fragment, set()).add(page_no)
+    return {fragment for fragment, seen_pages in matches.items() if len(seen_pages) >= 3 and
+            (len(fragment) >= 30 or fragment in native_furniture)}
+
+
+def _picture_contact_furniture(group, pages):
+    """Recognize a URL-only publisher footer, not URLs in body prose."""
+    value = " ".join(node.get("text", "") for node in group)
+    urls = URL.findall(value)
+    residual = URL.sub("", value).strip(" \t\n,;|•")
+    if len(urls) < 2 or len(re.findall(r"[^\W\d_]+", residual)) > 4:
+        return False
+    provenances = [node.get("prov") or [] for node in group]
+    if not pages or any(len(prov) != 1 for prov in provenances):
+        return False
+    parts = [prov[0] for prov in provenances]
+    page_no = parts[0].get("page_no")
+    if page_no != max(int(page) for page in pages) or any(
+            part.get("page_no") != page_no for part in parts):
+        return False
+    page = pages.get(str(page_no)) or pages.get(page_no) or {}
+    height = page.get("size", {}).get("height")
+    boxes = [part.get("bbox") for part in parts]
+    if not height or not all(boxes):
+        return False
+    return all((min(box["t"], box["b"]) if box.get("coord_origin") != "TOPLEFT" else
+                height - max(box["t"], box["b"])) <= height * .2 for box in boxes)
+
+
+def _picture_group_roles(groups):
+    """Separate document flow from text whose context is the figure image."""
+    values = [" ".join(node.get("text", "").strip() for node in group) for group in groups]
+    # Long labels alone cannot establish document prose inside a diagram.
+    # Require sentence/list structure before letting prose govern nearby text.
+    flow_page = sum(len(re.findall(r"[^\W\d_]+", value)) >= 12 and len(value) >= 80
+                    and (value.rstrip().endswith((".", "?", "!", ";", ":")) or
+                         group[0].get("label") in {"list_item", "checkbox_selected", "checkbox_unselected"})
+                    for group, value in zip(groups, values)) >= 2
+    diagram = not flow_page
+    roles = []
+    for group, value in zip(groups, values):
+        label = group[0].get("label", "text")
+        if label == "footnote" and NOTE_MARKER.match(value):
+            roles.append("flow")
+            continue
+        if label in {"section_header", "title"} and FIGURE_HEADING.search(value):
+            roles.append("flow" if flow_page else "visual")
+            diagram = True
+            continue
+        if not diagram and (label in {"section_header", "title", "list_item",
+                                      "checkbox_selected", "checkbox_unselected"} or
+                            value.lstrip().startswith(("- ", "• ")) or
+                            len(re.findall(r"[^\W\d_]+", value)) >= 9 and len(value) >= 55):
+            roles.append("flow")
+        elif (diagram and label in {"text", "footnote"} and len(value) >= 120 and
+              value.rstrip().endswith((".", "?", "!")) and not FIGURE_HEADING.search(value)):
+            roles.append("flow")
+        else:
+            roles.append("visual")
+    return roles
+
+
+def _picture_text_quality(value, label, vocabulary=None):
+    """Classify text alone; diagram edges and nearby objects carry no implied meaning."""
+    mixed_case = sum(bool(re.search(r"[a-zà-ÿ][A-Z]", word))
+                     for word in re.findall(r"[^\W\d_]+", value, flags=re.UNICODE))
+    if mixed_case >= 2 and re.search(r"\d{5,}", value):
+        return "corrupt_ocr"
+    words = re.findall(r"[^\W\d_]+", value, flags=re.UNICODE)
+    lowered = {word.casefold() for word in words}
+    letters = sum(map(len, words))
+    if label in {'section_header', 'title'} and letters >= 6:
+        return 'canonical'
+    if len(words) < 2 or letters < 6:
+        return "graphical"
+    if (re.search(r"\d\s*%", value) and len(words) >= 2 and
+            any(len(word) >= 4 for word in words) and bool(lowered & PICTURE_CONNECTORS)):
+        return "canonical"
+    if words[-1].islower() and words[-1].casefold() in PICTURE_CONNECTORS:
+        return "potential"
+    if label in {"section_header", "title", "caption", "footnote", "list_item",
+                 "checkbox_selected", "checkbox_unselected"}:
+        return "canonical"
+    if len(words) >= 3 and len(words[0]) >= 4 and words[-1].islower() and (
+            words[-1].casefold().endswith(("é", "ée", "és", "ées"))):
+        return "canonical"
+    content_words = [word.casefold() for word in words
+                     if len(word) >= 3 and word.casefold() not in PICTURE_CONNECTORS]
+    if (vocabulary is not None and 2 <= len(content_words) and letters < 80 and
+            not value.rstrip().endswith((";", ":", ".", "?", "!")) and
+            not re.search(r"\d\s*(?:%|M€|k€|€)", value, flags=re.I) and
+            sum(vocabulary[word] < 2 for word in content_words) >= 2):
+        return "potential"
+    if (len(words) >= 5 and letters >= 30 or
+            len(words) >= 3 and bool(lowered & PICTURE_CONNECTORS) or
+            len(words) >= 2 and value.rstrip().endswith((";", ":", ".", "?", "!")) or
+            len(words) == 2 and all(len(word) >= 4 for word in words) and
+            words[1].islower() and vocabulary is not None and
+            all(vocabulary[word.casefold()] >= 2 for word in words)):
+        return "canonical"
+    return "potential" if (len(words) >= 3 and letters >= 12 or
+                           len(words) == 2 and all(len(word) >= 4 for word in words) and
+                           words[1].islower()) else "graphical"
+
+
+def _picture_text_groups(nodes, pages=None):
+    """Join only consecutive fragments on a line or an obvious wrapped line."""
+    groups = []
+    for node in nodes:
+        if not groups:
+            groups.append([node])
+            continue
+        prior = groups[-1][-1]
+        prior_prov, node_prov = prior.get("prov") or [], node.get("prov") or []
+        a, b = (prior_prov or [{}])[0], (node_prov or [{}])[0]
+        box_a, box_b = a.get("bbox"), b.get("bbox")
+        same_page = a.get("page_no") == b.get("page_no") and a.get("page_no") is not None
+        plain_text = prior.get("label", "text") == node.get("label", "text") == "text"
+        text_a, text_b = prior.get("text", "").strip(), node.get("text", "").strip()
+        safe_text = (text_a and text_b and not text_a.endswith((";", ":", ".", "?", "!"))
+                     and not text_b.startswith(("-", "•", "→"))
+                     and not re.fullmatch(r"[\d\W]+", text_b))
+        adjacent = False
+        if (same_page and plain_text and safe_text and box_a and box_b and
+                len(prior_prov) == len(node_prov) == 1):
+            if box_a.get('coord_origin', 'BOTTOMLEFT') != box_b.get('coord_origin', 'BOTTOMLEFT'):
+                page = (pages or {}).get(str(a['page_no']), {})
+                page_height = page.get('size', {}).get('height')
+                if not page_height:
+                    groups.append([node])
+                    continue
+                box_a, box_b = [{**box,
+                    't': box['t'] if box.get('coord_origin') == 'TOPLEFT' else page_height - box['t'],
+                    'b': box['b'] if box.get('coord_origin') == 'TOPLEFT' else page_height - box['b']}
+                    for box in (box_a, box_b)]
+            height = max(abs(box_a["t"] - box_a["b"]), abs(box_b["t"] - box_b["b"]), 1)
+            centre_a = (box_a["t"] + box_a["b"]) / 2
+            centre_b = (box_b["t"] + box_b["b"]) / 2
+            same_line = (abs(centre_a - centre_b) <= height * .55 and
+                         box_b["l"] >= box_a["l"] and box_b["l"] - box_a["r"] <= height * .75)
+            overlap = min(box_a["r"], box_b["r"]) - max(box_a["l"], box_b["l"])
+            wrapped = (height * .55 < abs(centre_a - centre_b) <= height * 1.6 and
+                       overlap >= .4 * min(box_a["r"] - box_a["l"],
+                                           box_b["r"] - box_b["l"]) and
+                       (text_b[0].islower() or text_a.casefold().split()[-1] in PICTURE_CONNECTORS))
+            adjacent = same_line or wrapped
+        if adjacent:
+            groups[-1].append(node)
+        else:
+            groups.append([node])
+    return groups
+
+
+def _pdf_toc_levels(native):
+    """Use the first document index's cell indentation as heading evidence."""
+    indexes = [table for table in native.get("tables", [])
+               if table.get("label") == "document_index" and table.get("data", {}).get("table_cells")]
+    if not indexes:
+        return {}
+    table = min(indexes, key=lambda item: (item.get("prov") or [{}])[0].get("page_no", 0))
+    cells = table["data"]["table_cells"]
+    left_edges = sorted({round(cell["bbox"]["l"], 0) for cell in cells
+                         if cell.get("bbox") and cell.get("start_col_offset_idx") == 0})
+    if not left_edges:
+        return {}
+    levels = {}
+    index_stack = []
+    for cell in sorted(cells, key=lambda item: (item.get("start_row_offset_idx", 0),
+                                                 item.get("start_col_offset_idx", 0))):
+        if cell.get("start_col_offset_idx") != 0 or not cell.get("bbox"):
+            continue
+        title = re.sub(r"[_\b]+.*$", "", cell.get("text", "")).strip()
+        if title:
+            indent = round(cell["bbox"]["l"], 0)
+            depth = left_edges.index(indent) + 1
+            while index_stack and index_stack[-1][0] >= depth:
+                index_stack.pop()
+            parent_title = index_stack[-1][1] if index_stack else None
+            levels[" ".join(title.casefold().split())] = (depth, parent_title)
+            index_stack.append((depth, title))
+    return levels
+
+
+def _pdf_heading_level(text, stack, toc_levels):
+    legal = PDF_LEGAL_HEADING.fullmatch(' '.join(text.split())) or re.fullmatch(
+        r'(chapter|chapitre|section|article)([IVXLCDM]+|\d+[a-z]?|premier)', re.sub(r'\s+', '', text), re.I)
+    legal = legal or re.match(r'^(chapter|chapitre|section|article)\s+([IVXLCDM]+|\d+)\s+[-–:]\s+\S', text, re.I)
+    if legal:
+        return {'chapter': 1, 'chapitre': 1, 'section': 3, 'article': 5}[legal[1].lower()], 'legal'
+    if PDF_ANNEX_HEADING.match(text):
+        return 1, "numbered"
+    if PDF_ROMAN_HEADING.match(text):
+        chapter = next((e for e in reversed(stack) if re.match(r'^(?:chapter|chapitre)\b', e[2], re.I)), None)
+        return (chapter[0] + 1 if chapter else 1), 'numbered'
+    toc_entry = toc_levels.get(" ".join(text.casefold().split()))
+    if toc_entry:
+        _, parent_title = toc_entry
+        parent = next((entry for entry in reversed(stack)
+                       if parent_title and " ".join(entry[2].casefold().split()) ==
+                       " ".join(parent_title.casefold().split())), None)
+        # Prefer a matched TOC parent, but let explicit numbering retain the
+        # active part when the TOC spells its parent differently.
+        if parent:
+            return parent[0] + 1, "toc"
+        if not PDF_DECIMAL_HEADING.match(text):
+            return 1, "toc"
+    case = next((entry for entry in reversed(stack) if entry[3] == "case"), None)
+    if PDF_CASE_HEADING.match(text):
+        if case:
+            return case[0], "case"
+        anchor = next((e for e in reversed(stack) if PDF_ANNEX_HEADING.match(e[2])), None)
+        return (anchor[0] + 1 if anchor else stack[-1][0] + 1 if stack else 1), "case"
+    match = PDF_DECIMAL_HEADING.match(text)
+    if match and (len(match.group(1).split(".")) > 1 or int(match.group(1)) < 20):
+        # Decimal numbering restarts inside parts, annexes and cases. A digit
+        # does not erase the governing scope established by those labels.
+        anchor = next((e for e in reversed(stack) if e[3] == 'case' or
+                       PDF_ROMAN_HEADING.match(e[2]) or PDF_ANNEX_HEADING.match(e[2]) or
+                       re.match(r'^(?:chapter|chapitre)\b', e[2], re.I) or
+                       re.match(r'^[A-Z]\.\s', e[2])), None)
+        return (anchor[0] if anchor else 0) + len(match[1].split('.')), 'decimal'
+    letter = re.match(r'^[A-Z]\.\s', text)
+    if letter:
+        anchor = next((e for e in reversed(stack) if PDF_ROMAN_HEADING.match(e[2]) or
+                       PDF_ANNEX_HEADING.match(e[2])), None)
+        return (anchor[0] if anchor else 0) + 1, 'letter'
+    anchor = next((entry for entry in reversed(stack) if entry[3] in {"numbered", "decimal", "letter", "toc", "legal"}), None)
+    if PDF_BOX_HEADING.match(text):
+        return (anchor[0] if anchor else 1) + 1, "box"
+    if case:
+        return case[0] + 1, "local"
+    if anchor:
+        return anchor[0] + 1, "local"
+    return 1, "local"
+
+
+def _item(kind, text, locator_key, location, *, parent_key=None, details=None):
+    return {
+        "kind": kind,
+        "text": text.strip(),
+        "locator_key": locator_key,
+        "location": location,
+        "parent_key": parent_key,
+        "details": details or {},
+    }
+
+
+def _css_path(node):
+    """Produce an unambiguous CSS path in the saved DOM."""
+    parts = []
+    while node is not None and isinstance(node.tag, str):
+        parent = node.getparent()
+        siblings = [child for child in parent] if parent is not None else [node]
+        same = [child for child in siblings if child.tag == node.tag]
+        part = node.tag
+        if len(same) > 1:
+            part += f":nth-of-type({same.index(node) + 1})"
+        parts.append(part)
+        node = parent
+    return " > ".join(reversed(parts))
+
+
+def parse_html(path, source, options):
+    from lxml import html
+
+    document = html.parse(str(path))
+    root = document.getroot()
+    selector = options.get("content_selector", "main")
+    matches = root.cssselect(selector)
+    if len(matches) != 1:
+        raise ValueError(f"HTML content selector {selector!r} matched {len(matches)} nodes; expected one")
+    content = matches[0]
+    article_id = options.get("article_id") or source["version"]
+    items = []
+    headings = []
+    heading_keys = []
+
+    def add(node, kind, text, parent_key=None, details=None):
+        text = " ".join(text.split())
+        if not text:
+            return None
+        css = _css_path(node)
+        selected = root.cssselect(css)
+        if len(selected) != 1 or selected[0] is not node:
+            raise ValueError(f"HTML element selector is not unique: {css}")
+        location = {"format": "html", "article_id": article_id, "selector": css}
+        match = NUMBERED.match(text)
+        if match:
+            location["clause"] = match.group(1).strip()
+        if node.get("id"):
+            location["anchor"] = node.get("id")
+        key = f"html:{article_id}:{css}"
+        if parent_key is None and heading_keys:
+            parent_key = heading_keys[-1]
+        items.append(_item(kind, text, key, location, parent_key=parent_key,
+                           details={"heading_path": list(headings), **(details or {})}))
+        return key
+
+    def visit(node):
+        if not isinstance(node.tag, str) or node.tag in {"script", "style", "nav", "aside", "form", "button"}:
+            return
+        tag = node.tag.lower()
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            level = int(tag[1])
+            del headings[level - 1:]
+            del heading_keys[level - 1:]
+            text = " ".join(node.itertext())
+            headings.append(" ".join(text.split()))
+            key = add(node, "heading", text, details={"level": level})
+            if key:
+                heading_keys.append(key)
+            return
+        if tag == "table":
+            rows = []
+            for row in node.xpath(".//tr"):
+                cells = row.xpath("./th|./td")
+                rows.append([" ".join(" ".join(cell.itertext()).split()) for cell in cells])
+            table_key = add(node, "table", "\n".join(" | ".join(row) for row in rows),
+                            details={"rows": len(rows)})
+            for row_index, row in enumerate(node.xpath(".//tr")):
+                for cell_index, cell in enumerate(row.xpath("./th|./td")):
+                    add(cell, "table_cell", " ".join(cell.itertext()), parent_key=table_key,
+                        details={"row": row_index, "column": cell_index,
+                                 "header": cell.tag.lower() == "th",
+                                 "header_origin": "html_th" if cell.tag.lower() == "th" else "html_td",
+                                 "row_span": int(cell.get("rowspan", "1")),
+                                 "col_span": int(cell.get("colspan", "1"))})
+            return
+        if tag == "li":
+            text = " ".join(node.xpath("./text() | ./p//text()"))
+            add(node, "list_item", text)
+            for child in node:
+                if child.tag in {"ul", "ol", "table"}:
+                    visit(child)
+            return
+        if tag in {"dt", "dd"}:
+            add(node, "list_item", " ".join(node.itertext()))
+            return
+        if tag == "p":
+            add(node, "paragraph", " ".join(node.itertext()))
+            return
+        if tag == "pre":
+            add(node, "paragraph", "".join(node.itertext()), details={"html_type": "pre"})
+            return
+        if tag == "figcaption":
+            add(node, "caption", " ".join(node.itertext()))
+            return
+        for child in node:
+            visit(child)
+
+    if content.tag.lower() == "article":
+        # Saved article pages contain controls and related links after the body.
+        for heading in content.xpath(".//h1|.//h2"):
+            if "article_title" in heading.get("class", "").split():
+                visit(heading)
+        for body in content.xpath(".//div[contains(concat(' ', normalize-space(@class), ' '), ' content ')]"):
+            if "fr-text--md" in body.get("class", "").split():
+                visit(body)
+    else:
+        visit(content)
+    if not items:
+        raise ValueError("HTML content selector produced no text blocks")
+    return items, None, []
+
+
+def parse_markdown(path, _source, options):
+    from markdown_it import MarkdownIt
+
+    text = path.read_text(encoding="utf-8-sig")
+    parser = MarkdownIt("commonmark")
+    if options.get("tables", True):
+        parser.enable("table")
+    tokens = parser.parse(text)
+    items = []
+    heading_path = []
+    heading_keys = []
+    index = 0
+    list_depth = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.type == "list_item_open":
+            list_depth += 1
+        elif token.type == "list_item_close":
+            list_depth -= 1
+        if token.type in {"heading_open", "paragraph_open", "list_item_open"}:
+            # Paragraphs inside list items are emitted by their enclosing list item.
+            if token.type == "paragraph_open" and (token.hidden or list_depth):
+                index += 1
+                continue
+            body = tokens[index + 1] if index + 1 < len(tokens) else token
+            if token.type == "list_item_open":
+                content = []
+                depth = 1
+                cursor = index + 1
+                while cursor < len(tokens) and depth:
+                    if tokens[cursor].type == "list_item_open":
+                        depth += 1
+                    elif tokens[cursor].type == "list_item_close":
+                        depth -= 1
+                    elif depth == 1 and tokens[cursor].type == "inline":
+                        content.append(tokens[cursor].content)
+                    cursor += 1
+                body_text = " ".join(content)
+                if token.map:
+                    source_line = text.splitlines()[token.map[0]]
+                    marker = re.match(r"^\s*((?:\d+[.)]|[-+*]))\s+", source_line)
+                    if marker:
+                        body_text = f"{marker.group(1)} {body_text}"
+                kind = "list_item"
+            else:
+                body_text = body.content
+                kind = "heading" if token.type == "heading_open" else "paragraph"
+            if kind == "heading":
+                level = int(token.tag[1])
+                del heading_path[level - 1:]
+                del heading_keys[level - 1:]
+                heading_path.append(body_text)
+            if token.map and body_text.strip():
+                start, end = token.map
+                key = f"markdown:line-{start + 1}:block-{len(items)}"
+                items.append(_item(kind, body_text, key,
+                                   {"format": "markdown", "heading_path": list(heading_path),
+                                    "line_start": start + 1, "line_end": end},
+                                   parent_key=heading_keys[-1] if heading_keys else None,
+                                   details={"level": int(token.tag[1])} if kind == "heading" else {}))
+                if kind == "heading":
+                    heading_keys.append(key)
+        elif token.type == "table_open" and token.map:
+            start, end = token.map
+            key = f"markdown:line-{start + 1}:table"
+            rows = []
+            cells = []
+            row = -1
+            col = 0
+            header = False
+            for child in tokens[index + 1:]:
+                if child.type == "table_close":
+                    break
+                if child.type == "thead_open":
+                    header = True
+                elif child.type == "thead_close":
+                    header = False
+                elif child.type == "tr_open":
+                    row += 1
+                    col = 0
+                    rows.append([])
+                elif child.type in {"th_open", "td_open"}:
+                    cell_text = child.content
+                    cells.append((row, col, header, cell_text))
+                    col += 1
+                elif child.type == "inline" and cells:
+                    r, c, h, _ = cells[-1]
+                    cells[-1] = (r, c, h, child.content)
+                    rows[r].append(child.content)
+            location = {"format": "markdown", "heading_path": list(heading_path),
+                        "line_start": start + 1, "line_end": end}
+            items.append(_item("table", "\n".join(" | ".join(r) for r in rows), key,
+                               location, parent_key=heading_keys[-1] if heading_keys else None,
+                               details={"rows": len(rows)}))
+            for row_index, col_index, header, cell_text in cells:
+                cell_line = min(end, start + (1 if row_index == 0 else row_index + 2))
+                cell_location = {**location, "line_start": cell_line, "line_end": cell_line}
+                items.append(_item("table_cell", cell_text,
+                                   f"{key}:r{row_index}:c{col_index}", cell_location,
+                                   parent_key=key,
+                                   details={"row": row_index, "column": col_index,
+                                            "header": header, "header_origin": "markdown_header_row",
+                                            "row_span": 1, "col_span": 1}))
+        elif token.type in {"fence", "code_block", "html_block"} and token.map and token.content.strip():
+            start, end = token.map
+            key = f"markdown:line-{start + 1}:block-{len(items)}"
+            items.append(_item("paragraph", token.content, key,
+                               {"format": "markdown", "heading_path": list(heading_path),
+                                "line_start": start + 1, "line_end": end},
+                               parent_key=heading_keys[-1] if heading_keys else None,
+                               details={"markdown_type": token.type, "language": token.info.strip()}))
+        index += 1
+    return items, None, []
+
+
+def parse_docx(path, _source, _options):
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    document = Document(str(path))
+    items = []
+    headings = []
+    heading_keys = []
+    table_index = 0
+
+    def add_table(table, block_index, parent_key):
+        nonlocal table_index
+        this_table = table_index
+        table_index += 1
+        key = f"docx:block-{block_index}:table-{this_table}"
+        location = {"format": "docx", "block_index": block_index,
+                    "table_index": this_table}
+        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        items.append(_item("table", "\n".join(" | ".join(row) for row in rows),
+                           key, location, parent_key=parent_key,
+                           details={"rows": len(rows), "heading_path": list(headings)}))
+        cell_anchors = {}
+        for row_index, row in enumerate(table.rows):
+            seen = set()
+            for col_index, cell in enumerate(row.cells):
+                cell_identity = cell._tc
+                if cell_identity in seen:
+                    continue
+                seen.add(cell_identity)
+                if cell_identity in cell_anchors:
+                    items[cell_anchors[cell_identity]]["details"]["row_span"] += 1
+                    continue
+                cell_location = {**location, "row_index": row_index, "cell_index": col_index}
+                cell_key = f"{key}:r{row_index}:c{col_index}"
+                items.append(_item("table_cell", cell.text, cell_key,
+                                   cell_location, parent_key=key,
+                                   details={"row": row_index, "column": col_index,
+                                            "header": row_index == 0,
+                                            "header_origin": "first_row_inference",
+                                            "row_span": 1, "col_span": cell.grid_span,
+                                            "paragraphs": [part.text for part in cell.iter_inner_content()
+                                                           if isinstance(part, Paragraph)]}))
+                cell_anchors[cell_identity] = len(items) - 1
+                for part in cell.iter_inner_content():
+                    if isinstance(part, Table):
+                        add_table(part, block_index, cell_key)
+
+    for block_index, block in enumerate(document.iter_inner_content()):
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if not text:
+                continue
+            style = block.style.name if block.style is not None else ""
+            match = re.match(r"Heading\s+([1-6])$", style, flags=re.I)
+            kind = "heading" if match else ("list_item" if "list" in style.lower() else "paragraph")
+            if match:
+                level = int(match.group(1))
+                del headings[level - 1:]
+                del heading_keys[level - 1:]
+                headings.append(text)
+            location = {"format": "docx", "block_index": block_index}
+            key = f"docx:block-{block_index}"
+            items.append(_item(kind, text, key, location,
+                               parent_key=heading_keys[-1] if heading_keys else None,
+                               details={"style": style, "heading_path": list(headings)}))
+            if match:
+                heading_keys.append(key)
+            continue
+        add_table(block, block_index, heading_keys[-1] if heading_keys else None)
+    return items, None, []
+
+
+def build_pdf_converter(options):
+    """Create one configured Docling converter for a sequential parse run."""
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    pipeline = PdfPipelineOptions()
+    pipeline.do_table_structure = options.get("table_structure", True)
+    pipeline.table_structure_options.mode = options.get("table_mode", "accurate")
+    if options.get("artifacts_path"):
+        pipeline.artifacts_path = Path(options["artifacts_path"])
+    ocr = options.get("ocr", {})
+    mode = ocr.get("mode", "auto")
+    pipeline.do_ocr = mode != "off"
+    if pipeline.do_ocr:
+        pipeline.ocr_options = TesseractCliOcrOptions(
+            mode="full_page" if mode == "force" else "pdf_aware_layout_regions",
+            lang=ocr.get("languages", ["fra", "eng"]),
+            scale=ocr.get("scale", 3.0),
+            psm=ocr.get("psm", 3),
+            tesseract_cmd=ocr.get("tesseract_cmd", "tesseract"),
+            path=ocr.get("tessdata_path"),
+        )
+    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline)})
+
+
+def parse_pdf(path, _source, options, converter=None, *, native_document=None):
+    """Parse one PDF, optionally reusing a converter created for this run."""
+    if native_document is None:
+        converter = converter or build_pdf_converter(options)
+        result = converter.convert(path)
+        if str(result.status).lower().split(".")[-1] != "success":
+            raise ValueError(f"Docling conversion status: {result.status}")
+        doc = result.document
+    else:
+        from docling_core.types.doc import DoclingDocument
+        doc = DoclingDocument.model_validate(native_document)
+    native = doc.export_to_dict()
+    original_native = native
+    source_adapter = None
+    if callable(getattr(type(doc), 'model_validate', None)):
+        from knowledge_foundry.knowledge_engineering.structuring.pdf_source import adapt_native
+        native, source_adapter = adapt_native(native, path, options.get('ocr', {'mode': 'auto'}))
+        if source_adapter:
+            doc = type(doc).model_validate(native)
+    items = []
+    warnings = list(source_adapter.get('uncertainties', [])) if source_adapter else []
+    uncertain_ocr_refs = {w['ref'] for w in warnings if w['code'] == 'source_ocr_verification_uncertain'}
+    repaired_ocr_refs = {repair['ref'] for repair in (source_adapter or {}).get('repairs', [])
+                         if repair['method'] == 'source_pixel_ocr'}
+    source_list_tables = {repair['ref'] for repair in (source_adapter or {}).get('repairs', [])
+                          if repair['method'] == 'source_column_list_entries'}
+    page_counts = {}
+    heading_stack = []
+    toc_levels = _pdf_toc_levels(native)
+    running_headers = _pdf_running_headers(native)
+    figures_by_page = {}
+    for picture in native.get("pictures", []):
+        for part in picture.get("prov") or []:
+            if part.get("bbox"):
+                figures_by_page.setdefault(part["page_no"], []).append(part["bbox"])
+    first_page_body = [node for node in native.get("texts", [])
+                       if node.get("parent", {}).get("$ref") == "#/body" and
+                       any(part.get("page_no") == 1 for part in node.get("prov") or [])]
+    page_text_counts = Counter(part.get("page_no") for node in native.get("texts", [])
+                               for part in node.get("prov") or [])
+
+    def large_picture(page, box):
+        size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+        width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+        return bool(width and height and (box["r"] - box["l"]) > width * .5 and
+                    abs(box["t"] - box["b"]) > height * .3)
+
+    def picture_annotation(page, location):
+        box = location.get("bbox")
+        if not box:
+            return None
+        size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+        width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+        if not width or not height:
+            return None
+        for figure_box in figures_by_page.get(page, []):
+            if ((figure_box["r"] - figure_box["l"]) <= width * .5 or
+                    abs(figure_box["t"] - figure_box["b"]) <= height * .1):
+                continue
+            bottom = (figure_box["b"] if figure_box.get("coord_origin") == "TOPLEFT"
+                      else height - figure_box["b"])
+            if 0 <= box[1] - bottom <= 70 and box[0] < figure_box["r"]:
+                return figure_box
+        return None
+
+    cover_page = len(first_page_body) <= 3 and any(
+        large_picture(1, box) for box in figures_by_page.get(1, []))
+    native_by_ref = {node["self_ref"]: node for collection in ("texts", "pictures", "tables", "groups")
+                     for node in native.get(collection, [])}
+    vocabulary = Counter(word.casefold() for node in native.get("texts", [])
+                         for word in re.findall(r"[^\W\d_]+", node.get("text", ""), flags=re.UNICODE))
+    represented_refs = set()
+    excluded_picture_refs = set()
+    character_cache = {}
+    geometry_cache = {}
+    heading_styles = {}
+
+    def page_geometry(page):
+        if page not in geometry_cache:
+            geometry_cache[page] = pdf_page_geometry(path, page)
+        return geometry_cache[page]
+
+    def page_characters(provenance):
+        if len(provenance) != 1 or not Path(path).is_file():
+            return []
+        page = provenance[0]['page_no'] if isinstance(provenance[0], dict) else provenance[0].page_no
+        if page not in character_cache:
+            character_cache[page] = pdf_page_characters(path, page, styles=True)
+        return character_cache[page]
+
+    def heading_style(ref, part, piece):
+        from knowledge_foundry.knowledge_engineering.structuring.pdf_source import inside, bounds, key
+        from difflib import SequenceMatcher
+        import statistics
+        if ref not in heading_styles:
+            page = part['page_no'] if isinstance(part, dict) else part.page_no
+            node = native_by_ref.get(ref, {})
+            parts = node.get('prov', [])
+            glyphs = (inside(page_characters([part]), bounds(parts[0], doc.pages[page].size.height))
+                      if len(parts) == 1 and parts[0].get('bbox') else [])
+            literal = ''.join(c['text'] for c in sorted(glyphs, key=lambda c: c['index']))
+            letters = [c for c in glyphs if c['text'].isalnum()]
+            heading_styles[ref] = ((round(statistics.median(c['line_size'] for c in letters) * 2) / 2,
+                                    Counter(tuple(c.get('color', [])) for c in letters).most_common(1)[0][0],
+                                    statistics.median(c.get('font_weight', 0) for c in letters) >= 600)
+                                   if letters and SequenceMatcher(None, key(literal), key(piece), autojunk=False).ratio() >= .9
+                                   else None)
+        return heading_styles[ref]
+
+    def add_block(kind, text, ref, parent_ref, provenance, stack, *, evidence_role="authoritative",
+                  checkbox_state=None, picture_child=False, minimum_heading_level=1):
+        if not text.strip() and kind != "figure":
+            return None
+        if not provenance:
+            warnings.append({"code": "unlocated_pdf_block", "ref": ref, "message": text[:120]})
+            return None
+        first_key = None
+        native_kind = kind
+        for index, part in enumerate(provenance):
+            kind = native_kind
+            page = part["page_no"] if isinstance(part, dict) else part.page_no
+            if page not in doc.pages:
+                warnings.append({"code": "invalid_pdf_page", "ref": ref, "page": page})
+                continue
+            if kind == "figure":
+                piece = text
+            elif len(provenance) == 1:
+                piece = text
+            else:
+                span = part.get("charspan") if isinstance(part, dict) else getattr(part, "charspan", None)
+                if not span or len(span) != 2 or not 0 <= span[0] <= span[1] <= len(text):
+                    warnings.append({"code": "invalid_pdf_charspan", "ref": ref, "page": page,
+                                     "provenance_index": index})
+                    continue
+                piece = text[span[0]:span[1]]
+            # Table cells were normalised before serialization. Reapplying
+            # prose dehyphenation here could join the end of one row to the
+            # start of another and erase both a hyphen and the row boundary.
+            piece = piece if kind == 'table' else _pdf_text(piece)
+            if not piece.strip() and kind != "figure":
+                if _pdf_text(text).strip():
+                    warnings.append({"code": "empty_pdf_charspan", "ref": ref, "page": page,
+                                     "provenance_index": index})
+                continue
+            page_counts[page] = page_counts.get(page, 0) + 1
+            key = f"pdf:p{page}:block-{page_counts[page]}"
+            if first_key is None:
+                first_key = key
+            numbered = NUMBERED.match(piece)
+            location = {"format": "pdf", "page": page,
+                        "label": numbered.group(1).strip() if numbered else f"block {page_counts[page]}"}
+            bbox = part.get("bbox") if isinstance(part, dict) else getattr(part, "bbox", None)
+            if bbox is not None:
+                if isinstance(bbox, dict):
+                    if bbox.get("coord_origin") == "TOPLEFT":
+                        location["bbox"] = [bbox["l"], bbox["t"], bbox["r"], bbox["b"]]
+                    else:
+                        height = doc.pages[page].size.height
+                        location["bbox"] = [bbox["l"], height - bbox["t"],
+                                            bbox["r"], height - bbox["b"]]
+                else:
+                    box = bbox.to_top_left_origin(doc.pages[page].size.height)
+                    location["bbox"] = [box.l, box.t, box.r, box.b]
+            if kind != 'table' and re.search(r'\b\d{3,}\b', piece):
+                piece = restore_numeric_identifiers(piece, location.get('bbox'), page_characters([part]))
+            local_role = evidence_role
+            annotation_figure = None
+            if (kind in {'paragraph', 'list_item', 'heading'} and
+                    ' '.join(piece.split()) in running_headers and location.get('bbox') and
+                    location['bbox'][1] <= doc.pages[page].size.height * .16):
+                kind, local_role = 'paragraph', 'structural'
+            if kind == "paragraph" and local_role == "authoritative":
+                if cover_page and page == 1 and len(piece.split()) < 15:
+                    local_role = "auxiliary"
+                # Proximity to a picture does not make a literal caption or
+                # classification non-citable. Only proven picture descendants
+                # use the separate visual-transcript quality policy.
+                if (local_role == "authoritative" and len(piece.strip()) == 1 and
+                        piece.strip().isalpha() and location.get("bbox")):
+                    box = location["bbox"]
+                    size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+                    width, height = size.get("size", {}).get("width"), size.get("size", {}).get("height")
+                    if width and height and box[0] < width * .2 and box[1] < height * .16:
+                        local_role = "structural"
+                if (local_role == "authoritative" and page_text_counts[page] <= 10 and
+                        len(re.sub(r"\W", "", piece)) <= 4 and location.get("bbox")):
+                    size = native.get("pages", {}).get(str(page)) or native.get("pages", {}).get(page) or {}
+                    height = size.get("size", {}).get("height")
+                    if height and location["bbox"][1] > height * .6:
+                        local_role = "structural"
+            if kind == "heading":
+                heading_level, role = _pdf_heading_level(piece, stack, toc_levels)
+                style = heading_style(ref, part, piece)
+                if role in {'local', 'toc'} and stack and stack[-1][3] == 'legal':
+                    heading_level, role = stack[-1][0] + 1, 'legal_title'
+                elif style and role in {'local', 'toc'}:
+                    prior = [(entry, heading_styles.get(items_by_key[entry[1]]['details']['docling_ref']))
+                             for entry in stack if entry[1] in items_by_key]
+                    # Compare the active source hierarchy, rather than caching
+                    # an absolute level across unrelated chapters and annexes.
+                    peers = [entry for entry, s in prior if s == style and
+                             entry[3] in {'local', 'styled', 'toc'}]
+                    larger = [entry for entry, s in prior if s and s[0] > style[0] + .5]
+                    smaller = [entry for entry, s in prior if s and s[0] < style[0] - .5 and
+                               entry[3] in {'local', 'styled', 'toc', 'case'}]
+                    equal = [entry for entry, s in prior if s and abs(s[0] - style[0]) <= .5 and
+                             entry[3] in {'local', 'styled', 'toc'}]
+                    if peers:
+                        heading_level = peers[-1][0]
+                    elif smaller:
+                        heading_level = min(heading_level, min(entry[0] for entry in smaller))
+                    elif larger:
+                        heading_level = larger[-1][0] + 1
+                    elif equal:
+                        heading_level = equal[-1][0] + 1
+                    role = 'styled'
+                previous = items[-1] if items else None
+                if role in {'local', 'styled'} and previous and previous['kind'] == 'heading':
+                    pbox, box = previous['location'].get('bbox'), location.get('bbox')
+                    if (pbox and box and previous['location']['page'] == page and
+                            abs(box[0] + box[2] - pbox[0] - pbox[2]) <= 12 and 0 <= box[1] - pbox[3] <= 40 and
+                            (PDF_ANNEX_HEADING.match(previous['text']) or
+                             page == 1 and (piece[:1].islower() or piece.startswith('(')))):
+                        heading_level = previous['details']['level'] + 1
+                heading_level = max(heading_level, minimum_heading_level)
+                while stack and stack[-1][0] >= heading_level:
+                    stack.pop()
+            else:
+                heading_level, role = None, None
+            parent_key = (next((item["locator_key"] for item in reversed(items)
+                                if item["details"].get("docling_ref") == parent_ref and
+                                item["location"]["page"] == page), None) or
+                          next((item["locator_key"] for item in reversed(items)
+                                if item["details"].get("docling_ref") == parent_ref), None)
+                          if picture_child else None)
+            if parent_key is None:
+                parent_key = stack[-1][1] if stack else None
+            if annotation_figure is not None:
+                figure_parent = next((item["locator_key"] for item in reversed(items)
+                                      if item["kind"] == "figure" and
+                                      item["location"]["page"] == page), None)
+                parent_key = figure_parent or parent_key
+            heading_path = [entry[2] for entry in stack] + ([piece] if kind == "heading" else [])
+            details = {"docling_ref": ref, "docling_parent_ref": parent_ref,
+                       "level": heading_level, "heading_path": heading_path,
+                       "evidence_role": local_role,
+                       "provenance": "ocr_or_pdf_text" if options.get("ocr", {}).get("mode", "auto") != "off" else "pdf_text"}
+            if checkbox_state:
+                details["checkbox_state"] = checkbox_state
+            if annotation_figure is not None:
+                details["visual_annotation"] = True
+            items.append(_item(kind, piece, key, location, parent_key=parent_key, details=details))
+            items_by_key[key] = items[-1]
+            if kind == "heading":
+                stack.append((heading_level, key, piece, role))
+        if first_key:
+            represented_refs.add(ref)
+        return first_key
+
+    def picture_descendants(picture_ref, local_stack):
+        picture = native_by_ref.get(picture_ref, {})
+        excluded = []
+        potential = []
+        potential_candidates = []
+        visual_uncertain = []
+        corrupt = []
+        furniture = []
+        text_nodes = []
+        child_heading_level = local_stack[-1][0] + 1 if local_stack else 1
+
+        def visit(ref):
+            node = native_by_ref.get(ref)
+            if node is None:
+                warnings.append({"code": "unresolved_picture_child", "ref": ref,
+                                 "picture_ref": picture_ref})
+                return
+            if ref.startswith("#/groups/"):
+                for child in node.get("children", []):
+                    visit(child["$ref"])
+                return
+            if ref.startswith("#/texts/"):
+                if node.get("content_layer") == "furniture" or ref in represented_refs:
+                    return
+                text_nodes.append(node)
+                return
+            warnings.append({"code": "unsupported_picture_child", "ref": ref,
+                             "picture_ref": picture_ref})
+
+        for child in picture.get("children", []):
+            visit(child["$ref"])
+        groups = _picture_text_groups(text_nodes, native.get('pages', {}))
+        group_roles = _picture_group_roles(groups)
+        if any(role == 'flow' and group[0].get('label') in {'section_header', 'title'}
+               for group, role in zip(groups, group_roles)) and any(
+                   large_picture(p['page_no'], p['bbox']) for p in picture.get('prov', []) if p.get('bbox')):
+            # An image containing document panels resumes the persistent part
+            # or annex, rather than nesting beneath the last unrelated panel.
+            while local_stack and local_stack[-1][3] in {'local', 'styled'}:
+                local_stack.pop()
+            child_heading_level = local_stack[-1][0] + 1 if local_stack else 1
+        for group, role in zip(groups, group_roles):
+            refs = [node["self_ref"] for node in group]
+            value = " ".join(node.get("text", "").strip() for node in group)
+            label = group[0].get("label", "text")
+            preserve_ocr = bool((uncertain_ocr_refs | repaired_ocr_refs).intersection(refs))
+            if not preserve_ocr and _picture_contact_furniture(group, native.get("pages", {})):
+                furniture.extend(refs)
+                excluded_picture_refs.update(refs)
+                continue
+            quality = _picture_text_quality(value, label, vocabulary)
+            if quality != "canonical" and not preserve_ocr:
+                target = (corrupt if quality == "corrupt_ocr" else
+                          visual_uncertain if quality == "potential" and role == "visual" else
+                          potential if quality == "potential" else excluded)
+                target.extend(refs)
+                if quality == "potential":
+                    potential_candidates.append({"refs": refs, "text": value,
+                                                 "reason": "text_not_reliably_canonical",
+                                                 "role": role})
+                excluded_picture_refs.update(refs)
+                continue
+            if len(group) == 1:
+                node = group[0]
+                provenance = node.get("prov") or []
+            else:
+                parts = [(node.get("prov") or []) for node in group]
+                pages = {part[0].get("page_no") for part in parts if len(part) == 1}
+                boxes = [part[0].get("bbox") for part in parts if len(part) == 1]
+                if len(pages) != 1 or len(boxes) != len(group) or not all(boxes):
+                    (visual_uncertain if role == "visual" else potential).extend(refs)
+                    potential_candidates.append({"refs": refs, "text": value,
+                                                 "reason": "incomplete_fragment_provenance",
+                                                 "role": role})
+                    excluded_picture_refs.update(refs)
+                    continue
+                origin = boxes[0].get("coord_origin", "BOTTOMLEFT")
+                if any(box.get("coord_origin", "BOTTOMLEFT") != origin for box in boxes):
+                    height = native['pages'][str(next(iter(pages)))]['size']['height']
+                    boxes = [{**box, 't': box['t'] if box.get('coord_origin') == 'TOPLEFT' else height - box['t'],
+                              'b': box['b'] if box.get('coord_origin') == 'TOPLEFT' else height - box['b'],
+                              'coord_origin': 'TOPLEFT'} for box in boxes]
+                    origin = 'TOPLEFT'
+                provenance = [{"page_no": next(iter(pages)), "bbox": {
+                    "l": min(box["l"] for box in boxes), "r": max(box["r"] for box in boxes),
+                    "t": max(box["t"] for box in boxes) if origin != "TOPLEFT" else min(box["t"] for box in boxes),
+                    "b": min(box["b"] for box in boxes) if origin != "TOPLEFT" else max(box["b"] for box in boxes),
+                    "coord_origin": origin}}]
+            ref = refs[0]
+            kind = ("heading" if label in {"section_header", "title"} else
+                    "list_item" if label in {"list_item", "checkbox_selected",
+                                             "checkbox_unselected"} else
+                    "caption" if label == "caption" else
+                    "footnote" if label == "footnote" else "paragraph")
+            if role == "flow" and kind == "paragraph" and value.lstrip().startswith(("- ", "• ")):
+                kind = "list_item"
+            marker = group[0].get("marker")
+            if kind == "list_item" and len(group) == 1:
+                value = group[0].get("orig") or (f"{marker} {value}" if marker else value)
+            filename_note = kind == 'footnote' and FILENAME_FOOTNOTE.fullmatch(value)
+            first_key = add_block(kind, value, ref, picture_ref, provenance, local_stack,
+                                  evidence_role=('structural' if filename_note else
+                                                 'auxiliary' if role == 'visual' else 'authoritative'),
+                                  picture_child=role == "visual",
+                                  minimum_heading_level=child_heading_level,
+                                  checkbox_state=("selected" if label == "checkbox_selected" else "unselected")
+                                  if label in {"checkbox_selected", "checkbox_unselected"} else None)
+            if first_key and filename_note:
+                next(item for item in reversed(items) if item['locator_key'] == first_key)[
+                    'details']['link_text_role'] = 'non_substantive_filename'
+            if first_key and len(group) > 1:
+                represented_refs.update(refs)
+                element = next(item for item in reversed(items) if item["locator_key"] == first_key)
+                element["details"]["docling_refs"] = refs
+                element["details"]["source_parts"] = [
+                    {"ref": node["self_ref"], "text": node.get("text", ""),
+                     "provenance": node.get("prov") or []} for node in group]
+        if excluded:
+            warnings.append({"code": "excluded_picture_ocr_fragments", "picture_ref": picture_ref,
+                             "count": len(excluded), "refs": excluded})
+        if corrupt:
+            warnings.append({"code": "excluded_picture_corrupt_ocr", "picture_ref": picture_ref,
+                             "count": len(corrupt), "refs": corrupt})
+        if furniture:
+            warnings.append({"code": "excluded_picture_furniture", "picture_ref": picture_ref,
+                             "count": len(furniture), "refs": furniture})
+        if visual_uncertain:
+            warnings.append({"code": "excluded_figure_text_uncertain", "picture_ref": picture_ref,
+                             "count": len(visual_uncertain), "refs": visual_uncertain,
+                             "candidates": [candidate for candidate in potential_candidates
+                                            if candidate["role"] == "visual"]})
+        if potential:
+            warnings.append({"code": "potential_picture_text", "picture_ref": picture_ref,
+                             "count": len(potential), "refs": potential,
+                             "candidates": [candidate for candidate in potential_candidates
+                                            if candidate["role"] == "flow"]})
+
+    items_by_key = {}
+    flow_items = order_single_column_pages(list(doc.iterate_items(with_groups=False)), doc.pages)
+
+    def heading_starts_body(item, following):
+        """Do not demote a native heading introducing aligned prose or a table."""
+        prov = getattr(item, 'prov', []) or []
+        if len(prov) != 1 or prov[0].bbox is None:
+            return False
+        page = prov[0].page_no
+        height = doc.pages[page].size.height
+        box = prov[0].bbox.to_top_left_origin(height)
+        for node, _ in following:
+            label = str(getattr(node, 'label', '')).lower()
+            if label in {'section_header', 'title', 'page_header', 'page_footer'}:
+                continue
+            parts = getattr(node, 'prov', []) or []
+            if (len(parts) != 1 or parts[0].page_no != page or parts[0].bbox is None or
+                    label not in {'text', 'list_item', 'table'}):
+                return False
+            body = parts[0].bbox.to_top_left_origin(height)
+            value = getattr(node, 'text', '')
+            body_content = (len(value.split()) >= 12 or label == 'table' and
+                            bool(getattr(getattr(node, 'data', None), 'table_cells', [])))
+            return (body_content and abs(body.l - box.l) <= 12 and
+                    0 <= body.t - box.b <= 60 and body.r - body.l >= height * .35)
+        return False
+
+    for flow_index, (item, level) in enumerate(flow_items):
+        # Some Docling children (notably captions) are yielded again in the
+        # outer traversal after their picture has already represented them.
+        if getattr(item, "self_ref", None) in represented_refs:
+            continue
+        label = str(getattr(item, "label", "")).lower()
+        if "section_header" in label or "title" in label:
+            kind = "heading"
+        elif "list_item" in label:
+            kind = "list_item"
+        elif "table" in label or label == "document_index":
+            kind = "table"
+        elif "picture" in label:
+            kind = "figure"
+        elif "caption" in label:
+            kind = "caption"
+        elif "footnote" in label:
+            kind = "footnote"
+        elif label in {"checkbox_selected", "checkbox_unselected"}:
+            kind = "list_item"
+        else:
+            kind = "paragraph"
+        prov = getattr(item, "prov", []) or []
+        characters = page_characters(prov) if kind == 'table' else []
+        table_cells, table_geometry = None, None
+        if kind == "table":
+            table_cells = _pdf_table_cells(item, characters)
+            # A ruled container can hold several source-verified list entries
+            # without painted separators. Keep their logical row boundaries.
+            if (table_cells and getattr(item, 'self_ref', None) not in source_list_tables and
+                    len(prov) == 1 and prov[0].bbox is not None and Path(path).is_file()):
+                page = prov[0].page_no
+                box = prov[0].bbox.to_top_left_origin(doc.pages[page].size.height)
+                repaired, table_geometry, uncertain = ruled_cells(
+                    table_cells, characters, page_geometry(page), [box.l, box.t, box.r, box.b],
+                    normalize_text=_pdf_text, page_fragment=native_page_fragment(native, item.self_ref))
+                if repaired is not None:
+                    table_cells = [{**cell, 'text': ' '.join(_pdf_text(cell['text']).split())}
+                                   for cell in repaired]
+                elif uncertain:
+                    warnings.append({'code': 'table_geometry_uncertain', 'ref': item.self_ref,
+                                     'page': page, 'reason': uncertain})
+            if len(prov) == 1:
+                table_cells = separate_table_note_markers(table_cells, characters, native, prov[0].page_no)
+            text = _pdf_table_text(item, doc, characters, cells=table_cells)
+        else:
+            text = getattr(item, "text", "") or ""
+        # A standalone article number followed by a centred native title
+        # supplies both textual and geometric evidence for a heading pair.
+        if (kind == 'paragraph' and PDF_LEGAL_HEADING.fullmatch(text.strip()) and
+                len(prov) == 1 and
+                prov[0].bbox is not None and flow_index + 1 < len(flow_items)):
+            following = flow_items[flow_index + 1][0]
+            parts = getattr(following, 'prov', []) or []
+            if (str(getattr(following, 'label', '')).lower() in {'section_header', 'text'} and
+                    len(parts) == 1 and parts[0].page_no == prov[0].page_no and parts[0].bbox is not None):
+                height = doc.pages[prov[0].page_no].size.height
+                a, b = prov[0].bbox.to_top_left_origin(height), parts[0].bbox.to_top_left_origin(height)
+                if abs((a.l + a.r) - (b.l + b.r)) <= 12 and 0 <= b.t - a.b <= 30:
+                    kind = 'heading'
+        if kind == 'paragraph' and heading_stack and heading_stack[-1][3] == 'legal':
+            previous = items[-1] if items else None
+            if previous and previous['kind'] == 'heading' and len(prov) == 1 and prov[0].bbox is not None:
+                box = prov[0].bbox.to_top_left_origin(doc.pages[prov[0].page_no].size.height)
+                pbox = previous['location'].get('bbox')
+                if (pbox and previous['location']['page'] == prov[0].page_no and
+                        len(text.split()) <= 12 and abs(box.l + box.r - pbox[0] - pbox[2]) <= 12 and
+                        0 <= box.t - pbox[3] <= 30):
+                    kind = 'heading'
+        marker = getattr(item, "marker", None)
+        if kind == "list_item":
+            text = getattr(item, "orig", None) or (f"{marker} {text}" if marker else text)
+        if kind == "heading" and re.match(r"^\d{2,}\.\s+.*:\s*$", text):
+            kind = "paragraph"  # A numbered quotation lead is not a section.
+        if kind == "heading" and text.rstrip().endswith("…"):
+            kind = "paragraph"  # A sentence introducing examples is not a section.
+        if kind == 'heading' and re.match(r'^\d+\s*°\s', text):
+            kind = 'list_item'  # Statutory alternatives share their list lead.
+        if (kind == 'heading' and text.rstrip().endswith(':') and
+                not PDF_DECIMAL_HEADING.match(text) and not PDF_ROMAN_HEADING.match(text) and
+                not PDF_ANNEX_HEADING.match(text)):
+            following = next((node for node, _ in flow_items[flow_index + 1:]
+                              if str(getattr(node, 'label', '')).lower() not in
+                              {'footnote', 'page_header', 'page_footer'}), None)
+            if following is not None and 'list_item' in str(getattr(following, 'label', '')).lower():
+                kind = 'paragraph'  # A local list introduction must not become a persistent section.
+        if (kind == "heading" and len(text.split()) <= 12 and
+                not heading_starts_body(item, flow_items[flow_index + 1:]) and
+                (prov := getattr(item, "prov", None))):
+            first = prov[0]
+            bbox = getattr(first, "bbox", None)
+            if bbox is not None:
+                page = first.page_no
+                box = bbox.to_top_left_origin(doc.pages[page].size.height)
+                if picture_annotation(page, {"bbox": [box.l, box.t, box.r, box.b]}):
+                    kind = "paragraph"  # A short label below a large image annotates it.
+        if kind == "paragraph" and re.match(r"^[a-z]\.\s+", text):
+            kind = "list_item"  # Alphabetic alternatives in a quoted rule.
+        prov = getattr(item, "prov", []) or []
+        ref = getattr(item, "self_ref", None)
+        parent_ref = getattr(getattr(item, "parent", None), "cref", None)
+        if kind == "table" and not text.strip():
+            cells = _pdf_table_cells(item, characters)
+            if cells:
+                rows = {}
+                for cell in cells:
+                    rows.setdefault(cell["row"], []).append(cell)
+                text = "\n".join(" | ".join(cell["text"] for cell in sorted(row,
+                    key=lambda value: value["column"])) for _, row in sorted(rows.items()))
+            if not text.strip():
+                warnings.append({"code": "empty_docling_table", "ref": ref,
+                                 "message": "table has no text or cells"})
+                continue
+        if kind == "table" and len(prov) > 1:
+            warnings.append({"code": "multi_page_table", "ref": ref,
+                             "message": "table omitted until its cells can be assigned to pages"})
+            continue
+        if kind == 'table' and any(cell['alignment_uncertain'] for cell in table_cells):
+            warnings.append({'code': 'table_cell_alignment_uncertain', 'ref': ref,
+                             'message': 'merged markers lack reliable glyph-to-column alignment; inspect the source table'})
+        filename_only_footnote = kind == "footnote" and FILENAME_FOOTNOTE.match(text)
+        key = add_block(kind, text, ref, parent_ref, prov, heading_stack,
+                        evidence_role="structural" if kind == "figure" or filename_only_footnote else "authoritative",
+                        checkbox_state=("selected" if label == "checkbox_selected" else "unselected")
+                        if label in {"checkbox_selected", "checkbox_unselected"} else None)
+        if kind == 'paragraph' and re.search(r'\b(?:Done at|Fait à)\s+.+\b\d{4}\.?\s*$', text):
+            heading_stack.clear()  # Execution/signature furniture closes provision scope.
+        if key is None:
+            continue
+        items[-1]["details"]["docling_group_depth"] = level
+        if filename_only_footnote:
+            items[-1]["details"]["link_text_role"] = "non_substantive_filename"
+        if kind == "figure":
+            picture_descendants(ref, list(heading_stack))
+        if kind == "table" and getattr(item, "data", None) is not None:
+            if table_geometry is not None:
+                items[-1]['details']['table_geometry'] = table_geometry
+            for provenance in prov:
+                page = provenance.page_no
+                location = items[-1]["location"]
+                for cell in table_cells:
+                    row = cell["row"]
+                    col = cell["column"]
+                    cell_location = dict(location)
+                    cell_bbox = cell["bbox"]
+                    if cell_bbox is not None:
+                        try:
+                            if isinstance(cell_bbox, list):
+                                cell_location['bbox'] = list(cell_bbox)
+                            else:
+                                box = cell_bbox.to_top_left_origin(doc.pages[page].size.height)
+                                cell_location["bbox"] = [box.l, box.t, box.r, box.b]
+                        except (AttributeError, TypeError, KeyError):
+                            cell_location.pop("bbox", None)
+                    items.append(_item("table_cell", cell["text"],
+                                       f"{key}:r{row}:c{col}", cell_location,
+                                       parent_key=key,
+                                       details={"row": row, "column": col,
+                                                "row_span": cell["row_span"],
+                                                "col_span": cell["col_span"],
+                                                "header": cell["header"],
+                                                **({'row_section': True} if cell.get('row_section') else {}),
+                                                **({'footnote_references': cell['footnote_references']}
+                                                   if cell.get('footnote_references') else {}),
+                                                "header_origin": ('pdf_rulings_and_glyphs' if table_geometry
+                                                                  else "docling_table_structure"),
+                                                "evidence_role": "structural"}))
+    for node in native.get("texts", []):
+        ref = node["self_ref"]
+        if (node.get("content_layer") != "furniture" and ref not in represented_refs and
+                ref not in excluded_picture_refs and _pdf_text(node.get("text", "")).strip()):
+            warnings.append({"code": "unrepresented_pdf_text", "ref": ref,
+                             "parent_ref": node.get("parent", {}).get("$ref"),
+                             "message": node.get("text", "")[:120]})
+    # A multi-page Docling node can be yielded before the previous page's
+    # footnotes. Restore page order while retaining Docling's within-page order.
+    items.sort(key=lambda item: item["location"]["page"])
+    items = repair_footnotes(items, {page: value.size.height for page, value in doc.pages.items()})
+    items = order_figure_blocks(items)
+    if Path(path).is_file():
+        mark_prose_boxes(items, page_geometry,
+                        {page: (value.size.width, value.size.height) for page, value in doc.pages.items()})
+    link_table_continuations(items, {page: value.size.height for page, value in doc.pages.items()}, warnings)
+    if items and source_adapter:
+        items[0]['details']['pdf_source_adapter'] = source_adapter
+    return items, original_native, warnings

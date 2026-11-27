@@ -2,11 +2,11 @@
 import json
 import time
 
-from knowledge_foundry.embeddings import token_count
-from knowledge_foundry.openai_tools import response_payload
+from knowledge_foundry.shared.embeddings import token_count
+from knowledge_foundry.shared.openai_tools import response_payload
 from knowledge_foundry.retrieval.answering import estimate_cost, openai_stream, request_tokens
 from knowledge_foundry.retrieval.config import ROOT
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.hashing import stable_hash
 
 PROMPT = (ROOT / 'src/knowledge_foundry/prompts/rag_query_v2.txt').read_text()
 SCHEMA = {'type': 'object', 'properties': {'query': {'type': 'string'}, 'uses_history': {'type': 'boolean'},

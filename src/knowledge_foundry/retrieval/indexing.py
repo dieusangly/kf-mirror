@@ -1,6 +1,6 @@
 """Indexing orchestration; never generates or modifies upstream artifacts."""
-from knowledge_foundry.embeddings import EmbeddingAdapter
-from knowledge_foundry.retrieval.artifacts import PROJECTION_VERSION, load_artifacts, profile, project
+from knowledge_foundry.shared.embeddings import EmbeddingAdapter
+from knowledge_foundry.retrieval.adapters.engineering import PROJECTION_VERSION, load_artifacts, profile, project
 from knowledge_foundry.retrieval.config import ROOT
 
 

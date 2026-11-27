@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from knowledge_foundry.claim_generation_and_classification import generate_claims  # noqa: E402
+from knowledge_foundry.knowledge_engineering.claims.claim_generation_and_classification import generate_claims  # noqa: E402
 
 
 def _print_progress(event):

@@ -1063,3 +1063,23 @@ def test_review_prompt_changes_preserve_built_inputs(controller, commands, monke
     if repair_from == 'claim_review':
         assert controller.state['stages']['classify']['status'] == 'complete'
         assert controller.state['stages']['summaries']['status'] == 'complete'
+
+
+@pytest.mark.parametrize('module,stage', [
+    ('knowledge_engineering/structuring/provider_contract.py', 'parse'),
+    ('knowledge_engineering/structuring/chunk_text.py', 'chunk'),
+    ('knowledge_engineering/claims/request_contract.py', 'structure'),
+    ('knowledge_engineering/claims/saved_classification.py', 'generate'),
+    ('knowledge_engineering/claims/classification_reuse.py', 'classify'),
+    ('knowledge_engineering/review/claim_review.py', 'claim_review'),
+    ('applications/kpg_viewer/render.py', 'graph'),
+    ('provenance/graph_lookup.py', 'index'),
+])
+def test_migrated_module_changes_invalidate_the_first_affected_stage(controller, module, stage):
+    path = controller.root / 'src/knowledge_foundry' / module
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('# controller fixture')
+    controller.state['identity'] = w.input_identity(controller.root, controller.config_path)
+    assert not controller.changed_stages()
+    path.write_text('# revised controller fixture')
+    assert controller.changed_stages() == {stage}

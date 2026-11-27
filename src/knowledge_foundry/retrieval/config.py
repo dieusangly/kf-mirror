@@ -2,7 +2,9 @@
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+from knowledge_foundry.shared.paths import REPOSITORY_ROOT as ROOT
+
+
 MODES = ('passage', 'claim', 'summary', 'passage-and-claim')
 
 
@@ -34,3 +36,8 @@ def load_config(path=None):
 
 def corpora(path=None):
     return json.loads((Path(path) if path else ROOT / 'config/retrieval-corpora.json').read_text())
+
+
+def profile(config):
+    return {k: config[k] for k in ('provider', 'model', 'preprocessing_version')} | {
+        'dimensions': config['dimensions'] or config['expected_dimensions']}

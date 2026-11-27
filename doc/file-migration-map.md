@@ -1,6 +1,6 @@
 # File migration map
 
-This ledger covers all 242 tracked paths at `940d65209827c1032f15d789189cb12cdd5fd5c7`. Each current path appears once in the first column. Paths are repository-relative. **=** keeps the current physical path. **= +** keeps it and assigns selected responsibilities to the named package files. A destination without **=** is the intended implementation home. During transition the original import remains available. For the frozen engine, formalizer and evaluation sources, **=** includes the original bytes. The new destinations are proposals.
+This ledger covers all 242 tracked paths at `940d65209827c1032f15d789189cb12cdd5fd5c7`. Each current path appears once in the first column. Paths are repository-relative. **=** keeps the current physical path. **= +** keeps it and assigns selected responsibilities to the named package files. A destination without **=** is the intended implementation home. For the 29 relocated top-level modules, the package initializer maps the historical import name to the implementation in the destination column. For the frozen engine, formalizer and evaluation sources, **=** includes the original bytes. The destination column now describes the Stage A2 implementation. The dependency column records A1 imports. The four frozen review modules have forwarding imports at their destination and retain their original implementations. The pinned pilot dataset validator and formalizer also retain their original implementations. The evaluation successor shares its construction logic in `workflows/assistant_evaluation/construction.py`. See the [step records](repository-migration-progress.md) for verification and file-by-file patches.
 
 The code tables give callable or command examples and direct in-repository dependencies, including function-local imports. Bare module names in the dependency column are relative to `knowledge_foundry`. A dash means no direct internal Python import was found. External libraries, file reads, indirect imports and subprocess interactions are described in the [architecture](architecture.md). The [plan](repository-migration-plan.md) defines the sequence and when compatibility facades are appropriate.
 
@@ -8,7 +8,7 @@ The code tables give callable or command examples and direct in-repository depen
 
 | Current path | Target path | Responsibility and interface | Direct dependencies |
 | --- | --- | --- | --- |
-| `src/knowledge_foundry/__init__.py` | = | Package root. `package marker` | — |
+| `src/knowledge_foundry/__init__.py` | = | Package namespace and lazy lookup for historical module names. | — |
 | `src/knowledge_foundry/assistant/__init__.py` | = | Assistant package namespace. `package marker` | — |
 | `src/knowledge_foundry/assistant/cases.py` | = | Build a fresh symbolic case from a policy and cited user assertions only. `build_case, InterpretationError` | `assistant.datasets` |
 | `src/knowledge_foundry/assistant/config.py` | = | Configuration for independently replaceable language-model roles. `load_config, local_endpoint` | — |

@@ -5,7 +5,7 @@ import re
 import unicodedata
 from uuid import uuid4
 
-from .datasets import BO_DATASET, KYC_DATASET
+from knowledge_foundry.provenance.reasoning_packages import BO_DATASET, KYC_DATASET
 
 
 class InterpretationError(ValueError):

@@ -7,9 +7,9 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from knowledge_foundry.embeddings import EmbeddingAdapter, token_count, validate_response
-from knowledge_foundry.semantic_clusters import normalized
-from knowledge_foundry.structural_chunks import stable_hash
+from knowledge_foundry.shared.embeddings import EmbeddingAdapter, token_count, validate_response
+from knowledge_foundry.shared.vectors import normalized
+from knowledge_foundry.shared.hashing import stable_hash
 from .config import ROOT, local_endpoint
 from .llm import NoRedirect
 

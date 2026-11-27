@@ -16,11 +16,11 @@ and DPI belong to providers; ingestion supplies verified originals.
 ## Adapter contract
 
 Implement `StructureProvider` from
-[src/knowledge_foundry/structure_providers.py](../src/knowledge_foundry/structure_providers.py)
+[the structuring provider contract](../src/knowledge_foundry/knowledge_engineering/structuring/provider_contract.py)
 and select `"provider": "my_package.my_adapter:Provider"`:
 
 ```python
-from knowledge_foundry.structure_providers import ProviderResult
+from knowledge_foundry.knowledge_engineering.structuring.provider_contract import ProviderResult
 
 class Provider:
     version = "my-adapter-v1"  # bump for output-affecting changes
